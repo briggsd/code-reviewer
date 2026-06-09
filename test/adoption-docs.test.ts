@@ -28,10 +28,10 @@ describe("adoption documentation", () => {
     expect(adoption).toContain("Packaged Pi runtime");
     expect(adoption).toContain("Failure observability");
     expect(adoption).toContain("GitHub inline publishing");
+    expect(adoption).toContain("GitLab live summary publishing");
 
     expect(adoption).toContain("Not yet live-tested or intentionally deferred");
     expect(adoption).toContain("GitLab inline discussions");
-    expect(adoption).toContain("GitLab live publishing");
     expect(adoption).toContain("Container image, GitHub Action wrapper, GitLab component wrapper");
     expect(adoption).toContain("Fork privileged write-back");
 

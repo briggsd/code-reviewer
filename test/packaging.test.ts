@@ -14,6 +14,7 @@ describe("package distribution metadata", () => {
     expect(manifest.bin?.["ai-code-review"]).toBe("./src/cli.ts");
     expect(manifest.scripts?.["pack:smoke"]).toBe("bun run scripts/package-smoke.ts");
     expect(manifest.scripts?.["smoke:external-package"]).toBe("bun run scripts/external-package-smoke.ts");
+    expect(manifest.scripts?.["smoke:gitlab"]).toBe("bun run scripts/gitlab-live-smoke.ts");
 
     const cli = await readFile("src/cli.ts", "utf8");
     expect(cli.startsWith("#!/usr/bin/env bun\n")).toBe(true);

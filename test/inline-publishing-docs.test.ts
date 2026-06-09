@@ -11,6 +11,8 @@ describe("inline publishing documentation", () => {
     expect(guide).toContain("stale head SHA");
     expect(guide).toContain("line is not present in the provider patch hunk");
     expect(guide).toContain("duplicate_inline_comment");
+    expect(guide).toContain("`inlineFindings`");
+    expect(guide).toContain("malformed hidden metadata");
     expect(guide).toContain("starter CI templates do **not** pass `--publish-inline`");
     expect(readme).toContain("[Inline publishing](docs/inline-publishing.md)");
   });

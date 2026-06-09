@@ -63,6 +63,7 @@ export interface PublishInlineFindingOutcome {
 export interface PublishInlineFindingsInput {
   change: ChangeMetadata;
   findings: Finding[];
+  runId?: string;
 }
 
 export interface PublishInlineFindingsResult {
