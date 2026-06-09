@@ -15,6 +15,7 @@ import type {
   AgentRuntime,
   CoordinatorRunInput,
   CoordinatorRunResult,
+  Finding,
   ReviewerRunInput,
   ReviewerRunResult,
   RuntimeEvent,
@@ -74,6 +75,49 @@ describe("fixture local runner", () => {
     expect(result.context.risk.tier).toBe("trivial");
     expect(result.summary.decision).toBe("approved");
     expect(result.summary.outcome).toBe("pass");
+  });
+
+  test("uses approval-bias decision rubric for warnings", async () => {
+    const fixture = normalizeReviewFixture({
+      ...minimalReviewFixtureInput(),
+      fakeFindings: [reviewFinding({ severity: "warning", title: "Single warning" })],
+    });
+
+    const result = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    expect(result.summary.decision).toBe("approved_with_comments");
+    expect(result.summary.outcome).toBe("pass");
+  });
+
+  test("keeps multiple warnings as minor issues", async () => {
+    const fixture = normalizeReviewFixture({
+      ...minimalReviewFixtureInput(),
+      fakeFindings: [
+        reviewFinding({ severity: "warning", title: "First warning" }),
+        reviewFinding({ severity: "warning", title: "Second warning", line: 2 }),
+      ],
+    });
+
+    const result = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    expect(result.summary.decision).toBe("minor_issues");
+    expect(result.summary.outcome).toBe("pass");
+  });
+
+  test("deduplicates repeated reviewer findings before fallback summary decisions", async () => {
+    const duplicate = reviewFinding({ severity: "warning", title: "Repeated warning" });
+    const fixture = normalizeReviewFixture({
+      ...minimalReviewFixtureInput(),
+      fakeFindings: [
+        duplicate,
+        { ...duplicate, reviewer: "code_quality" },
+      ],
+    });
+
+    const result = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    expect(result.summary.findings).toHaveLength(1);
+    expect(result.summary.decision).toBe("approved_with_comments");
   });
 
   test("loads project config from .ai-review.json", async () => {
@@ -417,6 +461,58 @@ describe("fixture local runner", () => {
     });
   });
 });
+
+function minimalReviewFixtureInput() {
+  return {
+    metadata: {
+      provider: "local" as const,
+      repository: {
+        provider: "local" as const,
+        name: "demo",
+        slug: "demo",
+      },
+      changeId: "local",
+      headSha: "abc123",
+      title: "Update code",
+      author: {
+        username: "dev",
+      },
+      labels: [],
+    },
+    diff: {
+      files: [
+        {
+          path: "src/example.ts",
+          status: "modified" as const,
+          additions: 2,
+          deletions: 1,
+          isBinary: false,
+        },
+      ],
+      totalAdditions: 2,
+      totalDeletions: 1,
+      truncated: false,
+    },
+  };
+}
+
+function reviewFinding(input: { severity: Finding["severity"]; title: string; line?: number }): Finding {
+  return {
+    reviewer: "security",
+    severity: input.severity,
+    category: "correctness",
+    title: input.title,
+    body: "The changed code has a concrete review finding.",
+    location: {
+      path: "src/example.ts",
+      line: input.line ?? 1,
+      side: "RIGHT",
+    },
+    confidence: "high",
+    evidence: ["The changed line demonstrates the issue."],
+    recommendation: "Fix the issue before relying on this path.",
+  };
+}
 
 class SlowRuntime implements AgentRuntime {
   readonly name = "slow";

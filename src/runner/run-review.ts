@@ -298,17 +298,18 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
 }
 
 export function summarizeReview(context: ReviewContext, findings: Finding[]): ReviewSummary {
-  const highestSeverity = getHighestSeverity(findings);
+  const dedupedFindings = deduplicateFindings(findings);
+  const highestSeverity = getHighestSeverity(dedupedFindings);
   const hasBlockingFinding = highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
-  const decision = chooseDecision(findings, highestSeverity);
+  const decision = chooseDecision(dedupedFindings, highestSeverity);
   const outcome = context.config.mode === "blocking" && hasBlockingFinding ? "fail" : "pass";
 
   return {
     decision,
     outcome,
-    title: createSummaryTitle(decision, findings),
-    body: createSummaryBody(context, findings),
-    findings,
+    title: createSummaryTitle(decision, dedupedFindings),
+    body: createSummaryBody(context, dedupedFindings),
+    findings: dedupedFindings,
     risk: context.risk,
   };
 }
@@ -498,6 +499,48 @@ export function selectModel(context: ReviewContext, role: string): ModelSelectio
   return context.config.modelRouting.roles[role] ?? context.config.modelRouting.default;
 }
 
+function deduplicateFindings(findings: Finding[]): Finding[] {
+  const findingsByKey = new Map<string, Finding>();
+
+  for (const finding of findings) {
+    const key = dedupeFindingKey(finding);
+    const existing = findingsByKey.get(key);
+    if (existing === undefined || compareSeverity(finding.severity, existing.severity) > 0) {
+      findingsByKey.set(key, finding);
+    }
+  }
+
+  return [...findingsByKey.values()];
+}
+
+function dedupeFindingKey(finding: Finding): string {
+  const location = finding.location;
+  return JSON.stringify({
+    category: normalizeDedupeText(finding.category),
+    title: normalizeDedupeText(finding.title),
+    body: normalizeDedupeText(finding.body),
+    path: location?.path ?? "",
+    line: location?.line ?? null,
+    startLine: location?.startLine ?? null,
+    endLine: location?.endLine ?? null,
+    side: location?.side ?? "",
+  });
+}
+
+function normalizeDedupeText(value: string): string {
+  return value.toLowerCase().replaceAll(/\s+/g, " ").trim();
+}
+
+function compareSeverity(left: Severity, right: Severity): number {
+  const order: Record<Severity, number> = {
+    critical: 3,
+    warning: 2,
+    suggestion: 1,
+  };
+
+  return order[left] - order[right];
+}
+
 export function createRuntimeToolPolicy(safetyMode: SafetyMode): RuntimeToolPolicy {
   if (safetyMode === "privileged_metadata_only") {
     return {
@@ -538,7 +581,8 @@ function chooseDecision(findings: Finding[], highestSeverity: Severity | undefin
   }
 
   if (highestSeverity === "warning") {
-    return "minor_issues";
+    const warningCount = findings.filter((finding) => finding.severity === "warning").length;
+    return warningCount > 1 ? "minor_issues" : "approved_with_comments";
   }
 
   return "approved_with_comments";

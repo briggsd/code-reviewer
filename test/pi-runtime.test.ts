@@ -341,6 +341,8 @@ describe("PiAgentRuntime", () => {
     ]);
     expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("Return ONLY valid JSON");
     expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("Return at most 5 findings");
+    expect(runner.calls.find((call) => call.role === "coordinator")?.prompt).toContain("Deduplicate by root cause");
+    expect(runner.calls.find((call) => call.role === "coordinator")?.prompt).toContain("single warning without production-safety risk -> approved_with_comments");
     expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("Trusted reviewer definition:");
     expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("source: trusted_operator");
     expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("What NOT to flag");

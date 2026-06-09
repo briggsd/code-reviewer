@@ -583,6 +583,9 @@ function buildCoordinatorPrompt(
   return [
     "You are the coordinator for an AI code review factory.",
     "Consolidate reviewer findings, remove duplicates and speculative items, and return ONLY valid JSON matching ReviewSummary.",
+    "Deduplicate by root cause and changed location; keep the clearest highest-severity finding when reviewers report the same issue.",
+    "Keep only findings with specific evidence from changed files, metadata, or prior state; discard generic advice and unsupported speculation.",
+    "Decision rubric: no findings -> approved; suggestions only -> approved_with_comments; a single warning without production-safety risk -> approved_with_comments; multiple warnings indicating a risk pattern -> minor_issues; any critical or production-safety risk -> significant_concerns.",
     "ReviewSummary fields: decision, outcome, title, body, findings, risk.",
     "Allowed decisions: approved, approved_with_comments, minor_issues, significant_concerns, review_failed.",
     "Allowed outcomes: pass, fail, neutral, skipped.",

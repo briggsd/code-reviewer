@@ -356,15 +356,15 @@ Later reviewers:
 
 The coordinator performs:
 
-- deduplication,
+- root-cause and changed-location deduplication,
 - recategorization,
 - false-positive filtering,
 - nitpick suppression,
 - severity normalization,
-- optional source verification,
+- source/evidence verification against changed files, metadata, or prior state,
 - final decision.
 
-The coordinator must prefer silence over low-confidence noise. A review with one concrete critical finding is better than a review with ten generic suggestions.
+The coordinator must prefer silence over low-confidence noise. A review with one concrete critical finding is better than a review with ten generic suggestions. Deterministic fallback summaries enforce a minimum quality floor: repeated findings are deduplicated, suggestions and a single non-production warning remain `approved_with_comments`, multiple warning patterns become `minor_issues`, and critical or production-safety risks become `significant_concerns`.
 
 ### 9. Publish review UX
 

@@ -41,10 +41,10 @@ Improve review quality by moving from generic reviewer instructions to trusted, 
   > Implemented: trusted definitions now have domain-specific flag/non-flag lists, severity calibration, output expectations, allowed severities, and per-definition `*.m009-s04` versions. `documentation` is limited to `warning` and `suggestion`; Pi runtime clamps out-of-policy reviewer severities to the maximum allowed severity and emits trace metadata for the adjustment.
   > Preserve per-definition versioning when content diverges (for example, bump only `security.*` when tuning the security reviewer definition).
 
-- [ ] **S05: Coordinator judgment and deterministic dedup floor** `risk:medium` `depends:[S04]` `issues:[#13]`
+- [x] **S05: Coordinator judgment and deterministic dedup floor** `risk:medium` `depends:[S04]` `issues:[#13]`
   > After this: coordinator prompts require dedup/reasonableness/source verification, and fallback summaries perform deterministic dedup plus an approval-bias decision rubric.
+  > Implemented: coordinator prompt now requires root-cause dedup, evidence filtering, and the approval-bias decision rubric. Deterministic summaries deduplicate repeated findings and encode single-warning → `approved_with_comments`, multiple-warning pattern → `minor_issues`, critical → `significant_concerns`.
   > **Target rubric (from the Cloudflare primary source):** only suggestions → `approved_with_comments`; **single warning with no production risk → `approved_with_comments`**; **multiple warnings suggesting a risk pattern → `minor_issues` (unapprove)**; any critical or production-safety risk → `significant_concerns` (block).
-  > **Fix the current over-block:** today `chooseDecision` in `src/runner/run-review.ts` maps *any* single warning → `minor_issues`, which unapproves where Cloudflare would approve-with-comments. Encode the single-vs-multiple-warning distinction.
 
 - [ ] **S06: Prompt quality verification sweep** `risk:medium` `depends:[S02,S04,S05]` `issues:[#10,#13,#14,#17]`
   > After this: tests lock trusted-resource docs, hostile input handling, reviewer module coverage, and coordinator fallback behavior.
