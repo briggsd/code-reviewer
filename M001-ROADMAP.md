@@ -26,10 +26,10 @@ Make the current AI Code Review Factory prototype repeatable outside this checko
 - [x] **S04: Inline publishing readiness gate** `risk:high` `depends:[S03]`
   > After this: the codebase has explicit line-coordinate and stale-diff checks that can block inline comment/discussion publishing until safe, even if implementation remains deferred.
 
-- [ ] **S05: Opt-in live runtime CI smoke** `risk:medium` `depends:[S01,S03]`
+- [x] **S05: Opt-in live runtime CI smoke** `risk:medium` `depends:[S01,S03]`
   > After this: a disabled-by-default workflow path documents and verifies how maintainers can run Pi/model smoke without exposing secrets to untrusted PR code.
 
-- [ ] **S06: Release readiness checklist** `risk:low` `depends:[S02,S03,S05]`
+- [x] **S06: Release readiness checklist** `risk:low` `depends:[S02,S03,S05]`
   > After this: maintainers have a concise checklist for versioning, packing, smoke testing, and choosing npm/container/action release channels.
 
 ## Key Risks

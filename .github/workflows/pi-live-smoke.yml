@@ -1,0 +1,65 @@
+name: Pi Live Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_live_pi:
+        description: "Set true to run a real Pi/model smoke test. False performs the no-op safety check."
+        type: boolean
+        default: false
+      pi_provider:
+        description: "Optional Pi provider override, e.g. anthropic. Leave blank to use Pi defaults."
+        required: false
+        type: string
+      pi_model:
+        description: "Optional Pi model override, e.g. claude-sonnet-4-5. Must be set with pi_provider."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  pi-live-smoke:
+    name: Pi live smoke
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Check out trusted default branch source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.0
+
+      - name: Install project dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Pi CLI
+        run: npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+      - name: Run Pi smoke script
+        env:
+          AI_REVIEW_LIVE_PI: ${{ inputs.run_live_pi && '1' || '0' }}
+          AI_REVIEW_PI_PROVIDER: ${{ inputs.pi_provider }}
+          AI_REVIEW_PI_MODEL: ${{ inputs.pi_model }}
+          AI_REVIEW_SMOKE_OUTPUT_DIR: .ai-review-smoke
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+        run: bun run smoke:pi
+
+      - name: Upload Pi smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi-live-smoke-${{ github.run_id }}
+          path: .ai-review-smoke
+          include-hidden-files: true
+          if-no-files-found: ignore

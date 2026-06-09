@@ -47,3 +47,24 @@ Artifacts are written under:
 - JSONL trace and filesystem state artifacts
 
 The smoke fixture disables documentation and performance reviewers to keep the run small while still exercising multiple reviewer subprocesses plus the coordinator.
+
+## GitHub Actions opt-in workflow
+
+This repository includes `.github/workflows/pi-live-smoke.yml` as a disabled-by-default maintainer smoke path.
+
+Safety properties:
+
+- It only uses `workflow_dispatch`; it does not run on `pull_request`.
+- The job is guarded to `refs/heads/main` so secrets are not exposed to arbitrary branch workflow edits.
+- The `run_live_pi` input defaults to `false`; the default run exercises the no-op safety path.
+- The workflow installs Pi with `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`.
+- Provider secrets are only referenced by this manual workflow job.
+
+To run a real live smoke in GitHub Actions:
+
+1. Configure the relevant provider secret, for example `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_GENERATIVE_AI_API_KEY`.
+2. Open **Actions → Pi Live Smoke → Run workflow** from `main`.
+3. Set `run_live_pi` to `true`.
+4. Optionally set both `pi_provider` and `pi_model`; leave both blank to use Pi defaults.
+
+Do not copy this workflow to `pull_request` or `pull_request_target`. If model secrets are needed, keep the workflow manual or otherwise guarded to trusted code.

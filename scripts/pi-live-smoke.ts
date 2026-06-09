@@ -19,15 +19,15 @@ if (!enabled) {
   process.exit(0);
 }
 
-const provider = process.env.AI_REVIEW_PI_PROVIDER;
-const model = process.env.AI_REVIEW_PI_MODEL;
+const provider = readOptionalEnv("AI_REVIEW_PI_PROVIDER");
+const model = readOptionalEnv("AI_REVIEW_PI_MODEL");
 if ((provider === undefined) !== (model === undefined)) {
   throw new Error("AI_REVIEW_PI_PROVIDER and AI_REVIEW_PI_MODEL must be provided together");
 }
 
 const now = new Date();
 const runId = `pi-live-${now.toISOString().replaceAll(/[:.]/g, "-")}`;
-const outputDirectory = process.env.AI_REVIEW_SMOKE_OUTPUT_DIR ?? ".ai-review-smoke";
+const outputDirectory = readOptionalEnv("AI_REVIEW_SMOKE_OUTPUT_DIR") ?? ".ai-review-smoke";
 const tracePath = join(outputDirectory, "runs", runId, "trace.jsonl");
 const traceSink = new JsonlTraceSink(tracePath);
 const stateStore = new FileSystemReviewStateStore(outputDirectory);
@@ -64,4 +64,10 @@ try {
   console.log(`Pi live smoke completed. Artifacts: ${outputDirectory}/runs/${runId}`);
 } finally {
   await traceSink.close();
+}
+
+function readOptionalEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+
+  return value === undefined || value.length === 0 ? undefined : value;
 }
