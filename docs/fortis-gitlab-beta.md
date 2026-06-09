@@ -44,7 +44,8 @@ Do not rely on `CI_JOB_TOKEN` for summary publishing unless the target GitLab in
    ```
 
 7. Rerun the same MR pipeline and confirm the bot updates one existing AI review summary note instead of creating duplicates.
-8. After dummy summary publishing is stable, consider switching only trusted jobs to `AI_REVIEW_PUBLISH_RUNTIME: pi` and adding Pi/model credentials.
+8. Run the [GitLab live smoke](gitlab-live-smoke.md) self-managed readiness profile against a Fortis-like MR and record the stable summary note ID.
+9. After dummy summary publishing is stable, consider switching only trusted jobs to `AI_REVIEW_PUBLISH_RUNTIME: pi` and adding Pi/model credentials.
 
 ## Inspect artifacts
 

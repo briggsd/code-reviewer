@@ -27,7 +27,7 @@ Prepare AI Code Review Factory for a first internal beta in Fortis self-managed 
 - [x] **S04: Beta operator onboarding guide** `risk:medium` `depends:[S03]`
   > After this: first-repo onboarding has token scopes, CI variables, artifact inspection, failure debugging, and rotation guidance.
 
-- [ ] **S05: Self-managed GitLab smoke/readiness profile** `risk:medium` `depends:[S01,S03]`
+- [x] **S05: Self-managed GitLab smoke/readiness profile** `risk:medium` `depends:[S01,S03]`
   > After this: maintainers can run a documented smoke against a Fortis-like MR and verify summary-note create/update behavior.
 
 - [ ] **S06: M007 verification sweep** `risk:medium` `depends:[S02,S04,S05]`

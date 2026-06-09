@@ -46,6 +46,31 @@ Token guidance:
 - Prefer a narrowly scoped project/group token for the smoke.
 - Never expose the token to fork MR pipelines or untrusted code execution.
 
+## Self-managed GitLab readiness profile
+
+For a Fortis-like beta smoke, create or reuse a low-risk same-project MR on the self-managed instance and run the smoke twice: first dry-run, then summary publish twice to prove idempotent updates.
+
+```bash
+export AI_REVIEW_LIVE_GITLAB=1
+export AI_REVIEW_GITLAB_API_BASE_URL="https://gitlab.example.com/api/v4"
+export AI_REVIEW_GITLAB_REPO="group/project"
+export AI_REVIEW_GITLAB_CHANGE_ID="123"
+export AI_REVIEW_GITLAB_HEAD_SHA="$(git rev-parse HEAD)" # or the MR head SHA from GitLab
+export AI_REVIEW_GITLAB_TOKEN="..."
+export AI_REVIEW_GITLAB_OUTPUT_DIR=".ai-review-gitlab-smoke"
+export AI_REVIEW_GITLAB_RUNTIME="dummy"
+```
+
+Readiness checks:
+
+1. Run `bun run smoke:gitlab` and confirm metadata/diff fetch plus `.ai-review-gitlab-smoke/` artifacts.
+2. Run `AI_REVIEW_GITLAB_PUBLISH_SUMMARY=1 bun run smoke:gitlab` and record the `summaryCommentId` from `trace.jsonl`.
+3. Rerun the same publish command against the same MR and confirm the same `summaryCommentId` is reused.
+4. Inspect the MR notes and verify exactly one AI review summary note exists after the rerun.
+5. Record the GitLab instance URL, project path, MR IID, head SHA, tarball/source commit SHA, and note ID in beta rollout notes.
+
+Keep the smoke on `dummy` runtime until token boundaries and summary-note behavior are proven. Add Pi/model credentials only in a trusted follow-up job.
+
 ## Commands
 
 Dry-run provider smoke:
@@ -73,7 +98,7 @@ A successful run prints `GitLab live smoke passed` and writes artifacts under `A
 <output>/changes/gitlab/<encoded-repo-slug>/<encoded-change-id>/latest.json
 ```
 
-For publish runs, `trace.jsonl` should include a `publisher.completed` event with `provider: "gitlab"` and a stable `summaryCommentId`. On rerun, the same bot note should be updated rather than duplicated.
+For publish runs, `trace.jsonl` should include a `publisher.completed` event with `provider: "gitlab"` and a stable `summaryCommentId`. On rerun, the same bot note should be updated rather than duplicated. For self-managed beta readiness, verify exactly one AI review summary note exists on the MR after the rerun.
 
 ## Current status
 

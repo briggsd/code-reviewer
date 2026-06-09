@@ -13,6 +13,11 @@ describe("GitLab live smoke documentation", () => {
     expect(guide).toContain("AI_REVIEW_GITLAB_REPO");
     expect(guide).toContain("AI_REVIEW_GITLAB_CHANGE_ID");
     expect(guide).toContain("AI_REVIEW_GITLAB_PUBLISH_SUMMARY=1");
+    expect(guide).toContain("Self-managed GitLab readiness profile");
+    expect(guide).toContain('AI_REVIEW_GITLAB_API_BASE_URL="https://gitlab.example.com/api/v4"');
+    expect(guide).toContain("exactly one AI review summary note exists");
+    expect(guide).toContain("summaryCommentId");
+    expect(guide).toContain("tarball/source commit SHA");
     expect(guide).toContain("Do not run this smoke with write tokens on untrusted fork MRs");
     expect(guide).toContain("GitLab inline discussions remain deferred");
     expect(guide).toContain("M005 S05 live smoke completed");

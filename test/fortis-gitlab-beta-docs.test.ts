@@ -26,6 +26,7 @@ describe("Fortis GitLab beta onboarding documentation", () => {
     expect(guide).toContain("trace.jsonl");
     expect(guide).toContain("publisher.completed");
     expect(guide).toContain("summaryCommentId");
+    expect(guide).toContain("[GitLab live smoke](gitlab-live-smoke.md)");
     expect(guide).toContain("Secret rotation");
     expect(guide).toContain("No public npm release");
     expect(guide).toContain("No GitLab inline discussions");
