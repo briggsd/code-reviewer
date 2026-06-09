@@ -175,6 +175,7 @@ describe("fixture local runner", () => {
 
   test("cancels the runtime when the overall timeout expires", async () => {
     const fixture = normalizeReviewFixture({
+      runId: "local/<script>",
       metadata: {
         provider: "local",
         repository: {
@@ -212,11 +213,11 @@ describe("fixture local runner", () => {
         },
       },
     });
-    const runtime = new SlowRuntime();
+    const runtime = new SlowRuntime({ rejectCancel: true });
 
     await expect(runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") }))
-      .rejects.toThrow("Review run timed out after overall timeout 5ms");
-    expect(runtime.cancelledRunId).toBe("local-2026-06-09T00-00-00-000Z");
+      .rejects.toThrow("Review run timed out after overall timeout 5ms for local__script_");
+    expect(runtime.cancelledRunId).toBe("local/<script>");
   });
 
   test("carries prior review state into review context", async () => {
@@ -310,6 +311,8 @@ class SlowRuntime implements AgentRuntime {
 
   cancelledRunId: string | undefined;
 
+  constructor(private readonly options: { rejectCancel?: boolean } = {}) {}
+
   async runCoordinator(_input: CoordinatorRunInput): Promise<CoordinatorRunResult> {
     await new Promise((resolve) => setTimeout(resolve, 100));
     throw new Error("Slow runtime should have been cancelled");
@@ -333,6 +336,9 @@ class SlowRuntime implements AgentRuntime {
 
   async cancel(runId: string): Promise<void> {
     this.cancelledRunId = runId;
+    if (this.options.rejectCancel === true) {
+      throw new Error("cancel failed");
+    }
   }
 }
 

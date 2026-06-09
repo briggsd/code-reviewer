@@ -72,7 +72,10 @@ bun run schema:config
 - `sensitivePaths`: glob-like path patterns that escalate risk.
 - `ignoredPaths`: glob-like path patterns filtered out before review.
 - `reviewerPolicy`: role name to `enabled`, `disabled`, or `full_only`.
-- `timeouts`: reviewer/coordinator/overall budgets in milliseconds. Reviewer agents run in parallel, then the coordinator runs; `overallMs` is an enforced wall-clock ceiling for the whole runtime phase and should be at least `reviewerMs + coordinatorMs` plus headroom. Defaults are sized for live model-backed review; lower them for tighter CI budgets or raise them for slower self-hosted/model paths.
+- `timeouts`: reviewer/coordinator/overall budgets in milliseconds.
+  - Reviewer agents run in parallel; the coordinator runs after all reviewers complete.
+  - `overallMs` is an enforced wall-clock ceiling for the whole runtime phase and should be at least `reviewerMs + coordinatorMs` plus headroom.
+  - Defaults were raised after PR #9 live Pi smoke exposed model-backed review latency. Lower them for tighter CI budgets or raise them for slower self-hosted/model paths.
 - `modelRouting.default`: fallback model for roles without an override.
 - `modelRouting.roles`: role-specific model selections.
 - `projectInstructionsPath`: reserved path for trusted project instructions.

@@ -293,7 +293,7 @@ async function withOverallTimeout<T>(
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
       timedOut = true;
-      reject(new Error(`Review run timed out after overall timeout ${timeoutMs}ms for ${runId}`));
+      reject(new Error(`Review run timed out after overall timeout ${timeoutMs}ms for ${formatRunIdForError(runId)}`));
     }, timeoutMs);
   });
 
@@ -302,7 +302,7 @@ async function withOverallTimeout<T>(
   } catch (error) {
     if (timedOut) {
       promise.catch(() => undefined);
-      await onTimeout();
+      await onTimeout().catch(() => undefined);
     }
     throw error;
   } finally {
@@ -310,6 +310,10 @@ async function withOverallTimeout<T>(
       clearTimeout(timer);
     }
   }
+}
+
+function formatRunIdForError(runId: string): string {
+  return runId.replace(/[^A-Za-z0-9:._-]/g, "_");
 }
 
 function runDeterministicFakeReviewers(fakeFindings: Finding[]): Finding[] {
