@@ -1,0 +1,146 @@
+name: AI Code Review
+
+description: Install and run the AI Code Review Factory CLI for a pull request.
+
+inputs:
+  package-source:
+    description: Immutable package source passed to `bun add --global`.
+    required: false
+    default: ai-code-review-factory@0.1.0
+  fixture:
+    description: Optional fixture path for local/action smoke mode. When set, provider/repo/change-id are ignored.
+    required: false
+    default: ""
+  provider:
+    description: VCS provider to review. Required unless fixture is set.
+    required: false
+    default: ""
+  repo:
+    description: Repository slug, such as owner/name or group/project. Required unless fixture is set.
+    required: false
+    default: ""
+  change-id:
+    description: Pull request number or merge request IID. Required unless fixture is set.
+    required: false
+    default: ""
+  head-sha:
+    description: Expected change head SHA.
+    required: false
+    default: ""
+  runtime:
+    description: Agent runtime to use.
+    required: false
+    default: dummy
+  output-dir:
+    description: Directory for AI review artifacts.
+    required: false
+    default: .ai-review
+  config:
+    description: Optional project config path.
+    required: false
+    default: ""
+  seed-fixture:
+    description: Optional fixture path for deterministic smoke findings.
+    required: false
+    default: ""
+  token-env:
+    description: Optional environment variable name containing the provider token.
+    required: false
+    default: ""
+  publish-summary:
+    description: Publish or update the summary comment/note.
+    required: false
+    default: "false"
+  publish-inline:
+    description: Publish GitHub inline comments. Experimental and opt-in.
+    required: false
+    default: "false"
+  ci-exit:
+    description: Exit non-zero when policy says the review should fail.
+    required: false
+    default: "true"
+  format:
+    description: Output format.
+    required: false
+    default: json
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: 1.3.0
+
+    - name: Install AI review CLI
+      shell: bash
+      run: bun add --global "$AI_REVIEW_PACKAGE"
+      env:
+        AI_REVIEW_PACKAGE: ${{ inputs.package-source }}
+
+    - name: Run AI review CLI
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ -n "$AI_REVIEW_FIXTURE" ]]; then
+          args=(
+            run
+            --fixture "$AI_REVIEW_FIXTURE"
+            --runtime "$AI_REVIEW_RUNTIME"
+            --output-dir "$AI_REVIEW_OUTPUT_DIR"
+            --format "$AI_REVIEW_FORMAT"
+          )
+        else
+          if [[ -z "$AI_REVIEW_PROVIDER" || -z "$AI_REVIEW_REPO" || -z "$AI_REVIEW_CHANGE_ID" ]]; then
+            echo "provider, repo, and change-id are required unless fixture is set" >&2
+            exit 1
+          fi
+          args=(
+            run
+            --provider "$AI_REVIEW_PROVIDER"
+            --repo "$AI_REVIEW_REPO"
+            --change-id "$AI_REVIEW_CHANGE_ID"
+            --runtime "$AI_REVIEW_RUNTIME"
+            --output-dir "$AI_REVIEW_OUTPUT_DIR"
+            --format "$AI_REVIEW_FORMAT"
+          )
+        fi
+
+        if [[ -n "$AI_REVIEW_HEAD_SHA" ]]; then
+          args+=(--head-sha "$AI_REVIEW_HEAD_SHA")
+        fi
+        if [[ -n "$AI_REVIEW_CONFIG" ]]; then
+          args+=(--config "$AI_REVIEW_CONFIG")
+        fi
+        if [[ -n "$AI_REVIEW_SEED_FIXTURE" ]]; then
+          args+=(--seed-fixture "$AI_REVIEW_SEED_FIXTURE")
+        fi
+        if [[ -n "$AI_REVIEW_TOKEN_ENV" ]]; then
+          args+=(--token-env "$AI_REVIEW_TOKEN_ENV")
+        fi
+        if [[ "$AI_REVIEW_PUBLISH_SUMMARY" == "true" ]]; then
+          args+=(--publish-summary)
+        fi
+        if [[ "$AI_REVIEW_PUBLISH_INLINE" == "true" ]]; then
+          args+=(--publish-inline)
+        fi
+        if [[ "$AI_REVIEW_CI_EXIT" == "true" ]]; then
+          args+=(--ci-exit)
+        fi
+
+        ai-code-review "${args[@]}"
+      env:
+        AI_REVIEW_FIXTURE: ${{ inputs.fixture }}
+        AI_REVIEW_PROVIDER: ${{ inputs.provider }}
+        AI_REVIEW_REPO: ${{ inputs.repo }}
+        AI_REVIEW_CHANGE_ID: ${{ inputs.change-id }}
+        AI_REVIEW_HEAD_SHA: ${{ inputs.head-sha }}
+        AI_REVIEW_RUNTIME: ${{ inputs.runtime }}
+        AI_REVIEW_OUTPUT_DIR: ${{ inputs.output-dir }}
+        AI_REVIEW_CONFIG: ${{ inputs.config }}
+        AI_REVIEW_SEED_FIXTURE: ${{ inputs.seed-fixture }}
+        AI_REVIEW_TOKEN_ENV: ${{ inputs.token-env }}
+        AI_REVIEW_PUBLISH_SUMMARY: ${{ inputs.publish-summary }}
+        AI_REVIEW_PUBLISH_INLINE: ${{ inputs.publish-inline }}
+        AI_REVIEW_CI_EXIT: ${{ inputs.ci-exit }}
+        AI_REVIEW_FORMAT: ${{ inputs.format }}

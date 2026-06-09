@@ -1,6 +1,8 @@
 # Packaging
 
-The prototype distribution target is a Bun-backed npm tarball. The package exposes a single CLI bin:
+The prototype distribution target is a Bun-backed npm tarball. Registry publishing is intentionally blocked for now by `private: true` and `license: "UNLICENSED"` until the final package name, access policy, and license are decided. Tarball/release-asset distribution remains the supported adoption path.
+
+The package exposes a single CLI bin:
 
 ```bash
 ai-code-review
@@ -14,6 +16,23 @@ ai-code-review run ...
 ```
 
 Until the package is published under its final name, set `AI_REVIEW_PACKAGE` to the exact package source CI should install.
+
+## Package identity and publish blockers
+
+Current package identity:
+
+- npm package name: `ai-code-review-factory`
+- version: `0.1.0`
+- bin: `ai-code-review` → `./src/cli.ts`
+- repository: `https://github.com/briggsd/ai-code-review-factory`
+- license/access stance: private and `UNLICENSED` until a release decision is made
+
+Before public registry publish, decide:
+
+1. whether the package name remains `ai-code-review-factory` or moves to a scoped/final name,
+2. whether the license changes from `UNLICENSED`,
+3. whether `private: true` should be removed,
+4. whether `publishConfig.access` should be set for scoped public packages.
 
 ## Install source strategy
 
@@ -79,7 +98,7 @@ The allowlist prevents test fixtures, workflow smoke internals, and handoff note
 
 ## Not yet done
 
-- Published npm package name/access policy.
+- Published npm package name/license/access policy.
 - Container image wrapper.
 - GitHub Action wrapper.
 - GitLab component wrapper.

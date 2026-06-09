@@ -2,7 +2,7 @@
 
 The templates in `examples/ci/` are starting points for wiring the runner into PR/MR pipelines.
 
-The examples use the packaged CLI entrypoint:
+The raw CLI examples use the packaged CLI entrypoint:
 
 ```bash
 bun add --global "$AI_REVIEW_PACKAGE"
@@ -13,11 +13,15 @@ ai-code-review run ...
 
 The templates check out repository contents only so project-local config such as `.ai-review.json` can be read. They do **not** run `bun install` or any project dependency install from the pull/merge request checkout.
 
+For adopters who prefer `uses:` syntax, `examples/ci/github-actions-ai-review-action.yml` uses the thin [GitHub Action wrapper](github-action-wrapper.md). The wrapper still installs and runs the packaged CLI.
+
 For the full adopter sequence and live-tested/deferred matrix, see the [Adoption guide](adoption.md). For public repositories and forks, use the default strategy in [Public repository fork safety](fork-safety.md): read-only dry-run artifacts/status for fork PRs, and write-back only in same-repository/same-project or explicitly approved privileged jobs.
 
 ## GitHub Actions
 
-Template: `examples/ci/github-actions-ai-review.yml`
+Raw CLI template: `examples/ci/github-actions-ai-review.yml`
+
+Action wrapper template: `examples/ci/github-actions-ai-review-action.yml`
 
 It defines two jobs:
 

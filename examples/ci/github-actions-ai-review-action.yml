@@ -1,0 +1,78 @@
+name: AI Code Review (Action wrapper)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  AI_REVIEW_PACKAGE: https://example.invalid/releases/download/v0.1.0/ai-code-review-factory-0.1.0.tgz
+  AI_REVIEW_ACTION_REF: REPLACE_WITH_FULL_COMMIT_SHA_OR_IMMUTABLE_TAG
+
+jobs:
+  dry-run:
+    name: AI review dry run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository config only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run AI review without write-back
+        uses: briggsd/ai-code-review-factory@REPLACE_WITH_FULL_COMMIT_SHA_OR_IMMUTABLE_TAG
+        env:
+          AI_REVIEW_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          package-source: ${{ env.AI_REVIEW_PACKAGE }}
+          provider: github
+          repo: ${{ github.repository }}
+          change-id: ${{ github.event.pull_request.number }}
+          head-sha: ${{ github.event.pull_request.head.sha }}
+          runtime: dummy
+          output-dir: .ai-review
+          ci-exit: "true"
+
+      - name: Upload review artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-review-${{ github.event.pull_request.number }}
+          path: .ai-review
+          include-hidden-files: true
+
+  trusted-publish:
+    name: AI review publish summary
+    runs-on: ubuntu-latest
+    needs: dry-run
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out repository config only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Publish AI review summary for same-repo PR
+        uses: briggsd/ai-code-review-factory@REPLACE_WITH_FULL_COMMIT_SHA_OR_IMMUTABLE_TAG
+        env:
+          AI_REVIEW_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          package-source: ${{ env.AI_REVIEW_PACKAGE }}
+          provider: github
+          repo: ${{ github.repository }}
+          change-id: ${{ github.event.pull_request.number }}
+          head-sha: ${{ github.event.pull_request.head.sha }}
+          runtime: dummy
+          output-dir: .ai-review
+          publish-summary: "true"
+          ci-exit: "true"
