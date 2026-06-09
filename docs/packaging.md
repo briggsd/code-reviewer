@@ -1,6 +1,6 @@
 # Packaging
 
-The prototype distribution target is a Bun-backed npm tarball. Registry publishing is intentionally blocked for now by `private: true` and `license: "UNLICENSED"` until the final package name, access policy, and license are decided. Tarball/release-asset distribution remains the supported adoption path.
+The prototype distribution target is a Bun-backed npm tarball. Registry publishing is intentionally blocked for now by `private: true` and `license: "UNLICENSED"` until the final package name, access policy, and license are decided. For the Fortis/self-managed GitLab beta, tarball/release-asset distribution is the supported adoption path; public npm is not part of the beta channel.
 
 The package exposes a single CLI bin:
 
@@ -15,7 +15,13 @@ bun add --global "$AI_REVIEW_PACKAGE"
 ai-code-review run ...
 ```
 
-Until the package is published under its final name, set `AI_REVIEW_PACKAGE` to the exact package source CI should install.
+Until the package is published under its final name, set `AI_REVIEW_PACKAGE` to the exact immutable tarball source CI should install. For an internal GitLab beta, use a versioned self-managed GitLab release asset or generic package file URL, not `latest`, `main`, or an unpinned branch.
+
+Example internal beta source:
+
+```yaml
+AI_REVIEW_PACKAGE: https://gitlab.example.com/fortis/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz
+```
 
 ## Package identity and publish blockers
 
@@ -38,9 +44,10 @@ Before public registry publish, decide:
 
 Current supported adoption source:
 
-1. **Preferred before public registry publish:** an immutable npm tarball URL, for example a GitHub Release asset produced from `npm pack`.
-2. **Preferred after registry publish:** an exact package version such as `ai-code-review-factory@0.1.0` or a scoped final package name.
-3. **Internal smoke only:** a Git source pinned to a full Git commit SHA. Do not pin adopter CI to mutable branches or floating tags.
+1. **Preferred for the Fortis/self-managed GitLab beta:** an immutable internal npm tarball URL, such as a versioned self-managed GitLab release asset or generic package file produced from `npm pack`.
+2. **Preferred before public registry publish in other environments:** an immutable npm tarball URL, for example a release asset produced from `npm pack`.
+3. **Preferred after registry publish:** an exact package version such as `ai-code-review-factory@0.1.0` or a scoped final package name.
+4. **Internal smoke only:** a Git source pinned to a full Git commit SHA. Do not pin adopter CI to mutable branches or floating tags.
 
 Do not use mutable install sources such as `main`, `latest`, or an unpinned Git branch for adopter CI. The package source should be reproducible from the CI logs, and the installed CLI should be treated as the reviewed repository's review toolchain, not as source checked out from the PR/MR under review.
 

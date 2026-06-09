@@ -17,7 +17,7 @@ GitLab inline discussions remain deferred; this smoke does not attempt inline di
 
 ## Prerequisites
 
-Use a same-project merge request that is safe for trusted write-back testing. Do not run this smoke with write tokens on untrusted fork MRs.
+Use a same-project merge request that is safe for trusted write-back testing. Do not run this smoke with write tokens on untrusted fork MRs. For self-managed GitLab, set `AI_REVIEW_GITLAB_API_BASE_URL` to the instance API v4 URL, such as `https://gitlab.example.com/api/v4`; in GitLab CI the equivalent built-in variable is `$CI_API_V4_URL`.
 
 Required environment:
 
