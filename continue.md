@@ -2,7 +2,7 @@
 
 ## Last action
 
-Continued S11: hardened runtime integration and config model before real CI usage.
+Continued S11/M001: hardened runtime integration, config model, and packageability before broader CI distribution.
 
 Docs read before implementation:
 
@@ -55,6 +55,12 @@ Added:
   - `examples/ci/gitlab-ai-review.yml` provides MR dry-run and guarded same-project publish jobs.
   - `docs/ci-templates.md` documents how to adapt the templates and the safety stance.
   - `test/ci-templates.test.ts` checks the templates preserve read/write separation and provider command wiring.
+- M001 packageability roadmap and first package slice
+  - `M001-ROADMAP.md` captures the packageable MVP hardening slices.
+  - `package.json` now has an explicit `files` allowlist and `pack:smoke` script.
+  - `scripts/package-smoke.ts` validates npm tarball contents, excludes repo-local internals, extracts the tarball, and runs the packaged CLI `schemas` command.
+  - `docs/packaging.md` documents the Bun-backed npm tarball stance.
+  - `test/packaging.test.ts` locks package metadata and allowlist expectations.
 - Real GitHub workflow smoke test
   - Pushed repo to `https://github.com/briggsd/ai-code-review-factory`.
   - Added `.github/workflows/ai-review.yml` and opened PR #1 from `smoke/github-actions-ai-review`.
@@ -126,11 +132,10 @@ Continue S11 hardening.
 
 Concrete next steps:
 
-1. Consider a formal `M001-ROADMAP.md` before expanding beyond S11 hardening.
-2. Consider packaging/distribution target: npm package, container image, GitHub Action, GitLab component, or staged combination.
-3. Consider inline comment/discussion publishing only after summary publishing proves safe.
-4. Consider replacing prototype `bun run src/cli.ts` template commands once package/container/action distribution is chosen.
-5. Consider an opt-in Pi/model GitHub Actions smoke test after secrets/runtime setup is decided.
+1. Continue M001 S02: update distribution-facing CI commands so templates use the package/CLI entrypoint shape instead of prototype-local `bun run src/cli.ts` commands.
+2. Then continue M001 S03: document the default public-repo fork strategy and secret/write-token boundaries.
+3. Consider inline comment/discussion publishing only after summary publishing proves safe and S04 readiness gates exist.
+4. Consider an opt-in Pi/model GitHub Actions smoke test after secrets/runtime setup is decided.
 
 ## Why
 

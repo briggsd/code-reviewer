@@ -10,6 +10,7 @@ This repository starts as an architecture/design workspace. The implementation t
 - [Runtime comparison](docs/runtime-comparison.md) — OpenCode vs Pi as the review factory agent runtime.
 - [Configuration](docs/configuration.md) — `.ai-review.json` fields, merging behavior, and schema command.
 - [CI templates](docs/ci-templates.md) — GitHub Actions and GitLab CI starter templates.
+- [Packaging](docs/packaging.md) — package artifact contents and smoke test.
 - [Workflow smoke test](docs/workflow-smoke-test.md) — notes for the first same-repo GitHub Actions smoke PR.
 - [Pi live smoke test](docs/pi-live-smoke.md) — opt-in end-to-end Pi/model smoke instructions.
 - [Research findings](research/ci-vcs-runtime-findings.md) — CI/VCS/runtime questions researched before drafting the architecture.
@@ -20,6 +21,7 @@ The implementation is a Bun-friendly TypeScript CLI/package. Bun can run TypeScr
 
 ```bash
 bun run check
+bun run pack:smoke # validates npm tarball contents and packaged CLI execution
 bun run smoke:pi # exits 0 unless AI_REVIEW_LIVE_PI=1 is set
 bun run src/cli.ts schemas # includes structured output schemas and .ai-review.json config schema
 bun run schema:config # regenerate .ai-review.schema.json
@@ -89,6 +91,7 @@ Example `.ai-review.json`:
 - GitHub VCS adapter MVP for PR metadata and changed-file diff fetching.
 - GitLab VCS adapter MVP for MR metadata and changed-file diff fetching.
 - CI decision policy and markdown summary formatter.
+- Package artifact allowlist and smoke test for the Bun-backed CLI tarball.
 
 ## Design stance
 
