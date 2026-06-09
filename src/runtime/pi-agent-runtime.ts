@@ -484,14 +484,25 @@ function parseJsonCandidate(candidate: string): unknown {
   try {
     return JSON.parse(candidate) as unknown;
   } catch (error) {
-    const repaired = repairEscapedMarkdownBackticks(candidate);
-    if (repaired !== candidate) {
+    const backtickRepaired = repairEscapedMarkdownBackticks(candidate);
+    if (backtickRepaired !== candidate) {
       try {
-        return JSON.parse(repaired) as unknown;
+        return JSON.parse(backtickRepaired) as unknown;
+      } catch {
+        // Keep trying narrowly-scoped repairs below, but preserve the original error
+        // if none of the repair attempts produce valid JSON.
+      }
+    }
+
+    const quoteRepaired = repairUnescapedStringQuotes(backtickRepaired);
+    if (quoteRepaired !== backtickRepaired) {
+      try {
+        return JSON.parse(quoteRepaired) as unknown;
       } catch {
         throw error;
       }
     }
+
     throw error;
   }
 }
@@ -517,26 +528,79 @@ function repairEscapedMarkdownBackticks(candidate: string): string {
   // do not strip arbitrary backslashes because recommendations can legitimately contain
   // regexes, shell snippets, or paths where a backslash is meaningful. Only remove the
   // final backslash from an odd-length run immediately before a backtick.
-  let repaired = "";
+  const repaired: string[] = [];
+  let trailingBackslashes = 0;
 
   for (const character of candidate) {
-    if (character === "`" && countTrailingBackslashes(repaired) % 2 === 1) {
-      repaired = repaired.slice(0, -1);
+    if (character === "`" && trailingBackslashes % 2 === 1) {
+      repaired.pop();
     }
-    repaired += character;
+
+    repaired.push(character);
+    trailingBackslashes = character === "\\" ? trailingBackslashes + 1 : 0;
   }
 
-  return repaired;
+  return repaired.join("");
 }
 
-function countTrailingBackslashes(value: string): number {
-  let count = 0;
+function repairUnescapedStringQuotes(candidate: string): string {
+  // Live model output can occasionally include prose quotes inside a JSON string without
+  // escaping them. Treat a quote inside a string as a closing delimiter only when the next
+  // non-whitespace character is valid JSON structure for the end of a string token.
+  const repaired: string[] = [];
+  let inString = false;
+  let escaped = false;
 
-  for (let index = value.length - 1; index >= 0 && value[index] === "\\"; index -= 1) {
-    count += 1;
+  for (let index = 0; index < candidate.length; index += 1) {
+    const character = candidate[index] ?? "";
+
+    if (!inString) {
+      if (character === "\"") {
+        inString = true;
+      }
+      repaired.push(character);
+      continue;
+    }
+
+    if (escaped) {
+      repaired.push(character);
+      escaped = false;
+      continue;
+    }
+
+    if (character === "\\") {
+      repaired.push(character);
+      escaped = true;
+      continue;
+    }
+
+    if (character === "\"") {
+      if (isLikelyJsonStringTerminator(candidate, index)) {
+        inString = false;
+        repaired.push(character);
+      } else {
+        repaired.push("\\\"");
+      }
+      continue;
+    }
+
+    repaired.push(character);
   }
 
-  return count;
+  return repaired.join("");
+}
+
+function isLikelyJsonStringTerminator(candidate: string, quoteIndex: number): boolean {
+  for (let index = quoteIndex + 1; index < candidate.length; index += 1) {
+    const character = candidate[index] ?? "";
+    if (/\s/.test(character)) {
+      continue;
+    }
+
+    return character === ":" || character === "," || character === "}" || character === "]";
+  }
+
+  return true;
 }
 
 function getRecord(value: unknown): Record<string, unknown> {
