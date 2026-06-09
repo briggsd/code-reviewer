@@ -16,7 +16,7 @@ AI_REVIEW_LIVE_PI=1 bun run smoke:pi
 # Or force a provider/model for this smoke run.
 AI_REVIEW_LIVE_PI=1 \
 AI_REVIEW_PI_PROVIDER=anthropic \
-AI_REVIEW_PI_MODEL=claude-sonnet-4-5 \
+AI_REVIEW_PI_MODEL=claude-sonnet-4-6 \
 bun run smoke:pi
 ```
 

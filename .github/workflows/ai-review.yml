@@ -125,7 +125,7 @@ jobs:
             --head-sha "${{ github.event.pull_request.head.sha }}" \
             --runtime pi \
             --pi-provider "${AI_REVIEW_PI_PROVIDER:-anthropic}" \
-            --pi-model "${AI_REVIEW_PI_MODEL:-claude-sonnet-4-5}" \
+            --pi-model "${AI_REVIEW_PI_MODEL:-claude-sonnet-4-6}" \
             --publish-summary \
             --output-dir .ai-review \
             --ci-exit

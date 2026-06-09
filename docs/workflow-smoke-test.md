@@ -22,7 +22,7 @@ AI_REVIEW_REAL_REVIEW_ENABLED=true
 Required setup:
 
 1. Add at least one model provider secret, for example `ANTHROPIC_API_KEY`.
-2. Optionally add repository variables `AI_REVIEW_PI_PROVIDER` and `AI_REVIEW_PI_MODEL`; if omitted, the workflow uses `anthropic` and `claude-sonnet-4-5`.
+2. Optionally add repository variables `AI_REVIEW_PI_PROVIDER` and `AI_REVIEW_PI_MODEL`; if omitted, the workflow uses `anthropic` and `claude-sonnet-4-6`.
 3. Keep the job guarded to same-repository PRs:
    `github.event.pull_request.head.repo.full_name == github.repository`.
 

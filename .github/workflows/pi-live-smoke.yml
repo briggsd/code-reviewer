@@ -12,7 +12,7 @@ on:
         required: false
         type: string
       pi_model:
-        description: "Optional Pi model override, e.g. claude-sonnet-4-5. Must be set with pi_provider."
+        description: "Optional Pi model override, e.g. claude-sonnet-4-6. Must be set with pi_provider."
         required: false
         type: string
 
