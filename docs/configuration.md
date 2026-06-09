@@ -39,9 +39,9 @@ bun run schema:config
     "performance": "full_only"
   },
   "timeouts": {
-    "reviewerMs": 240000,
+    "reviewerMs": 360000,
     "coordinatorMs": 240000,
-    "overallMs": 540000
+    "overallMs": 660000
   },
   "modelRouting": {
     "default": {

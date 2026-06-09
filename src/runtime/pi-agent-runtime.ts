@@ -339,6 +339,7 @@ function buildReviewerPrompt(input: ReviewerRunInput): string {
     "Do not wrap the JSON in prose unless impossible.",
     "Finding fields: reviewer, severity, category, title, body, location, confidence, evidence, recommendation.",
     "Allowed severity values: critical, warning, suggestion. Allowed confidence values: high, medium, low.",
+    "Return at most 5 findings; choose the highest-impact, highest-confidence issues.",
     "Omit low-confidence nitpicks.",
     "",
     "Review context:",

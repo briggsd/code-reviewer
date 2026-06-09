@@ -249,6 +249,7 @@ describe("PiAgentRuntime", () => {
       "coordinator",
     ]);
     expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("Return ONLY valid JSON");
+    expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("Return at most 5 findings");
   });
 
   test("forwards Pi JSON events into the existing trace stream", async () => {
