@@ -94,6 +94,10 @@ describe("GitHubVcsAdapter", () => {
         const url = String(input);
         calls.push({ url, ...(init !== undefined ? { init } : {}) });
 
+        if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100") {
+          return jsonResponse([]);
+        }
+
         if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments") {
           return jsonResponse({
             id: 987,
@@ -118,11 +122,12 @@ describe("GitHubVcsAdapter", () => {
       },
     });
 
-    const requestBody = JSON.parse(String(calls[0]?.init?.body)) as { body: string };
-    expect(calls[0]?.url).toBe("https://api.github.com/repos/example/payments-api/issues/17/comments");
-    expect(calls[0]?.init?.method).toBe("POST");
-    expect((calls[0]?.init?.headers as Record<string, string>).Authorization).toBe("Bearer write-token");
-    expect((calls[0]?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    const requestBody = JSON.parse(String(calls[1]?.init?.body)) as { body: string };
+    expect(calls[0]?.url).toBe("https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100");
+    expect(calls[1]?.url).toBe("https://api.github.com/repos/example/payments-api/issues/17/comments");
+    expect(calls[1]?.init?.method).toBe("POST");
+    expect((calls[1]?.init?.headers as Record<string, string>).Authorization).toBe("Bearer write-token");
+    expect((calls[1]?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
     expect(requestBody.body).toContain("Account lookup misses authorization");
     expect(requestBody.body).toContain("<!-- ai-code-review-factory");
     expect(requestBody.body).toContain("fixture-auth-pr");
@@ -133,6 +138,48 @@ describe("GitHubVcsAdapter", () => {
       postedInlineCount: 0,
       failedInlineCount: 0,
     });
+  });
+
+  test("updates an existing summary comment instead of posting a duplicate", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100") {
+          return jsonResponse([
+            { id: 111, body: "unrelated comment" },
+            { id: 222, body: "<!-- ai-code-review-factory\n{}\n-->" },
+          ]);
+        }
+
+        if (url === "https://api.github.com/repos/example/payments-api/issues/comments/222") {
+          return jsonResponse({
+            id: 222,
+            html_url: "https://github.com/example/payments-api/pull/17#issuecomment-222",
+          });
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const review = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    const result = await adapter.publishSummary({
+      change: fixture.metadata,
+      summary: review.summary,
+    });
+
+    const requestBody = JSON.parse(String(calls[1]?.init?.body)) as { body: string };
+    expect(calls[1]?.url).toBe("https://api.github.com/repos/example/payments-api/issues/comments/222");
+    expect(calls[1]?.init?.method).toBe("PATCH");
+    expect(requestBody.body).toContain("<!-- ai-code-review-factory");
+    expect(result.summaryCommentId).toBe("222");
   });
 
   test("throws a clear error on GitHub API failures", async () => {

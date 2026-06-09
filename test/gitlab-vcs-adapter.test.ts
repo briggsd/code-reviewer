@@ -111,6 +111,10 @@ describe("GitLabVcsAdapter", () => {
         const url = String(input);
         calls.push({ url, ...(init !== undefined ? { init } : {}) });
 
+        if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" && init?.method === undefined) {
+          return jsonResponse([]);
+        }
+
         if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes") {
           return jsonResponse({
             id: 654,
@@ -140,11 +144,12 @@ describe("GitLabVcsAdapter", () => {
       },
     });
 
-    const requestBody = JSON.parse(String(calls[0]?.init?.body)) as { body: string };
+    const requestBody = JSON.parse(String(calls[1]?.init?.body)) as { body: string };
     expect(calls[0]?.url).toBe("https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes");
-    expect(calls[0]?.init?.method).toBe("POST");
-    expect((calls[0]?.init?.headers as Record<string, string>)["PRIVATE-TOKEN"]).toBe("write-token");
-    expect((calls[0]?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    expect(calls[1]?.url).toBe("https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes");
+    expect(calls[1]?.init?.method).toBe("POST");
+    expect((calls[1]?.init?.headers as Record<string, string>)["PRIVATE-TOKEN"]).toBe("write-token");
+    expect((calls[1]?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
     expect(requestBody.body).toContain("Account lookup misses authorization");
     expect(requestBody.body).toContain("<!-- ai-code-review-factory");
     expect(requestBody.body).toContain("fixture-auth-pr");
@@ -155,6 +160,53 @@ describe("GitLabVcsAdapter", () => {
       postedInlineCount: 0,
       failedInlineCount: 0,
     });
+  });
+
+  test("updates an existing summary note instead of posting a duplicate", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" && init?.method === undefined) {
+          return jsonResponse([
+            { id: 111, body: "unrelated note" },
+            { id: 222, body: "<!-- ai-code-review-factory\n{}\n-->" },
+          ]);
+        }
+
+        if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes/222") {
+          return jsonResponse({
+            id: 222,
+            web_url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_222",
+          });
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const review = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    const result = await adapter.publishSummary({
+      change: {
+        ...fixture.metadata,
+        provider: "gitlab",
+        repository: changeRef.repository,
+        changeId: "7",
+      },
+      summary: review.summary,
+    });
+
+    const requestBody = JSON.parse(String(calls[1]?.init?.body)) as { body: string };
+    expect(calls[1]?.url).toBe("https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes/222");
+    expect(calls[1]?.init?.method).toBe("PUT");
+    expect(requestBody.body).toContain("<!-- ai-code-review-factory");
+    expect(result.summaryCommentId).toBe("222");
   });
 
   test("throws a clear error on GitLab API failures", async () => {

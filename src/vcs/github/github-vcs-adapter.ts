@@ -68,6 +68,7 @@ interface GitHubPullFileResponse {
 
 interface GitHubIssueCommentResponse {
   id: number;
+  body?: string;
   html_url?: string;
 }
 
@@ -148,15 +149,20 @@ export class GitHubVcsAdapter implements VcsAdapter {
   }
 
   async publishSummary(input: PublishSummaryInput): Promise<PublishSummaryResult> {
-    const response = await this.request<GitHubIssueCommentResponse>(this.issueCommentsPath(input.change), {
-      method: "POST",
-      body: {
-        body: formatReviewSummaryMarkdown(input.summary, {
-          includeHiddenMetadata: true,
-          ...(input.hiddenMetadata !== undefined ? { hiddenMetadata: input.hiddenMetadata } : {}),
-        }),
-      },
+    const body = formatReviewSummaryMarkdown(input.summary, {
+      includeHiddenMetadata: true,
+      ...(input.hiddenMetadata !== undefined ? { hiddenMetadata: input.hiddenMetadata } : {}),
     });
+    const existing = await this.findExistingSummaryComment(input.change);
+    const response = existing === undefined
+      ? await this.request<GitHubIssueCommentResponse>(this.issueCommentsPath(input.change), {
+        method: "POST",
+        body: { body },
+      })
+      : await this.request<GitHubIssueCommentResponse>(this.issueCommentPath(input.change, existing.id), {
+        method: "PATCH",
+        body: { body },
+      });
 
     return {
       provider: "github",
@@ -183,6 +189,19 @@ export class GitHubVcsAdapter implements VcsAdapter {
     const repo = repoNameFromSlug(change.repository.slug, change.repository.name);
 
     return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${encodeURIComponent(change.changeId)}/comments`;
+  }
+
+  private issueCommentPath(change: ChangeMetadata, commentId: number): string {
+    const owner = change.repository.owner ?? ownerFromSlug(change.repository.slug);
+    const repo = repoNameFromSlug(change.repository.slug, change.repository.name);
+
+    return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/comments/${encodeURIComponent(String(commentId))}`;
+  }
+
+  private async findExistingSummaryComment(change: ChangeMetadata): Promise<GitHubIssueCommentResponse | undefined> {
+    const comments = await this.requestAllPages<GitHubIssueCommentResponse>(this.issueCommentsPath(change));
+
+    return comments.findLast((comment) => comment.body?.includes("<!-- ai-code-review-factory") === true);
   }
 
   private async request<T>(pathOrUrl: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
