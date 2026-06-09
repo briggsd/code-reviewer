@@ -59,6 +59,32 @@ When `ReviewContext.priorState` is present, the runner attaches `summary.reRevie
 
 Summary markdown renders a **Re-review status** section with the new/recurring/fixed counts. Fixed findings are reported in the summary only; provider threads are not resolved yet.
 
+## Fixture
+
+`examples/fixtures/re-review-pr.json` demonstrates the intended state shape:
+
+- one recurring auth finding with the same stable ID in `priorState.findings` and `fakeFindings`,
+- one fixed prior finding present only in `priorState.findings`,
+- a second-run head SHA so tests can distinguish prior and current review state.
+
+Run it locally with:
+
+```bash
+bun run src/cli.ts run --fixture examples/fixtures/re-review-pr.json --format markdown
+```
+
+The output should include a **Re-review status** section with one recurring finding and one fixed prior finding.
+
+## Future inline/discussion consumption
+
+Future inline publishers and discussion resolvers must preserve these invariants:
+
+- Only resolve provider threads for IDs in `fixedFindingIds` after a fresh provider diff/head check.
+- Never resolve a thread using summary text alone; use stable ID state plus provider thread/comment mapping.
+- Treat placeholder prior findings from summary metadata as enough for classification, but not enough for destructive provider actions.
+- Keep summary publishing as the fallback when inline coordinates or discussion IDs are missing.
+- Run `evaluateInlinePublishReadiness()` before posting any new inline comments.
+
 ## Future re-review flow
 
 1. Load prior bot summary metadata from the provider.

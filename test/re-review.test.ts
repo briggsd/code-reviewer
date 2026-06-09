@@ -120,6 +120,16 @@ describe("re-review finding classification", () => {
     expect(secondRun.summary.reReview?.fixedFindingIds).toEqual(["fnd_fixed_prior"]);
   });
 
+  test("re-review fixture demonstrates recurring and fixed prior findings", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/re-review-pr.json");
+    const result = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    expect(result.context.priorState?.previousRunId).toBe("fixture-auth-pr");
+    expect(result.summary.reReview?.newFindingIds).toEqual([]);
+    expect(result.summary.reReview?.recurringFindingIds).toEqual(["fnd_fixture_recurring_auth"]);
+    expect(result.summary.reReview?.fixedFindingIds).toEqual(["fnd_fixture_fixed_null_check"]);
+  });
+
   test("summary markdown renders re-review counts and fixed IDs", () => {
     const markdown = formatReviewSummaryMarkdown({
       ...createSummary([recurringFinding]),

@@ -1,0 +1,129 @@
+{
+  "runId": "fixture-re-review-pr",
+  "safetyMode": "trusted",
+  "metadata": {
+    "provider": "github",
+    "repository": {
+      "provider": "github",
+      "owner": "example",
+      "name": "payments-api",
+      "slug": "example/payments-api",
+      "defaultBranch": "main"
+    },
+    "changeId": "17",
+    "headSha": "new-head-456",
+    "baseSha": "def456",
+    "sourceBranch": "feature/account-lookup",
+    "targetBranch": "main",
+    "title": "Revise account lookup endpoint",
+    "description": "Second review of the account lookup endpoint after author changes.",
+    "author": {
+      "username": "contributor"
+    },
+    "labels": [
+      "api"
+    ]
+  },
+  "diff": {
+    "files": [
+      {
+        "path": "auth/accounts.ts",
+        "status": "modified",
+        "additions": 12,
+        "deletions": 3,
+        "isBinary": false,
+        "patch": "@@ -20,6 +20,17 @@ export async function getAccount(req) {\n+  const accountId = req.query.accountId;\n+  if (!accountId) throw new Error(\"missing accountId\");\n+  return db.accounts.findById(accountId);\n }"
+      }
+    ],
+    "totalAdditions": 12,
+    "totalDeletions": 3,
+    "truncated": false
+  },
+  "config": {
+    "mode": "blocking",
+    "failOn": [
+      "critical"
+    ]
+  },
+  "priorState": {
+    "previousRunId": "fixture-auth-pr",
+    "previousHeadSha": "abc123",
+    "findings": [
+      {
+        "stableId": "fnd_fixture_recurring_auth",
+        "finding": {
+          "id": "fnd_fixture_recurring_auth",
+          "reviewer": "security",
+          "severity": "critical",
+          "category": "auth",
+          "title": "Account lookup misses authorization",
+          "body": "The lookup uses a request-supplied accountId without proving the caller can access that account.",
+          "location": {
+            "path": "auth/accounts.ts",
+            "line": 23,
+            "side": "RIGHT"
+          },
+          "confidence": "high",
+          "evidence": [
+            "Prior review saw db.accounts.findById(accountId) returned directly."
+          ],
+          "recommendation": "Check account ownership or required permission before returning account data."
+        },
+        "status": "open",
+        "lastSeenHeadSha": "abc123"
+      },
+      {
+        "stableId": "fnd_fixture_fixed_null_check",
+        "finding": {
+          "id": "fnd_fixture_fixed_null_check",
+          "reviewer": "code_quality",
+          "severity": "warning",
+          "category": "correctness",
+          "title": "Missing accountId validation",
+          "body": "The prior version did not validate a missing accountId before querying.",
+          "location": {
+            "path": "auth/accounts.ts",
+            "line": 22,
+            "side": "RIGHT"
+          },
+          "confidence": "medium",
+          "evidence": [
+            "Prior review saw accountId read without a presence check."
+          ],
+          "recommendation": "Return a validation error when accountId is missing."
+        },
+        "status": "open",
+        "lastSeenHeadSha": "abc123"
+      }
+    ],
+    "hiddenMetadata": {
+      "schemaVersion": 1,
+      "runId": "fixture-auth-pr",
+      "headSha": "abc123",
+      "findingIds": [
+        "fnd_fixture_recurring_auth",
+        "fnd_fixture_fixed_null_check"
+      ]
+    }
+  },
+  "fakeFindings": [
+    {
+      "id": "fnd_fixture_recurring_auth",
+      "reviewer": "security",
+      "severity": "critical",
+      "category": "auth",
+      "title": "Account lookup misses authorization",
+      "body": "The revised lookup still uses a request-supplied accountId without proving the caller can access that account.",
+      "location": {
+        "path": "auth/accounts.ts",
+        "line": 24,
+        "side": "RIGHT"
+      },
+      "confidence": "high",
+      "evidence": [
+        "The patch still returns db.accounts.findById(accountId) without an ownership check."
+      ],
+      "recommendation": "Check account ownership or required permission before returning account data."
+    }
+  ]
+}

@@ -142,7 +142,7 @@ Continue M002 re-review state foundation.
 
 Concrete next steps:
 
-1. Finish M002 S05 with docs and fixtures for the re-review state flow.
+1. Decide next milestone: implement inline publishing behind `evaluateInlinePublishReadiness()`, add richer prior state storage/thread mapping, or prepare external package publishing.
 
 ## Why
 
@@ -170,6 +170,7 @@ Local `main` tracks `origin/main` and includes merged PR #1. At the handoff poin
 - M002 S02 is complete: `parseSummaryHiddenMetadata()` and `createPriorReviewStateFromMetadata()` recover prior run IDs/head SHAs/finding IDs from hidden metadata; GitHub/GitLab adapters now return minimal `PriorReviewState` from existing bot summary comments/notes.
 - M002 S03 is complete: fixtures and `runReviewFromChange()` accept `priorState`, provider-backed CLI loading fetches `adapter.getPriorReviewState(ref)` alongside metadata/diff, and `ReviewContext.priorState` is populated before agents run. `context.built` trace data includes `priorFindingCount`.
 - M002 S04 is complete: `createReReviewSummary()`/`classifyReReviewFindings()` compare stable current/prior IDs and attach `summary.reReview` with `newFindingIds`, `recurringFindingIds`, `fixedFindingIds`, and per-ID classifications. Summary markdown renders re-review counts and fixed IDs.
+- M002 S05 is complete: `examples/fixtures/re-review-pr.json` demonstrates recurring/fixed classification, `docs/re-review-state.md` documents the fixture and future inline/discussion consumption invariants, and M002 is fully complete.
 - Decide first external package distribution target when ready: npm package, container image, GitHub Action, GitLab component, or staged combination.
 - If using Pi live, explicitly control resource loading in CI so reviewed repositories cannot load untrusted project-local extensions/settings/instructions as privileged instructions. The current Pi subprocess adapter disables these by default.
 
