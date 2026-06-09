@@ -54,7 +54,7 @@ describe("JSONL trace and filesystem state", () => {
 
       const result = await runReview({
         fixture,
-        now: new Date("2026-06-09T00:00:00.000Z"),
+        clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
         stateStore,
         traceSink,
         tracePath,
@@ -76,6 +76,11 @@ describe("JSONL trace and filesystem state", () => {
       ]);
       expect(events[0]?.runId).toBe("fixture-auth-pr");
       expect(events[2]?.data?.tier).toBe("full");
+      expect(new Set(events.map((event) => event.timestamp)).size).toBe(events.length);
+      expect(events[1]?.data?.durationMs).toBeGreaterThan(0);
+      expect(events[2]?.data?.durationMs).toBeGreaterThan(0);
+      expect(events[3]?.data?.durationMs).toBeGreaterThan(0);
+      expect(events[4]?.data?.durationMs).toBeGreaterThan(0);
 
       const runRecord = JSON.parse(
         await readFile(join(outputDirectory, "runs", runId, "run.json"), "utf8"),
@@ -86,6 +91,11 @@ describe("JSONL trace and filesystem state", () => {
       const latestState = await stateStore.load(result.context.metadata) as PriorReviewState | undefined;
 
       expect(runRecord.tracePath).toBe(tracePath);
+      expect(runRecord.completedAt).toBe(events[4]?.timestamp);
+      expect(runRecord.metrics?.durationsMs.overallMs).toBeGreaterThan(0);
+      expect(runRecord.metrics?.durationsMs.contextBuildMs).toBeGreaterThan(0);
+      expect(runRecord.metrics?.durationsMs.riskAssessmentMs).toBeGreaterThan(0);
+      expect(runRecord.metrics?.durationsMs.coordinatorMs).toBeGreaterThan(0);
       expect(runRecord.summary?.decision).toBe("significant_concerns");
       expect(summary.findings).toHaveLength(1);
       expect(latestState?.previousRunId).toBe("fixture-auth-pr");
@@ -107,7 +117,7 @@ describe("JSONL trace and filesystem state", () => {
 
       await expect(runReview({
         fixture,
-        now: new Date("2026-06-09T00:00:00.000Z"),
+        clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
         stateStore,
         traceSink,
         tracePath,
@@ -128,6 +138,9 @@ describe("JSONL trace and filesystem state", () => {
       expect(events.at(-1)?.data?.phase).toBe("agent_runtime");
       expect(events.at(-1)?.data?.errorMessage).toBe("synthetic runtime failure");
       expect(runRecord.error).toBe("synthetic runtime failure");
+      expect(runRecord.metrics?.durationsMs.overallMs).toBeGreaterThan(0);
+      expect(runRecord.metrics?.durationsMs.contextBuildMs).toBeGreaterThan(0);
+      expect(runRecord.metrics?.durationsMs.riskAssessmentMs).toBeGreaterThan(0);
       expect(runRecord.tracePath).toBe(tracePath);
       expect(runRecord.summary).toBeUndefined();
       expect(runRecord.context.risk.tier).toBe("full");
@@ -136,3 +149,14 @@ describe("JSONL trace and filesystem state", () => {
     }
   });
 });
+
+function createIncrementingClock(startIso: string): () => Date {
+  const startMs = Date.parse(startIso);
+  let tick = 0;
+
+  return () => {
+    const date = new Date(startMs + tick * 10);
+    tick += 1;
+    return date;
+  };
+}

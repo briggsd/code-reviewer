@@ -162,12 +162,26 @@ export interface PriorReviewState {
   hiddenMetadata?: Record<string, JsonValue>;
 }
 
+export interface ReviewRunDurations {
+  overallMs: number;
+  contextBuildMs?: number;
+  riskAssessmentMs?: number;
+  coordinatorMs?: number;
+  publishMs?: number;
+  fetchMs?: number;
+}
+
+export interface ReviewRunMetrics {
+  durationsMs: ReviewRunDurations;
+}
+
 export interface ReviewRunRecord {
   runId: string;
   startedAt: string;
   completedAt?: string;
   context: Pick<ReviewContext, "safetyMode" | "metadata" | "risk">;
   summary?: ReviewSummary;
+  metrics?: ReviewRunMetrics;
   tracePath?: string;
   error?: string;
 }

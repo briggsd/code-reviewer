@@ -29,6 +29,7 @@ import { assignStableFindingIds } from "./stable-finding-id.ts";
 export interface RunReviewOptions {
   fixture: ReviewFixture;
   now?: Date;
+  clock?: () => Date;
   stateStore?: ReviewStateStore;
   traceSink?: TraceSink;
   tracePath?: string;
@@ -69,6 +70,7 @@ export async function runReviewFromChange(options: RunReviewFromChangeOptions): 
   return runReview({
     fixture,
     ...(options.now !== undefined ? { now: options.now } : {}),
+    ...(options.clock !== undefined ? { clock: options.clock } : {}),
     ...(options.stateStore !== undefined ? { stateStore: options.stateStore } : {}),
     ...(options.traceSink !== undefined ? { traceSink: options.traceSink } : {}),
     ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
@@ -78,9 +80,10 @@ export async function runReviewFromChange(options: RunReviewFromChangeOptions): 
 
 export async function runReview(options: RunReviewOptions): Promise<RunReviewResult> {
   const fixture = options.fixture;
-  const now = options.now ?? new Date();
-  const timestamp = now.toISOString();
-  const runId = fixture.runId ?? createRunId(now);
+  const clock = options.clock ?? (() => new Date());
+  const startedAt = options.now ?? clock();
+  const timestamp = startedAt.toISOString();
+  const runId = fixture.runId ?? createRunId(startedAt);
 
   await emitTrace(options.traceSink, {
     type: "review.started",
@@ -95,12 +98,15 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     },
   });
 
+  const contextBuildStartedAt = clock();
   const filtered = filterDiff(fixture.diff, fixture.config);
+  const riskAssessmentStartedAt = clock();
   const risk = fixture.risk ?? classifyRisk({
     diff: filtered.diff,
     config: fixture.config,
     ignoredFileCount: filtered.ignoredFiles.length,
   });
+  const riskAssessmentCompletedAt = clock();
 
   const context: ReviewContext = {
     runId,
@@ -114,23 +120,28 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     ...(fixture.priorState !== undefined ? { priorState: fixture.priorState } : {}),
   };
 
+  const contextBuiltAt = clock();
+  const contextBuildMs = elapsedMs(contextBuildStartedAt, contextBuiltAt);
+  const riskAssessmentMs = elapsedMs(riskAssessmentStartedAt, riskAssessmentCompletedAt);
+
   await emitTrace(options.traceSink, {
     type: "context.built",
     runId,
-    timestamp,
+    timestamp: contextBuiltAt.toISOString(),
     data: {
       contextDirectory: context.contextDirectory,
       fileCount: context.diff.files.length,
       totalAdditions: context.diff.totalAdditions,
       totalDeletions: context.diff.totalDeletions,
       priorFindingCount: context.priorState?.findings.length ?? 0,
+      durationMs: contextBuildMs,
     },
   });
 
   await emitTrace(options.traceSink, {
     type: "risk.assessed",
     runId,
-    timestamp,
+    timestamp: clock().toISOString(),
     data: {
       tier: risk.tier,
       reason: risk.reason,
@@ -138,27 +149,32 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       ignoredFileCount: risk.ignoredFileCount,
       matchedRules: risk.matchedRules,
       sensitivePaths: risk.sensitivePaths,
+      durationMs: riskAssessmentMs,
     },
   });
 
   try {
+    const coordinatorStartedAt = clock();
     const runtimeResult = await runAgents({
       runtime: options.runtime,
       context,
       traceSink: options.traceSink,
       fakeFindings: fixture.fakeFindings ?? [],
     });
+    const coordinatorCompletedAt = clock();
+    const coordinatorMs = elapsedMs(coordinatorStartedAt, coordinatorCompletedAt);
     const summary = classifyReReviewFindings(assignStableFindingIds(runtimeResult.summary), context.priorState);
 
     await emitTrace(options.traceSink, {
       type: "coordinator.completed",
       runId,
       role: "coordinator",
-      timestamp,
+      timestamp: coordinatorCompletedAt.toISOString(),
       data: {
         decision: summary.decision,
         outcome: summary.outcome,
         findingCount: summary.findings.length,
+        durationMs: coordinatorMs,
         ...(summary.reReview !== undefined
           ? {
             newFindingCount: summary.reReview.newFindingIds.length,
@@ -169,17 +185,27 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       },
     });
 
-    const completedAt = new Date(now.getTime()).toISOString();
+    const completedAt = clock();
+    const completedAtTimestamp = completedAt.toISOString();
+    const overallMs = elapsedMs(startedAt, completedAt);
     await options.stateStore?.saveRun({
       runId,
       startedAt: timestamp,
-      completedAt,
+      completedAt: completedAtTimestamp,
       context: {
         safetyMode: context.safetyMode,
         metadata: context.metadata,
         risk: context.risk,
       },
       summary,
+      metrics: {
+        durationsMs: {
+          overallMs,
+          contextBuildMs,
+          riskAssessmentMs,
+          coordinatorMs,
+        },
+      },
       ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
     });
     await options.stateStore?.saveSummary(runId, summary);
@@ -187,10 +213,11 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     await emitTrace(options.traceSink, {
       type: "review.completed",
       runId,
-      timestamp: completedAt,
+      timestamp: completedAtTimestamp,
       data: {
         decision: summary.decision,
         outcome: summary.outcome,
+        durationMs: overallMs,
       },
     });
 
@@ -200,28 +227,38 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       ...(runtimeResult.coordinatorResult !== undefined ? { coordinatorResult: runtimeResult.coordinatorResult } : {}),
     };
   } catch (error) {
-    const failedAt = new Date(now.getTime()).toISOString();
+    const failedAt = clock();
+    const failedAtTimestamp = failedAt.toISOString();
+    const overallMs = elapsedMs(startedAt, failedAt);
     const serializedError = serializeError(error);
     await emitTrace(options.traceSink, {
       type: "review.failed",
       runId,
-      timestamp: failedAt,
+      timestamp: failedAtTimestamp,
       message: serializedError.message,
       data: {
         phase: "agent_runtime",
         errorName: serializedError.name,
         errorMessage: serializedError.message,
         ...(serializedError.stack !== undefined ? { errorStack: serializedError.stack } : {}),
+        durationMs: overallMs,
       },
     });
     await options.stateStore?.saveRun({
       runId,
       startedAt: timestamp,
-      completedAt: failedAt,
+      completedAt: failedAtTimestamp,
       context: {
         safetyMode: context.safetyMode,
         metadata: context.metadata,
         risk: context.risk,
+      },
+      metrics: {
+        durationsMs: {
+          overallMs,
+          contextBuildMs,
+          riskAssessmentMs,
+        },
       },
       error: serializedError.message,
       ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
@@ -314,6 +351,10 @@ async function withOverallTimeout<T>(
 
 function formatRunIdForError(runId: string): string {
   return runId.replace(/[^A-Za-z0-9:._-]/g, "_");
+}
+
+function elapsedMs(startedAt: Date, completedAt: Date): number {
+  return Math.max(0, completedAt.getTime() - startedAt.getTime());
 }
 
 function runDeterministicFakeReviewers(fakeFindings: Finding[]): Finding[] {

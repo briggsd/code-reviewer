@@ -34,7 +34,7 @@ Triage live self-review findings into the relevant slice rather than tracking th
 
 ## Slices
 
-- [ ] **S01: Correct lifecycle timestamps and phase durations** `risk:low` `depends:[]` `issues:[#18]`
+- [x] **S01: Correct lifecycle timestamps and phase durations** `risk:low` `depends:[]` `issues:[#18]`
   > Quick win, do first: a localized fix in `run-review.ts`, and the foundation every later slice's durations depend on.
   > After this: `review.started`, `context.built`, `risk.assessed`, `coordinator.completed`, publish, and failure events carry real emission timestamps, and `run.json`/trace artifacts expose fetch/context/risk/coordinator/publish/overall durations where available.
 
