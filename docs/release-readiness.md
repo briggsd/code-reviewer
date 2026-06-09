@@ -1,6 +1,6 @@
 # Release readiness checklist
 
-Use this checklist before publishing or handing the runner to another repository.
+Use this checklist before publishing or handing the runner to another repository. Pair it with the [Adoption guide](adoption.md), which documents the recommended adopter path, live-tested evidence, and deferred channels.
 
 ## Required verification
 
@@ -72,6 +72,24 @@ For a target repository:
 2. Enable same-repo/same-project summary publishing and verify the bot updates, not duplicates, the summary.
 3. Keep fork PRs/MRs artifact-only unless a two-stage reporter or manual privileged flow is explicitly adopted.
 4. Run the optional Pi live smoke only after provider secrets and Pi installation are configured.
+5. On failure, inspect `.ai-review/runs/<runId>/run.json` and `trace.jsonl` before rerunning; runtime failures should include `run.json.error` and a terminal `review.failed` trace event.
+
+## Live-tested vs deferred
+
+Live-tested in this repository:
+
+- GitHub same-repository dry-run, artifact upload, and summary publishing/update behavior.
+- GitHub hidden-metadata re-review classification for new, recurring, and fixed findings.
+- Isolated packaged CLI install and live GitHub provider-backed dry-run.
+- Packaged CLI Pi runtime smoke with Pi JSON mode and model output.
+- Runtime failure persistence through `run.json.error` and `review.failed` traces.
+
+Deferred or not yet live-recorded:
+
+- Inline comments/discussions.
+- Live GitLab MR publishing smoke.
+- Container image, GitHub Action wrapper, and GitLab component wrapper.
+- Privileged fork write-back flows.
 
 ## Release blockers
 

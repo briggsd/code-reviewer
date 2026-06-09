@@ -25,6 +25,8 @@ Current supported adoption source:
 
 Do not use mutable install sources such as `main`, `latest`, or an unpinned Git branch for adopter CI. The package source should be reproducible from the CI logs, and the installed CLI should be treated as the reviewed repository's review toolchain, not as source checked out from the PR/MR under review.
 
+For the end-to-end adopter checklist and live-tested/deferred matrix, see [Adoption guide](adoption.md).
+
 ## Smoke test the package artifact
 
 Run:

@@ -13,7 +13,7 @@ ai-code-review run ...
 
 The templates check out repository contents only so project-local config such as `.ai-review.json` can be read. They do **not** run `bun install` or any project dependency install from the pull/merge request checkout.
 
-For public repositories and forks, use the default strategy in [Public repository fork safety](fork-safety.md): read-only dry-run artifacts/status for fork PRs, and write-back only in same-repository/same-project or explicitly approved privileged jobs.
+For the full adopter sequence and live-tested/deferred matrix, see the [Adoption guide](adoption.md). For public repositories and forks, use the default strategy in [Public repository fork safety](fork-safety.md): read-only dry-run artifacts/status for fork PRs, and write-back only in same-repository/same-project or explicitly approved privileged jobs.
 
 ## GitHub Actions
 
@@ -67,3 +67,4 @@ For a real model-backed review, replace `--runtime dummy` with `--runtime pi` an
 - Keep write-back in a separate same-repo/same-project guarded job.
 - Do not run project dependency installation from an untrusted PR/MR checkout in the review job.
 - Treat project config and PR/MR content as untrusted input unless the pipeline policy says otherwise.
+- Upload `.ai-review/` artifacts on failure; runtime/model/schema failures should leave `run.json.error` and a terminal `review.failed` trace event.

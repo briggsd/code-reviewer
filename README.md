@@ -9,6 +9,7 @@ This repository starts as an architecture/design workspace. The implementation t
 - [Architecture](docs/architecture.md) — system design, lifecycle, components, security model, and MVP plan.
 - [Runtime comparison](docs/runtime-comparison.md) — OpenCode vs Pi as the review factory agent runtime.
 - [Configuration](docs/configuration.md) — `.ai-review.json` fields, merging behavior, and schema command.
+- [Adoption guide](docs/adoption.md) — recommended install path, live-tested evidence, deferred channels, and adopter checklist.
 - [CI templates](docs/ci-templates.md) — GitHub Actions and GitLab CI starter templates.
 - [Fork safety](docs/fork-safety.md) — public-repo fork strategy and secret/write-token boundaries.
 - [Inline publishing readiness](docs/inline-publishing.md) — conservative gates for future inline comments/discussions.
@@ -88,7 +89,7 @@ Example `.ai-review.json`:
 - Fixture-backed local runner with filtered diff/risk classification.
 - JSON-first project config loading from `.ai-review.json`, `ai-review.json`, or `--config`.
 - Role-specific model routing and explicit safety-mode runtime tool policy mapping.
-- Opt-in Pi live smoke script; default tests remain fake/no-network/no-model.
+- Opt-in Pi live smoke script that runs through the packaged CLI when enabled; default tests remain fake/no-network/no-model.
 - GitHub/GitLab summary comment publishing behind explicit `--publish-summary`, with hidden metadata and `publisher.completed` tracing.
 - JSONL trace and filesystem state artifacts.
 - Deterministic dummy agent runtime for coordinator/reviewer lifecycle tests.
@@ -96,7 +97,7 @@ Example `.ai-review.json`:
 - GitHub VCS adapter MVP for PR metadata and changed-file diff fetching.
 - GitLab VCS adapter MVP for MR metadata and changed-file diff fetching.
 - CI decision policy and markdown summary formatter.
-- Package artifact allowlist and smoke test for the Bun-backed CLI tarball.
+- Package artifact allowlist, external packaged install smoke, and adoption guide for the Bun-backed CLI tarball.
 - Distribution-facing CI templates that install the package and run `ai-code-review` instead of repository-local source commands.
 - Inline publishing readiness checks for stale head SHAs and unsafe line coordinates; inline publishing itself remains deferred.
 - Disabled-by-default GitHub Actions Pi live smoke workflow for trusted maintainer runs.
@@ -105,6 +106,7 @@ Example `.ai-review.json`:
 - Prior summary metadata parsing from existing GitHub comments and GitLab notes.
 - Provider-backed runs carry prior review state into `ReviewContext.priorState`.
 - Re-review summaries classify findings as new, recurring, or fixed; see `examples/fixtures/re-review-pr.json` for a fixture-backed example.
+- Runtime/model/schema failures persist `run.json.error` and a terminal `review.failed` trace event after context construction.
 
 ## Design stance
 
