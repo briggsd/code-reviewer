@@ -54,7 +54,7 @@ AI_REVIEW_GITLAB_TOKEN=... bun run src/cli.ts run --provider gitlab --repo group
 AI_REVIEW_GITHUB_TOKEN=... bun run src/cli.ts run --provider github --repo owner/name --change-id 123 --runtime dummy --publish-summary --publish-inline
 
 # Experimental Pi runtime spike. Uses Pi JSON mode with project-local resources disabled.
-bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --runtime pi --pi-provider anthropic --pi-model claude-sonnet-4-5
+bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --runtime pi --pi-provider anthropic --pi-model claude-sonnet-4-6
 
 # Project config is JSON-first for the prototype. By default the CLI looks for
 # .ai-review.json or ai-review.json in the current directory; pass --config to be explicit.
