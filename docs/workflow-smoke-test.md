@@ -41,5 +41,5 @@ Historical smoke notes:
 
 - Live smoke started: 2026-06-09T11:18:26Z
 - PR #1 verified summary-only workflow behavior, artifact upload, and summary comment idempotency.
-- PR #4 verified explicit GitHub inline publishing with a seeded finding on `src/cli/run-options.ts:9`: first run posted one inline review comment, rerun on the same head skipped it with `duplicate_inline_comment`, and the summary comment was updated instead of duplicated.
-- PR #9 verified same-repository real Pi review publishing after enabling `AI_REVIEW_REAL_REVIEW_ENABLED=true` and configuring `ANTHROPIC_API_KEY`: dummy dry-run passed, dummy summary publish skipped, real Pi summary publish succeeded with `claude-sonnet-4-6`, and artifacts uploaded as `ai-review-real-9`.
+- PR #4 verified the M004 inline publishing criteria with a seeded finding on `src/cli/run-options.ts:9`: only readiness-approved findings produced inline review comments, skipped findings stayed visible in the summary and trace output, rerunning on the same head reported `duplicate_inline_comment`, and the summary comment was updated instead of duplicated.
+- PR #9 verified same-repository real Pi review publishing after enabling `AI_REVIEW_REAL_REVIEW_ENABLED=true` and configuring `ANTHROPIC_API_KEY`: dummy dry-run passed, dummy summary publish skipped, real Pi summary publish succeeded with the default model `claude-sonnet-4-6`, and artifacts uploaded as `ai-review-real-9`.
