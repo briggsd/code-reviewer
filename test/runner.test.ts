@@ -173,6 +173,67 @@ describe("fixture local runner", () => {
       .toBe("claude-haiku");
   });
 
+  test("carries prior review state into review context", async () => {
+    const fixture = normalizeReviewFixture({
+      metadata: {
+        provider: "local",
+        repository: {
+          provider: "local",
+          name: "demo",
+          slug: "demo",
+        },
+        changeId: "local",
+        headSha: "new-head",
+        title: "Update code",
+        author: {
+          username: "dev",
+        },
+        labels: [],
+      },
+      diff: {
+        files: [
+          {
+            path: "src/auth.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            isBinary: false,
+          },
+        ],
+        totalAdditions: 1,
+        totalDeletions: 0,
+        truncated: false,
+      },
+      priorState: {
+        previousRunId: "prior-run",
+        previousHeadSha: "old-head",
+        findings: [
+          {
+            stableId: "fnd_prior",
+            finding: {
+              id: "fnd_prior",
+              reviewer: "security",
+              severity: "warning",
+              category: "auth",
+              title: "Prior auth issue",
+              body: "Prior issue body",
+              confidence: "medium",
+              evidence: [],
+              recommendation: "Review prior issue.",
+            },
+            status: "open",
+            lastSeenHeadSha: "old-head",
+          },
+        ],
+      },
+    });
+
+    const result = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    expect(result.context.priorState?.previousRunId).toBe("prior-run");
+    expect(result.context.priorState?.findings.map((finding) => finding.stableId)).toEqual(["fnd_prior"]);
+  });
+
   test("maps safety modes to explicit runtime tool policies", () => {
     expect(createRuntimeToolPolicy("trusted")).toEqual({
       allowRead: true,

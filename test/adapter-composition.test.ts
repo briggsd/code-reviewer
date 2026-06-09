@@ -13,7 +13,7 @@ import {
 import type { ChangeRef, FetchLike, GitLabFetchLike } from "../src/index.ts";
 
 describe("adapter-backed review composition", () => {
-  test("GitHub adapter output feeds review runner, markdown, and CI decision", async () => {
+  test("GitHub adapter output feeds review runner, prior state, markdown, and CI decision", async () => {
     const seed = await loadReviewFixture("examples/fixtures/auth-pr.json");
     const adapter = new GitHubVcsAdapter({ fetch: githubFixtureFetch() });
     const ref: ChangeRef = {
@@ -27,9 +27,10 @@ describe("adapter-backed review composition", () => {
       changeId: "42",
       headSha: "unknown",
     };
-    const [metadata, diff] = await Promise.all([
+    const [metadata, diff, priorState] = await Promise.all([
       adapter.getChange(ref),
       adapter.getDiff(ref),
+      adapter.getPriorReviewState(ref),
     ]);
     const config = {
       ...createDefaultReviewConfig(),
@@ -43,6 +44,7 @@ describe("adapter-backed review composition", () => {
       metadata,
       diff,
       config,
+      ...(priorState !== undefined ? { priorState } : {}),
       runtime,
       now: new Date("2026-06-09T00:00:00.000Z"),
     });
@@ -51,12 +53,14 @@ describe("adapter-backed review composition", () => {
 
     expect(result.context.metadata.webUrl).toBe("https://github.com/example/payments-api/pull/42");
     expect(result.context.diff.files.map((file) => file.path)).toContain("src/auth/accounts.ts");
+    expect(result.context.priorState?.previousRunId).toBe("prior-github-run");
+    expect(result.context.priorState?.findings.map((finding) => finding.stableId)).toEqual(["fnd_prior_github"]);
     expect(result.summary.decision).toBe("significant_concerns");
     expect(markdown).toContain("Account lookup misses authorization");
     expect(decision.exitCode).toBe(1);
   });
 
-  test("GitLab adapter output feeds review runner, markdown, and CI decision", async () => {
+  test("GitLab adapter output feeds review runner, prior state, markdown, and CI decision", async () => {
     const seed = await loadReviewFixture("examples/fixtures/auth-pr.json");
     const adapter = new GitLabVcsAdapter({ fetch: gitlabFixtureFetch() });
     const ref: ChangeRef = {
@@ -70,9 +74,10 @@ describe("adapter-backed review composition", () => {
       changeId: "7",
       headSha: "unknown",
     };
-    const [metadata, diff] = await Promise.all([
+    const [metadata, diff, priorState] = await Promise.all([
       adapter.getChange(ref),
       adapter.getDiff(ref),
+      adapter.getPriorReviewState(ref),
     ]);
     const config = {
       ...createDefaultReviewConfig(),
@@ -86,6 +91,7 @@ describe("adapter-backed review composition", () => {
       metadata,
       diff,
       config,
+      ...(priorState !== undefined ? { priorState } : {}),
       runtime,
       now: new Date("2026-06-09T00:00:00.000Z"),
     });
@@ -94,6 +100,8 @@ describe("adapter-backed review composition", () => {
 
     expect(result.context.metadata.webUrl).toBe("https://gitlab.com/example/payments-api/-/merge_requests/7");
     expect(result.context.diff.files.map((file) => file.path)).toContain("src/auth/accounts.ts");
+    expect(result.context.priorState?.previousRunId).toBe("prior-gitlab-run");
+    expect(result.context.priorState?.findings.map((finding) => finding.stableId)).toEqual(["fnd_prior_gitlab"]);
     expect(result.summary.decision).toBe("significant_concerns");
     expect(markdown).toContain("Account lookup misses authorization");
     expect(decision.exitCode).toBe(1);
@@ -118,6 +126,22 @@ function githubFixtureFetch(): FetchLike {
       return jsonResponse(await readFixture("github", "files-page-2.json"));
     }
 
+    if (url === "https://api.github.com/repos/example/payments-api/issues/42/comments?per_page=100") {
+      return jsonResponse([{
+        id: 123,
+        body: [
+          "<!-- ai-code-review-factory",
+          JSON.stringify({
+            schemaVersion: 1,
+            runId: "prior-github-run",
+            headSha: "old-github-head",
+            findingIds: ["fnd_prior_github"],
+          }),
+          "-->",
+        ].join("\n"),
+      }]);
+    }
+
     return notFound(url);
   };
 }
@@ -132,6 +156,22 @@ function gitlabFixtureFetch(): GitLabFetchLike {
 
     if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/changes") {
       return jsonResponse(await readFixture("gitlab", "changes.json"));
+    }
+
+    if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes") {
+      return jsonResponse([{
+        id: 123,
+        body: [
+          "<!-- ai-code-review-factory",
+          JSON.stringify({
+            schemaVersion: 1,
+            runId: "prior-gitlab-run",
+            headSha: "old-gitlab-head",
+            findingIds: ["fnd_prior_gitlab"],
+          }),
+          "-->",
+        ].join("\n"),
+      }]);
     }
 
     return notFound(url);

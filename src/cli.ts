@@ -21,7 +21,7 @@ import {
   runReview,
   runReviewFromChange,
 } from "./index.ts";
-import type { ChangeRef, DiffSummary, Finding, ReviewConfig, ReviewFixture, ChangeMetadata, VcsAdapter } from "./index.ts";
+import type { ChangeRef, DiffSummary, Finding, PriorReviewState, ReviewConfig, ReviewFixture, ChangeMetadata, VcsAdapter } from "./index.ts";
 
 const command = Bun.argv[2] ?? "help";
 
@@ -46,6 +46,7 @@ type ReviewSource =
       metadata: ChangeMetadata;
       diff: DiffSummary;
       config: ReviewConfig;
+      priorState?: PriorReviewState;
       fakeFindings: Finding[];
       adapter: VcsAdapter;
     };
@@ -99,6 +100,7 @@ async function runCommand(args: string[]): Promise<void> {
         metadata: source.metadata,
         diff: source.diff,
         config: source.config,
+        ...(source.priorState !== undefined ? { priorState: source.priorState } : {}),
         fakeFindings: source.fakeFindings,
         now,
         ...(stateStore !== undefined ? { stateStore } : {}),
@@ -184,9 +186,10 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
   const adapter = provider === "github"
     ? new GitHubVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) })
     : new GitLabVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) });
-  const [metadata, diff] = await Promise.all([
+  const [metadata, diff, priorState] = await Promise.all([
     adapter.getChange(ref),
     adapter.getDiff(ref),
+    adapter.getPriorReviewState(ref),
   ]);
 
   return {
@@ -194,6 +197,7 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
     metadata,
     diff,
     config,
+    ...(priorState !== undefined ? { priorState } : {}),
     fakeFindings: seedFixture?.fakeFindings ?? [],
     adapter,
   };

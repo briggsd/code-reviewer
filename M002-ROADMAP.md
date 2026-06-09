@@ -20,7 +20,7 @@ Make a second review of the same PR/MR aware of the first one. Before adding inl
 - [x] **S02: Prior summary metadata parser** `risk:medium` `depends:[S01]`
   > After this: GitHub/GitLab adapters can recover prior run metadata from existing bot summary comments/notes instead of only finding the comment to update.
 
-- [ ] **S03: Prior state loading path** `risk:medium` `depends:[S02]`
+- [x] **S03: Prior state loading path** `risk:medium` `depends:[S02]`
   > After this: provider-backed review runs can load `PriorReviewState` into `ReviewContext.priorState` before agents run.
 
 - [ ] **S04: Fixed-vs-still-present summary classification** `risk:high` `depends:[S03]`

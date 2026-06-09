@@ -3,6 +3,7 @@ import type {
   ChangeMetadata,
   DiffSummary,
   Finding,
+  PriorReviewState,
   ReviewConfig,
   RiskAssessment,
   SafetyMode,
@@ -19,6 +20,7 @@ export interface ReviewFixture {
   diff: DiffSummary;
   config: ReviewConfig;
   risk?: RiskAssessment;
+  priorState?: PriorReviewState;
   fakeFindings?: Finding[];
 }
 
@@ -53,6 +55,7 @@ export function normalizeReviewFixture(value: unknown, source = "<inline>"): Rev
     diff: value.diff as unknown as DiffSummary,
     config,
     ...(isRecord(value.risk) ? { risk: value.risk as unknown as RiskAssessment } : {}),
+    ...(isRecord(value.priorState) ? { priorState: value.priorState as unknown as PriorReviewState } : {}),
     fakeFindings: Array.isArray(value.fakeFindings) ? (value.fakeFindings as Finding[]) : [],
   };
 }

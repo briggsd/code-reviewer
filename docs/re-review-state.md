@@ -42,11 +42,18 @@ The metadata is parsed by `parseSummaryHiddenMetadata()` and converted to a mini
 
 The metadata is not the canonical state store; CI artifacts and any future external state backend should still persist full summaries. When only summary metadata is available, prior findings are represented as placeholder findings keyed by stable ID until full prior summary details are loaded.
 
+## Runner context
+
+Provider-backed runs now call `VcsAdapter.getPriorReviewState()` while fetching change metadata and diff. When prior metadata exists, `runReviewFromChange()` carries it into `ReviewContext.priorState` before agents run.
+
+The context-building trace includes `priorFindingCount` so artifacts show whether a re-review had prior state available.
+
 ## Future re-review flow
 
 1. Load prior bot summary metadata from the provider.
-2. Load prior full summary state from artifacts or a real state store where available.
-3. Generate stable IDs for the current run.
-4. Compare current IDs to prior IDs.
-5. Classify findings as new, recurring, or absent/fixed.
-6. Publish summary updates first; resolve inline discussions only after provider-specific safety gates are implemented.
+2. Carry the resulting `PriorReviewState` into `ReviewContext.priorState`.
+3. Load prior full summary state from artifacts or a real state store where available.
+4. Generate stable IDs for the current run.
+5. Compare current IDs to prior IDs.
+6. Classify findings as new, recurring, or absent/fixed.
+7. Publish summary updates first; resolve inline discussions only after provider-specific safety gates are implemented.

@@ -6,6 +6,7 @@ import type {
   DiffSummary,
   Finding,
   ModelSelection,
+  PriorReviewState,
   ReviewConfig,
   ReviewContext,
   ReviewDecision,
@@ -47,6 +48,7 @@ export interface RunReviewFromChangeOptions extends Omit<RunReviewOptions, "fixt
   workingDirectory?: string;
   contextDirectory?: string;
   runId?: string;
+  priorState?: PriorReviewState;
   fakeFindings?: Finding[];
 }
 
@@ -59,6 +61,7 @@ export async function runReviewFromChange(options: RunReviewFromChangeOptions): 
     metadata: options.metadata,
     diff: options.diff,
     ...(options.config !== undefined ? { config: options.config } : {}),
+    ...(options.priorState !== undefined ? { priorState: options.priorState } : {}),
     ...(options.fakeFindings !== undefined ? { fakeFindings: options.fakeFindings } : {}),
   });
 
@@ -107,6 +110,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     diff: filtered.diff,
     risk,
     config: fixture.config,
+    ...(fixture.priorState !== undefined ? { priorState: fixture.priorState } : {}),
   };
 
   await emitTrace(options.traceSink, {
@@ -118,6 +122,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       fileCount: context.diff.files.length,
       totalAdditions: context.diff.totalAdditions,
       totalDeletions: context.diff.totalDeletions,
+      priorFindingCount: context.priorState?.findings.length ?? 0,
     },
   });
 

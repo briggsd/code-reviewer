@@ -13,6 +13,8 @@ describe("re-review state documentation", () => {
     expect(guide).toContain("findingIds");
     expect(guide).toContain("parseSummaryHiddenMetadata()");
     expect(guide).toContain("createPriorReviewStateFromMetadata()");
+    expect(guide).toContain("ReviewContext.priorState");
+    expect(guide).toContain("priorFindingCount");
     expect(guide).toContain("new, recurring, or absent/fixed");
     expect(readme).toContain("[Re-review state](docs/re-review-state.md)");
   });

@@ -102,6 +102,7 @@ Example `.ai-review.json`:
 - Release readiness checklist for package verification, CI adoption, secrets, and release blockers.
 - Stable finding IDs in completed summaries and hidden summary metadata.
 - Prior summary metadata parsing from existing GitHub comments and GitLab notes.
+- Provider-backed runs carry prior review state into `ReviewContext.priorState`.
 
 ## Design stance
 
