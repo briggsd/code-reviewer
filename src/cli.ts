@@ -13,6 +13,7 @@ import {
   JsonlTraceSink,
   LocalCiAdapter,
   PiAgentRuntime,
+  publishReviewInlineFindings,
   publishReviewSummary,
   loadProjectReviewConfig,
   loadReviewFixture,
@@ -21,6 +22,7 @@ import {
   runReview,
   runReviewFromChange,
 } from "./index.ts";
+import { parseRunPublishOptions } from "./cli/run-options.ts";
 import type { ChangeRef, DiffSummary, Finding, PriorReviewState, ReviewConfig, ReviewFixture, ChangeMetadata, VcsAdapter } from "./index.ts";
 
 const command = Bun.argv[2] ?? "help";
@@ -59,7 +61,7 @@ async function runCommand(args: string[]): Promise<void> {
   const piProvider = readFlag(args, "--pi-provider");
   const piModel = readFlag(args, "--pi-model");
   const ciExit = hasFlag(args, "--ci-exit");
-  const publishSummary = hasFlag(args, "--publish-summary");
+  const publishOptions = parseRunPublishOptions(args);
   if (runtimeName !== undefined && runtimeName !== "dummy" && runtimeName !== "pi") {
     throw new Error(`unsupported runtime: ${runtimeName}`);
   }
@@ -109,7 +111,25 @@ async function runCommand(args: string[]): Promise<void> {
         ...(runtime !== undefined ? { runtime } : {}),
       });
 
-    if (publishSummary) {
+    if (publishOptions.publishInline) {
+      if (source.kind !== "change") {
+        throw new Error("--publish-inline requires --provider github|gitlab");
+      }
+      if (source.adapter.provider !== "github") {
+        throw new Error("--publish-inline currently supports github only");
+      }
+
+      await publishReviewInlineFindings({
+        adapter: source.adapter,
+        change: result.context.metadata,
+        diff: result.context.diff,
+        summary: result.summary,
+        runId,
+        ...(traceSink !== undefined ? { traceSink } : {}),
+      });
+    }
+
+    if (publishOptions.publishSummary) {
       if (source.kind !== "change") {
         throw new Error("--publish-summary requires --provider github|gitlab");
       }
@@ -252,7 +272,7 @@ function printHelp(): void {
   console.log("      [--format json|markdown] [--ci-exit] [--pi-provider <name> --pi-model <id>]");
   console.log("  run --provider github|gitlab --repo <owner/name> --change-id <id>");
   console.log("      [--head-sha <sha>] [--seed-fixture <path>] [--config <path>] [--runtime dummy|pi]");
-  console.log("      [--output-dir <path>] [--format json|markdown] [--publish-summary] [--ci-exit]");
+  console.log("      [--output-dir <path>] [--format json|markdown] [--publish-summary] [--publish-inline] [--ci-exit]");
   console.log("      [--pi-provider <name> --pi-model <id>]");
   console.log("                                       Run deterministic local review");
 }

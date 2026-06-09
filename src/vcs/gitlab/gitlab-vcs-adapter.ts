@@ -4,8 +4,9 @@ import type {
   ChangedFile,
   ChangedFileStatus,
   DiffSummary,
-  Finding,
   PriorReviewState,
+  PublishInlineFindingsInput,
+  PublishInlineFindingsResult,
   PublishSummaryInput,
   PublishSummaryResult,
   VcsAdapter,
@@ -168,7 +169,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
     };
   }
 
-  async publishInlineFindings(_change: ChangeMetadata, _findings: Finding[]): Promise<PublishSummaryResult> {
+  async publishInlineFindings(_input: PublishInlineFindingsInput): Promise<PublishInlineFindingsResult> {
     throw new Error("GitLab inline finding publishing is not implemented in the metadata/diff MVP adapter");
   }
 

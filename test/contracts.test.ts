@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
-import type { AgentRuntime, ChangeMetadata, Finding, ReviewSummary } from "../src/index.ts";
+import type { AgentRuntime, ChangeMetadata, Finding, PublishInlineFindingsResult, ReviewSummary } from "../src/index.ts";
 import { reviewConfigSchema, reviewOutputSchemas } from "../src/index.ts";
 
 describe("contract exports", () => {
@@ -77,5 +77,35 @@ describe("contract exports", () => {
     const runtimeName: AgentRuntime["name"] = "dummy";
 
     expect(runtimeName).toBe("dummy");
+  });
+
+  test("inline publishing result contract can represent posted, skipped, and failed findings", () => {
+    const result: PublishInlineFindingsResult = {
+      provider: "github",
+      attemptedInlineCount: 2,
+      postedInlineCount: 1,
+      skippedInlineCount: 1,
+      failedInlineCount: 1,
+      findings: [
+        {
+          findingId: "finding-posted",
+          disposition: "posted",
+          providerCommentId: "comment-1",
+          url: "https://example.test/comment-1",
+        },
+        {
+          findingId: "finding-skipped",
+          disposition: "skipped",
+          reason: "line is not present in the current patch",
+        },
+        {
+          findingId: "finding-failed",
+          disposition: "failed",
+          reason: "provider write failed",
+        },
+      ],
+    };
+
+    expect(result.findings.map((finding) => finding.disposition)).toEqual(["posted", "skipped", "failed"]);
   });
 });

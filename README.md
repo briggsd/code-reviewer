@@ -12,7 +12,7 @@ This repository starts as an architecture/design workspace. The implementation t
 - [Adoption guide](docs/adoption.md) — recommended install path, live-tested evidence, deferred channels, and adopter checklist.
 - [CI templates](docs/ci-templates.md) — GitHub Actions and GitLab CI starter templates.
 - [Fork safety](docs/fork-safety.md) — public-repo fork strategy and secret/write-token boundaries.
-- [Inline publishing readiness](docs/inline-publishing.md) — conservative gates for future inline comments/discussions.
+- [Inline publishing](docs/inline-publishing.md) — experimental opt-in GitHub inline comments with conservative readiness gates.
 - [Packaging](docs/packaging.md) — package artifact contents and smoke test.
 - [Workflow smoke test](docs/workflow-smoke-test.md) — notes for the first same-repo GitHub Actions smoke PR.
 - [Pi live smoke test](docs/pi-live-smoke.md) — opt-in local and GitHub Actions Pi/model smoke instructions.
@@ -41,9 +41,12 @@ bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --ci-exit
 AI_REVIEW_GITHUB_TOKEN=... bun run src/cli.ts run --provider github --repo owner/name --change-id 123 --runtime dummy
 AI_REVIEW_GITLAB_TOKEN=... bun run src/cli.ts run --provider gitlab --repo group/project --change-id 123 --runtime dummy
 
-# Explicit GitHub/GitLab summary publishing. Inline comments/discussions are still deferred.
+# Explicit GitHub/GitLab summary publishing.
 AI_REVIEW_GITHUB_TOKEN=... bun run src/cli.ts run --provider github --repo owner/name --change-id 123 --runtime dummy --publish-summary
 AI_REVIEW_GITLAB_TOKEN=... bun run src/cli.ts run --provider gitlab --repo group/project --change-id 123 --runtime dummy --publish-summary
+
+# Experimental GitHub-only inline publishing. Summary publishing remains the default write-back UX.
+AI_REVIEW_GITHUB_TOKEN=... bun run src/cli.ts run --provider github --repo owner/name --change-id 123 --runtime dummy --publish-summary --publish-inline
 
 # Experimental Pi runtime spike. Uses Pi JSON mode with project-local resources disabled.
 bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --runtime pi --pi-provider anthropic --pi-model claude-sonnet-4-5
@@ -99,7 +102,7 @@ Example `.ai-review.json`:
 - CI decision policy and markdown summary formatter.
 - Package artifact allowlist, external packaged install smoke, and adoption guide for the Bun-backed CLI tarball.
 - Distribution-facing CI templates that install the package and run `ai-code-review` instead of repository-local source commands.
-- Inline publishing readiness checks for stale head SHAs and unsafe line coordinates; inline publishing itself remains deferred.
+- Experimental GitHub-only inline publishing behind explicit `--publish-inline`, gated by stale-head/diff/line-coordinate readiness checks and same-head duplicate suppression.
 - Disabled-by-default GitHub Actions Pi live smoke workflow for trusted maintainer runs.
 - Release readiness checklist for package verification, CI adoption, secrets, and release blockers.
 - Stable finding IDs in completed summaries and hidden summary metadata.
