@@ -1,0 +1,53 @@
+{
+  "overflow": true,
+  "changes": [
+    {
+      "old_path": "src/auth/accounts.ts",
+      "new_path": "src/auth/accounts.ts",
+      "new_file": false,
+      "renamed_file": false,
+      "deleted_file": false,
+      "diff": "--- a/src/auth/accounts.ts\n+++ b/src/auth/accounts.ts\n@@ -10,2 +10,4 @@\n-  return account;\n+  assertCanReadAccount(user, account);\n+  return account;\n context;"
+    },
+    {
+      "old_path": "src/billing/invoices.ts",
+      "new_path": "src/billing/invoice.ts",
+      "new_file": false,
+      "renamed_file": true,
+      "deleted_file": false,
+      "diff": "--- a/src/billing/invoices.ts\n+++ b/src/billing/invoice.ts\n@@ -1,2 +1,2 @@\n-export const oldName = true;\n+export const newName = true;"
+    },
+    {
+      "old_path": "assets/logo.png",
+      "new_path": "assets/logo.png",
+      "new_file": false,
+      "renamed_file": false,
+      "deleted_file": false
+    },
+    {
+      "old_path": "package-lock.json",
+      "new_path": "package-lock.json",
+      "new_file": false,
+      "renamed_file": false,
+      "deleted_file": false,
+      "diff": "--- a/package-lock.json\n+++ b/package-lock.json\n@@ -1,2 +1,2 @@\n-  \"version\": 1\n+  \"version\": 2"
+    },
+    {
+      "old_path": "src/generated/client.ts",
+      "new_path": "src/generated/client.ts",
+      "new_file": false,
+      "renamed_file": false,
+      "deleted_file": false,
+      "generated_file": true,
+      "collapsed": true
+    },
+    {
+      "old_path": "src/removed.ts",
+      "new_path": "src/removed.ts",
+      "new_file": false,
+      "renamed_file": false,
+      "deleted_file": true,
+      "diff": "--- a/src/removed.ts\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-export const removed = true;\n-export const gone = true;"
+    }
+  ]
+}

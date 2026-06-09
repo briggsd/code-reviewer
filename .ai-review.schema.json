@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-code-review-factory.local/schemas/review-config.json",
+  "title": "AI code review project config",
+  "description": "JSON project config loaded from .ai-review.json, ai-review.json, or --config.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": [
+        "advisory",
+        "blocking"
+      ]
+    },
+    "failOn": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "critical",
+          "warning",
+          "suggestion"
+        ]
+      }
+    },
+    "sensitivePaths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ignoredPaths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reviewerPolicy": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": [
+          "enabled",
+          "disabled",
+          "full_only"
+        ]
+      }
+    },
+    "timeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reviewerMs": {
+          "type": "number",
+          "minimum": 1
+        },
+        "coordinatorMs": {
+          "type": "number",
+          "minimum": 1
+        },
+        "overallMs": {
+          "type": "number",
+          "minimum": 1
+        }
+      }
+    },
+    "modelRouting": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "tier": {
+              "type": "string",
+              "enum": [
+                "top",
+                "standard",
+                "light"
+              ]
+            },
+            "temperature": {
+              "type": "number"
+            },
+            "maxOutputTokens": {
+              "type": "number",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "provider",
+            "model"
+          ]
+        },
+        "roles": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "tier": {
+                "type": "string",
+                "enum": [
+                  "top",
+                  "standard",
+                  "light"
+                ]
+              },
+              "temperature": {
+                "type": "number"
+              },
+              "maxOutputTokens": {
+                "type": "number",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "provider",
+              "model"
+            ]
+          }
+        }
+      }
+    },
+    "projectInstructionsPath": {
+      "type": "string"
+    },
+    "extra": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,83 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  dry-run:
+    name: AI review dry run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out runner source
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run metadata/diff review without write-back
+        env:
+          AI_REVIEW_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          bun run src/cli.ts run \
+            --provider github \
+            --repo "${{ github.repository }}" \
+            --change-id "${{ github.event.pull_request.number }}" \
+            --head-sha "${{ github.event.pull_request.head.sha }}" \
+            --runtime dummy \
+            --output-dir .ai-review \
+            --ci-exit
+
+      - name: Upload review artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-review-${{ github.event.pull_request.number }}
+          path: .ai-review
+
+  trusted-publish:
+    name: AI review publish summary
+    runs-on: ubuntu-latest
+    needs: dry-run
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out runner source
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Publish AI review summary for same-repo PR
+        env:
+          AI_REVIEW_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          bun run src/cli.ts run \
+            --provider github \
+            --repo "${{ github.repository }}" \
+            --change-id "${{ github.event.pull_request.number }}" \
+            --head-sha "${{ github.event.pull_request.head.sha }}" \
+            --runtime dummy \
+            --publish-summary \
+            --output-dir .ai-review \
+            --ci-exit

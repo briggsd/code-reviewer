@@ -1,0 +1,79 @@
+{
+  "runId": "fixture-mixed-diff",
+  "safetyMode": "trusted",
+  "metadata": {
+    "provider": "github",
+    "repository": {
+      "provider": "github",
+      "owner": "example",
+      "name": "web-app",
+      "slug": "example/web-app",
+      "defaultBranch": "main"
+    },
+    "changeId": "23",
+    "headSha": "fed789",
+    "baseSha": "abc123",
+    "sourceBranch": "feature/mixed-change",
+    "targetBranch": "main",
+    "title": "Mixed app update",
+    "author": {
+      "username": "contributor"
+    },
+    "labels": []
+  },
+  "diff": {
+    "files": [
+      {
+        "path": "src/app.ts",
+        "status": "modified",
+        "additions": 30,
+        "deletions": 3,
+        "isBinary": false,
+        "patch": "@@ -1,3 +1,30 @@"
+      },
+      {
+        "path": "package-lock.json",
+        "status": "modified",
+        "additions": 300,
+        "deletions": 280,
+        "isBinary": false,
+        "isLockfile": true
+      },
+      {
+        "path": "public/app.min.js",
+        "status": "modified",
+        "additions": 1,
+        "deletions": 1,
+        "isBinary": false
+      },
+      {
+        "path": "assets/logo.png",
+        "status": "modified",
+        "additions": 0,
+        "deletions": 0,
+        "isBinary": true
+      },
+      {
+        "path": "migrations/20260609_add_accounts.sql",
+        "status": "added",
+        "additions": 12,
+        "deletions": 0,
+        "isBinary": false,
+        "isGenerated": true
+      },
+      {
+        "path": ".github/workflows/release.yml",
+        "status": "modified",
+        "additions": 6,
+        "deletions": 1,
+        "isBinary": false
+      }
+    ],
+    "totalAdditions": 349,
+    "totalDeletions": 285,
+    "truncated": false
+  },
+  "config": {
+    "mode": "advisory"
+  }
+}

@@ -1,0 +1,19 @@
+[
+  {
+    "filename": "src/auth/accounts.ts",
+    "status": "modified",
+    "additions": 24,
+    "deletions": 6,
+    "changes": 30,
+    "patch": "@@ -10,6 +10,24 @@ export async function lookupAccount(req) {\n+  return accounts.findById(req.query.accountId);\n }"
+  },
+  {
+    "filename": "src/billing/invoice.ts",
+    "previous_filename": "src/billing/invoices.ts",
+    "status": "renamed",
+    "additions": 4,
+    "deletions": 2,
+    "changes": 6,
+    "patch": "@@ -1,4 +1,6 @@"
+  }
+]

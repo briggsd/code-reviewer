@@ -1,0 +1,26 @@
+{
+  "iid": 7,
+  "title": "Harden account lookup",
+  "description": "Adds account lookup with stricter auth checks.",
+  "web_url": "https://gitlab.com/example/payments-api/-/merge_requests/7",
+  "created_at": "2026-06-08T10:00:00.000Z",
+  "updated_at": "2026-06-09T12:00:00.000Z",
+  "author": {
+    "id": 123,
+    "username": "gitlab-dev",
+    "name": "GitLab Dev",
+    "web_url": "https://gitlab.com/gitlab-dev"
+  },
+  "labels": [
+    "security",
+    "api"
+  ],
+  "source_branch": "feature/account-lookup",
+  "target_branch": "main",
+  "sha": "headsha-fallback",
+  "diff_refs": {
+    "base_sha": "basesha456",
+    "head_sha": "headsha123",
+    "start_sha": "startsha789"
+  }
+}

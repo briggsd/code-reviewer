@@ -1,0 +1,67 @@
+{
+  "runId": "fixture-auth-pr",
+  "safetyMode": "trusted",
+  "metadata": {
+    "provider": "github",
+    "repository": {
+      "provider": "github",
+      "owner": "example",
+      "name": "payments-api",
+      "slug": "example/payments-api",
+      "defaultBranch": "main"
+    },
+    "changeId": "17",
+    "headSha": "abc123",
+    "baseSha": "def456",
+    "sourceBranch": "feature/account-lookup",
+    "targetBranch": "main",
+    "title": "Add account lookup endpoint",
+    "description": "Adds a new endpoint for looking up account data.",
+    "author": {
+      "username": "contributor"
+    },
+    "labels": [
+      "api"
+    ]
+  },
+  "diff": {
+    "files": [
+      {
+        "path": "auth/accounts.ts",
+        "status": "modified",
+        "additions": 18,
+        "deletions": 4,
+        "isBinary": false,
+        "patch": "@@ -20,6 +20,20 @@ export async function getAccount(req) {\n+  const accountId = req.query.accountId;\n+  return db.accounts.findById(accountId);\n }"
+      }
+    ],
+    "totalAdditions": 18,
+    "totalDeletions": 4,
+    "truncated": false
+  },
+  "config": {
+    "mode": "blocking",
+    "failOn": [
+      "critical"
+    ]
+  },
+  "fakeFindings": [
+    {
+      "reviewer": "security",
+      "severity": "critical",
+      "category": "auth",
+      "title": "Account lookup misses authorization",
+      "body": "The new lookup uses a request-supplied accountId without proving the caller can access that account.",
+      "location": {
+        "path": "auth/accounts.ts",
+        "line": 23,
+        "side": "RIGHT"
+      },
+      "confidence": "high",
+      "evidence": [
+        "The patch returns db.accounts.findById(accountId) directly from a request query parameter."
+      ],
+      "recommendation": "Check account ownership or required permission before returning account data."
+    }
+  ]
+}

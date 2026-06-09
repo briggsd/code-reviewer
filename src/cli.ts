@@ -1,0 +1,254 @@
+#!/usr/bin/env bun
+
+import { join } from "node:path";
+import {
+  createDefaultReviewConfig,
+  createRunId,
+  decideCiOutcome,
+  DummyAgentRuntime,
+  FileSystemReviewStateStore,
+  formatReviewSummaryMarkdown,
+  GitHubVcsAdapter,
+  GitLabVcsAdapter,
+  JsonlTraceSink,
+  LocalCiAdapter,
+  PiAgentRuntime,
+  publishReviewSummary,
+  loadProjectReviewConfig,
+  loadReviewFixture,
+  reviewConfigSchema,
+  reviewOutputSchemas,
+  runReview,
+  runReviewFromChange,
+} from "./index.ts";
+import type { ChangeRef, DiffSummary, Finding, ReviewConfig, ReviewFixture, ChangeMetadata, VcsAdapter } from "./index.ts";
+
+const command = Bun.argv[2] ?? "help";
+
+try {
+  if (command === "schemas") {
+    console.log(JSON.stringify({ ...reviewOutputSchemas, config: reviewConfigSchema }, null, 2));
+  } else if (command === "run") {
+    await runCommand(Bun.argv.slice(3));
+  } else {
+    printHelp();
+  }
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`error: ${message}`);
+  process.exit(1);
+}
+
+type ReviewSource =
+  | { kind: "fixture"; fixture: ReviewFixture; config: ReviewConfig; fakeFindings: Finding[] }
+  | {
+      kind: "change";
+      metadata: ChangeMetadata;
+      diff: DiffSummary;
+      config: ReviewConfig;
+      fakeFindings: Finding[];
+      adapter: VcsAdapter;
+    };
+
+async function runCommand(args: string[]): Promise<void> {
+  const source = await loadReviewSource(args);
+  const outputDirectory = readFlag(args, "--output-dir");
+  const runtimeName = readFlag(args, "--runtime");
+  const outputFormat = readFlag(args, "--format") ?? "json";
+  const piProvider = readFlag(args, "--pi-provider");
+  const piModel = readFlag(args, "--pi-model");
+  const ciExit = hasFlag(args, "--ci-exit");
+  const publishSummary = hasFlag(args, "--publish-summary");
+  if (runtimeName !== undefined && runtimeName !== "dummy" && runtimeName !== "pi") {
+    throw new Error(`unsupported runtime: ${runtimeName}`);
+  }
+  if (outputFormat !== "json" && outputFormat !== "markdown") {
+    throw new Error(`unsupported format: ${outputFormat}`);
+  }
+  if ((piProvider === undefined) !== (piModel === undefined)) {
+    throw new Error("--pi-provider and --pi-model must be provided together");
+  }
+
+  const now = new Date();
+  const runId = source.kind === "fixture" ? source.fixture.runId ?? createRunId(now) : createRunId(now);
+  const tracePath = outputDirectory === undefined ? undefined : join(outputDirectory, "runs", runId, "trace.jsonl");
+  const traceSink = tracePath === undefined ? undefined : new JsonlTraceSink(tracePath);
+  const stateStore = outputDirectory === undefined ? undefined : new FileSystemReviewStateStore(outputDirectory);
+  const runtime = runtimeName === "dummy"
+    ? new DummyAgentRuntime({ defaultFindings: source.fakeFindings })
+    : runtimeName === "pi"
+      ? new PiAgentRuntime({
+        ...(piProvider !== undefined && piModel !== undefined
+          ? { defaultModel: { provider: piProvider, model: piModel } }
+          : {}),
+      })
+      : undefined;
+
+  try {
+    const result = source.kind === "fixture"
+      ? await runReview({
+        fixture: { ...source.fixture, runId },
+        now,
+        ...(stateStore !== undefined ? { stateStore } : {}),
+        ...(traceSink !== undefined ? { traceSink } : {}),
+        ...(tracePath !== undefined ? { tracePath } : {}),
+        ...(runtime !== undefined ? { runtime } : {}),
+      })
+      : await runReviewFromChange({
+        runId,
+        metadata: source.metadata,
+        diff: source.diff,
+        config: source.config,
+        fakeFindings: source.fakeFindings,
+        now,
+        ...(stateStore !== undefined ? { stateStore } : {}),
+        ...(traceSink !== undefined ? { traceSink } : {}),
+        ...(tracePath !== undefined ? { tracePath } : {}),
+        ...(runtime !== undefined ? { runtime } : {}),
+      });
+
+    if (publishSummary) {
+      if (source.kind !== "change") {
+        throw new Error("--publish-summary requires --provider github|gitlab");
+      }
+
+      await publishReviewSummary({
+        adapter: source.adapter,
+        change: result.context.metadata,
+        summary: result.summary,
+        runId,
+        ...(traceSink !== undefined ? { traceSink } : {}),
+      });
+    }
+
+    if (outputFormat === "markdown") {
+      console.log(formatReviewSummaryMarkdown(result.summary));
+    } else {
+      console.log(JSON.stringify(result.summary, null, 2));
+    }
+
+    if (ciExit) {
+      const decision = decideCiOutcome(result.summary, source.config);
+      await new LocalCiAdapter().emitDecision(decision);
+      process.exitCode = decision.exitCode;
+    }
+  } finally {
+    await traceSink?.close();
+  }
+}
+
+async function loadReviewSource(args: string[]): Promise<ReviewSource> {
+  const configPath = readFlag(args, "--config");
+  const fixturePath = readFlag(args, "--fixture");
+  if (fixturePath !== undefined) {
+    const fixture = await loadReviewFixture(fixturePath);
+    const config = await loadProjectReviewConfig({
+      ...(configPath !== undefined ? { path: configPath } : {}),
+      base: fixture.config,
+    });
+    return {
+      kind: "fixture",
+      fixture: { ...fixture, config },
+      config,
+      fakeFindings: fixture.fakeFindings ?? [],
+    };
+  }
+
+  const provider = readFlag(args, "--provider");
+  if (provider !== "github" && provider !== "gitlab") {
+    throw new Error("run requires either --fixture <path> or --provider github|gitlab");
+  }
+
+  const repo = requiredFlag(args, "--repo");
+  const changeId = requiredFlag(args, "--change-id");
+  const headSha = readFlag(args, "--head-sha") ?? "unknown";
+  const seedFixturePath = readFlag(args, "--seed-fixture");
+  const seedFixture = seedFixturePath === undefined ? undefined : await loadReviewFixture(seedFixturePath);
+  const config = await loadProjectReviewConfig({
+    ...(configPath !== undefined ? { path: configPath } : {}),
+    base: seedFixture?.config ?? createDefaultReviewConfig(),
+  });
+  const token = readProviderToken(provider, args);
+  const apiBaseUrl = readFlag(args, "--api-base-url");
+  const ref: ChangeRef = {
+    provider,
+    repository: {
+      provider,
+      name: repo.includes("/") ? repo.split("/").at(-1) ?? repo : repo,
+      slug: repo,
+      ...(repo.includes("/") ? { owner: repo.split("/")[0] } : {}),
+    },
+    changeId,
+    headSha,
+  };
+  const adapter = provider === "github"
+    ? new GitHubVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) })
+    : new GitLabVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) });
+  const [metadata, diff] = await Promise.all([
+    adapter.getChange(ref),
+    adapter.getDiff(ref),
+  ]);
+
+  return {
+    kind: "change",
+    metadata,
+    diff,
+    config,
+    fakeFindings: seedFixture?.fakeFindings ?? [],
+    adapter,
+  };
+}
+
+function readProviderToken(provider: "github" | "gitlab", args: string[]): string {
+  const tokenEnv = readFlag(args, "--token-env");
+  const value = tokenEnv !== undefined
+    ? process.env[tokenEnv]
+    : provider === "github"
+      ? process.env.AI_REVIEW_GITHUB_TOKEN ?? process.env.GITHUB_TOKEN
+      : process.env.AI_REVIEW_GITLAB_TOKEN ?? process.env.GITLAB_TOKEN;
+
+  if (value === undefined || value.length === 0) {
+    const defaults = provider === "github"
+      ? "AI_REVIEW_GITHUB_TOKEN or GITHUB_TOKEN"
+      : "AI_REVIEW_GITLAB_TOKEN or GITLAB_TOKEN";
+    throw new Error(`provider mode requires a read token in ${tokenEnv ?? defaults}`);
+  }
+
+  return value;
+}
+
+function requiredFlag(args: string[], name: string): string {
+  const value = readFlag(args, name);
+  if (value === undefined) {
+    throw new Error(`missing required flag ${name}`);
+  }
+
+  return value;
+}
+
+function readFlag(args: string[], name: string): string | undefined {
+  const index = args.indexOf(name);
+  if (index === -1) {
+    return undefined;
+  }
+
+  return args[index + 1];
+}
+
+function hasFlag(args: string[], name: string): boolean {
+  return args.includes(name);
+}
+
+function printHelp(): void {
+  console.log("ai-code-review-factory");
+  console.log("");
+  console.log("Commands:");
+  console.log("  schemas                              Print reviewer/coordinator output schemas");
+  console.log("  run --fixture <path> [--config <path>] [--output-dir] [--runtime dummy|pi]");
+  console.log("      [--format json|markdown] [--ci-exit] [--pi-provider <name> --pi-model <id>]");
+  console.log("  run --provider github|gitlab --repo <owner/name> --change-id <id>");
+  console.log("      [--head-sha <sha>] [--seed-fixture <path>] [--config <path>] [--runtime dummy|pi]");
+  console.log("      [--output-dir <path>] [--format json|markdown] [--publish-summary] [--ci-exit]");
+  console.log("      [--pi-provider <name> --pi-model <id>]");
+  console.log("                                       Run deterministic local review");
+}

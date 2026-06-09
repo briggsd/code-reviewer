@@ -1,0 +1,24 @@
+[
+  {
+    "filename": "assets/logo.png",
+    "status": "modified",
+    "additions": 0,
+    "deletions": 0,
+    "changes": 0
+  },
+  {
+    "filename": "package-lock.json",
+    "status": "modified",
+    "additions": 120,
+    "deletions": 118,
+    "changes": 238,
+    "patch": "@@ -1,10 +1,10 @@"
+  },
+  {
+    "filename": "src/large-generated.ts",
+    "status": "modified",
+    "additions": 1000,
+    "deletions": 900,
+    "changes": 1900
+  }
+]
