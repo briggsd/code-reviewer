@@ -129,6 +129,59 @@ class InvalidJsonPiProcessRunner implements PiProcessRunner {
   }
 }
 
+class FencedJsonWithInvalidBacktickEscapePiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    const output = input.role === "coordinator"
+      ? {
+        decision: "approved_with_comments",
+        outcome: "pass",
+        title: "AI review found suggestions",
+        body: "Coordinator preserved one suggestion.",
+        findings: [{
+          ...securityFinding(),
+          severity: "suggestion",
+          recommendation: "Replace `foo` with `bar`.",
+        }],
+        risk: {
+          tier: "lite",
+          reason: "Fake coordinator fallback risk.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      }
+      : input.role === "security"
+        ? [
+          "```json",
+          "{",
+          "  \"findings\": [",
+          "    {",
+          "      \"reviewer\": \"security\",",
+          "      \"severity\": \"suggestion\",",
+          "      \"category\": \"docs\",",
+          "      \"title\": \"Escaped backtick suggestion\",",
+          "      \"body\": \"The model escaped markdown backticks.\",",
+          "      \"location\": \"docs/example.md\",",
+          "      \"confidence\": \"medium\",",
+          "      \"evidence\": \"Recommendation contains invalid JSON backtick escapes.\",",
+          "      \"recommendation\": \"Replace \\`foo\\` with \\`bar\\`.\"",
+          "    }",
+          "  ]",
+          "}",
+          "```",
+        ].join("\n")
+        : { findings: [] };
+    const finalText = typeof output === "string" ? output : JSON.stringify(output);
+
+    return {
+      finalText,
+      events: [],
+      rawOutput: finalText,
+    };
+  }
+}
+
 describe("PiAgentRuntime", () => {
   test("runs coordinator and reviewers through a fake Pi process runner", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
@@ -271,6 +324,20 @@ describe("PiAgentRuntime", () => {
       line: 23,
     });
     expect(result.summary.findings[0]?.evidence).toEqual([]);
+  });
+
+  test("repairs invalid markdown backtick escapes in fenced reviewer JSON", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new PiAgentRuntime({ processRunner: new FencedJsonWithInvalidBacktickEscapePiProcessRunner() });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const securityResult = result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "security");
+    expect(securityResult?.findings[0]?.recommendation).toBe("Replace `foo` with `bar`.");
   });
 
   test("rejects invalid structured reviewer output", async () => {

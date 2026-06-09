@@ -463,22 +463,38 @@ function parseJsonObject(text: string): unknown {
   const candidate = fenced ?? trimmed;
 
   try {
-    return JSON.parse(candidate) as unknown;
+    return parseJsonCandidate(candidate);
   } catch {
     const objectStart = candidate.indexOf("{");
     const objectEnd = candidate.lastIndexOf("}");
     if (objectStart !== -1 && objectEnd > objectStart) {
-      return JSON.parse(candidate.slice(objectStart, objectEnd + 1)) as unknown;
+      return parseJsonCandidate(candidate.slice(objectStart, objectEnd + 1));
     }
 
     const arrayStart = candidate.indexOf("[");
     const arrayEnd = candidate.lastIndexOf("]");
     if (arrayStart !== -1 && arrayEnd > arrayStart) {
-      return JSON.parse(candidate.slice(arrayStart, arrayEnd + 1)) as unknown;
+      return parseJsonCandidate(candidate.slice(arrayStart, arrayEnd + 1));
     }
 
     throw new Error("Pi output did not contain valid JSON");
   }
+}
+
+function parseJsonCandidate(candidate: string): unknown {
+  try {
+    return JSON.parse(candidate) as unknown;
+  } catch (error) {
+    const repaired = repairInvalidJsonEscapes(candidate);
+    if (repaired !== candidate) {
+      return JSON.parse(repaired) as unknown;
+    }
+    throw error;
+  }
+}
+
+function repairInvalidJsonEscapes(candidate: string): string {
+  return candidate.replace(/\\(?!["\\/bfnrtu])/g, "");
 }
 
 function getRecord(value: unknown): Record<string, unknown> {
