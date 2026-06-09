@@ -30,7 +30,7 @@ Prepare AI Code Review Factory for a first internal beta in Fortis self-managed 
 - [x] **S05: Self-managed GitLab smoke/readiness profile** `risk:medium` `depends:[S01,S03]`
   > After this: maintainers can run a documented smoke against a Fortis-like MR and verify summary-note create/update behavior.
 
-- [ ] **S06: M007 verification sweep** `risk:medium` `depends:[S02,S04,S05]`
+- [x] **S06: M007 verification sweep** `risk:medium` `depends:[S02,S04,S05]`
   > After this: tests, package smoke, and docs checks prove beta adoption works without public npm or mutable refs.
 
 ## Key Risks
