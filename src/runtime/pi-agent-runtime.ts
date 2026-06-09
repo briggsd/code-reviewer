@@ -485,7 +485,7 @@ function parseJsonCandidate(candidate: string): unknown {
   try {
     return JSON.parse(candidate) as unknown;
   } catch (error) {
-    const repaired = repairInvalidJsonEscapes(candidate);
+    const repaired = repairEscapedMarkdownBackticks(candidate);
     if (repaired !== candidate) {
       return JSON.parse(repaired) as unknown;
     }
@@ -493,8 +493,12 @@ function parseJsonCandidate(candidate: string): unknown {
   }
 }
 
-function repairInvalidJsonEscapes(candidate: string): string {
-  return candidate.replace(/\\(?!["\\/bfnrtu])/g, "");
+function repairEscapedMarkdownBackticks(candidate: string): string {
+  // Some models emit fenced JSON whose string fields escape Markdown code ticks as \`,
+  // which is not a valid JSON escape sequence. Keep this repair intentionally narrow:
+  // do not strip arbitrary backslashes because recommendations can legitimately contain
+  // regexes, shell snippets, or paths where a backslash is meaningful.
+  return candidate.replace(/\\`/g, "`");
 }
 
 function getRecord(value: unknown): Record<string, unknown> {

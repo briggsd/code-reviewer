@@ -131,17 +131,24 @@ class InvalidJsonPiProcessRunner implements PiProcessRunner {
 
 class FencedJsonWithInvalidBacktickEscapePiProcessRunner implements PiProcessRunner {
   async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    const escapedFinding = {
+      ...securityFinding(),
+      severity: "suggestion" as const,
+      category: "docs",
+      title: "Escaped backtick suggestion",
+      body: "The model escaped markdown backticks.",
+      location: "docs/example.md",
+      confidence: "medium" as const,
+      evidence: "Recommendation contains invalid JSON backtick escapes.",
+      recommendation: "Replace `foo` with `bar`.",
+    };
     const output = input.role === "coordinator"
       ? {
         decision: "approved_with_comments",
         outcome: "pass",
         title: "AI review found suggestions",
         body: "Coordinator preserved one suggestion.",
-        findings: [{
-          ...securityFinding(),
-          severity: "suggestion",
-          recommendation: "Replace `foo` with `bar`.",
-        }],
+        findings: [escapedFinding],
         risk: {
           tier: "lite",
           reason: "Fake coordinator fallback risk.",
@@ -152,27 +159,13 @@ class FencedJsonWithInvalidBacktickEscapePiProcessRunner implements PiProcessRun
         },
       }
       : input.role === "security"
-        ? [
-          "```json",
-          "{",
-          "  \"findings\": [",
-          "    {",
-          "      \"reviewer\": \"security\",",
-          "      \"severity\": \"suggestion\",",
-          "      \"category\": \"docs\",",
-          "      \"title\": \"Escaped backtick suggestion\",",
-          "      \"body\": \"The model escaped markdown backticks.\",",
-          "      \"location\": \"docs/example.md\",",
-          "      \"confidence\": \"medium\",",
-          "      \"evidence\": \"Recommendation contains invalid JSON backtick escapes.\",",
-          "      \"recommendation\": \"Replace \\`foo\\` with \\`bar\\`.\"",
-          "    }",
-          "  ]",
-          "}",
-          "```",
-        ].join("\n")
+        ? { findings: [escapedFinding] }
         : { findings: [] };
-    const finalText = typeof output === "string" ? output : JSON.stringify(output);
+    const shouldFenceAndEscape = input.role === "coordinator" || input.role === "security";
+    const jsonText = JSON.stringify(output, null, 2);
+    const finalText = shouldFenceAndEscape
+      ? `\`\`\`json\n${jsonText.replace(/`/g, "\\`")}\n\`\`\``
+      : jsonText;
 
     return {
       finalText,
