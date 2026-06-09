@@ -42,5 +42,7 @@ describe("Pi live smoke workflow", () => {
     expect(docs).toContain("packaged `ai-code-review` CLI");
     expect(docs).toContain("adopter-like temporary working directory");
     expect(docs).toContain("--no-context-files --no-extensions --no-skills --no-prompt-templates --no-approve --no-session");
+    expect(docs).toContain("trace.jsonl` ends with a structured `review.failed` event");
+    expect(docs).toContain('phase: "agent_runtime"');
   });
 });

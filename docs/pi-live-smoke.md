@@ -31,8 +31,10 @@ Artifacts are written under:
 ```text
 <output>/runs/<runId>/trace.jsonl
 <output>/runs/<runId>/run.json
-<output>/runs/<runId>/summary.json
+<output>/runs/<runId>/summary.json # only present after successful summary creation
 ```
+
+On runtime/model/schema failure after context construction, `run.json` is still written with `error`, `completedAt`, `context`, and `tracePath`, and `trace.jsonl` ends with a structured `review.failed` event containing `phase: "agent_runtime"`, the error name, and the error message. Inspect those artifacts before rerunning; they should identify whether the failure was a Pi process error, timeout, malformed JSON, or unrecoverable schema drift.
 
 When enabled, the script packs the current trusted checkout with `npm pack`, installs the tarball into an isolated Bun global directory, creates an adopter-like temporary working directory, and invokes the installed `ai-code-review run --runtime pi` binary. The temporary adopter directory includes an `AGENTS.md` trap file; the Pi adapter's `--no-context-files --no-extensions --no-skills --no-prompt-templates --no-approve --no-session` flags are expected to keep project-local resources out of the model context.
 

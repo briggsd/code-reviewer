@@ -48,6 +48,7 @@ export type TraceEventType =
   | "agent.completed"
   | "coordinator.completed"
   | "publisher.completed"
+  | "review.failed"
   | "review.completed";
 
 export interface RepositoryRef {

@@ -23,7 +23,7 @@ Prove the review factory can be adopted like a real tool, not just run from this
 - [x] **S03: Live Pi runtime smoke path** `risk:high` `depends:[S02]`
   > After this: one controlled PR can run `--runtime pi` with real model output and verify schema handling plus project-resource isolation.
 
-- [ ] **S04: Runtime failure observability** `risk:medium` `depends:[S03]`
+- [x] **S04: Runtime failure observability** `risk:medium` `depends:[S03]`
   > After this: failed Pi/model/schema runs leave enough trace and artifact detail to diagnose from CI without blindly rerunning.
 
 - [ ] **S05: Adoption docs/checklist update** `risk:low` `depends:[S02,S03,S04]`
