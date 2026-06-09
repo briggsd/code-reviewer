@@ -542,6 +542,12 @@ Fork MR parent-project pipelines are privileged. They must not execute untrusted
 - Use CI status as deterministic enforcement.
 - Make fail-open/fail-closed explicit per project.
 
+### Trusted resource boundary
+
+The factory separates **trusted operator resources** from **reviewed-repo resources**. Trusted operator resources are controlled by the review factory maintainer: reviewer definitions, coordinator rubrics, CI defaults, runtime hardening flags, and model credentials. Reviewed-repo resources are supplied by the repository or change under review: metadata, diffs, project config, checked-out files, and project-local agent instructions or extensions.
+
+Only trusted operator resources may define reviewer authority in CI. Reviewed-repo content can be quoted, summarized, filtered, or used as data, but it must not become trusted runtime configuration unless a maintainer explicitly chooses a privileged mode. For the Pi runtime, this means reviewed-repo context files, skills, prompt templates, extensions, session state, and approval state remain disabled in CI-oriented runs.
+
 ## Resilience design
 
 ### Timeouts

@@ -23,7 +23,7 @@ Improve review quality by moving from generic reviewer instructions to trusted, 
 
 ## Tentative Slices
 
-- [ ] **S01: Document trusted-operator vs untrusted-repo boundary** `risk:medium` `depends:[]` `issues:[#17]`
+- [x] **S01: Document trusted-operator vs untrusted-repo boundary** `risk:medium` `depends:[]` `issues:[#17]`
   > After this: security/fork-safety docs explain the two resource layers and the invariant that reviewed-repo Pi resources stay disabled.
 
 - [ ] **S02: Central prompt-boundary sanitization** `risk:high` `depends:[S01]` `issues:[#14]`

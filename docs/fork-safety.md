@@ -18,6 +18,17 @@ Use summary publishing only in a separate job that is guarded to same-repository
 
 Fork PR/MR content is untrusted. Titles, descriptions, diffs, project config, and checked-out files can contain prompt injection or malicious code. The review factory can fetch metadata and diffs through provider APIs without executing project code, so privileged credentials should not be present in jobs that process untrusted fork content.
 
+## Trusted operator resources vs reviewed-repo resources
+
+The review factory has two resource layers:
+
+- **Trusted operator resources** are shipped with or configured by the review factory operator. Examples include reviewer definitions, coordinator rubrics, runtime defaults, CI templates, and centrally managed model credentials. These resources can shape prompts and runtime behavior.
+- **Reviewed-repo resources** come from the repository or change being reviewed. Examples include PR/MR titles, descriptions, comments, project config, diffs, checked-out files, and project-local agent instructions or extensions. Treat them as untrusted input unless the CI policy explicitly says the job is trusted.
+
+The invariant for CI is: **reviewed-repo Pi resources stay disabled by default**. A reviewed repository must not be allowed to smuggle trusted instructions through project-local context files, skills, prompt templates, extensions, or approval/session state. The Pi adapter's CI invocation keeps those resource loaders off; only factory-controlled reviewer/coordinator instructions should act as trusted prompt authority.
+
+Project config may select policy within the supported schema, but it is not a permission boundary and it does not make reviewed-repo content trusted. Use a separate maintainer-approved privileged mode if a job intentionally wants to load repository-local agent resources.
+
 ## Permission matrix
 
 | Scenario | Trigger/context | Checkout allowed? | Secrets/model credentials? | VCS write token? | Publish summary? |

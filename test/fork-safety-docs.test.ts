@@ -14,6 +14,20 @@ describe("fork safety documentation", () => {
     expect(guide).toContain("two-stage reporter");
   });
 
+  test("documents trusted operator resources versus reviewed-repo resources", async () => {
+    const guide = await readFile("docs/fork-safety.md", "utf8");
+    const architecture = await readFile("docs/architecture.md", "utf8");
+
+    expect(guide).toContain("Trusted operator resources");
+    expect(guide).toContain("Reviewed-repo resources");
+    expect(guide).toContain("reviewed-repo Pi resources stay disabled by default");
+    expect(guide).toContain("project-local context files, skills, prompt templates, extensions");
+    expect(guide).toContain("Project config may select policy within the supported schema, but it is not a permission boundary");
+    expect(architecture).toContain("### Trusted resource boundary");
+    expect(architecture).toContain("Only trusted operator resources may define reviewer authority in CI");
+    expect(architecture).toContain("context files, skills, prompt templates, extensions, session state, and approval state remain disabled");
+  });
+
   test("CI template docs link to fork safety guidance", async () => {
     const ciDocs = await readFile("docs/ci-templates.md", "utf8");
     const readme = await readFile("README.md", "utf8");
