@@ -459,8 +459,7 @@ function normalizeEvidence(value: unknown): string[] | undefined {
 
 function parseJsonObject(text: string): unknown {
   const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
-  const candidate = fenced ?? trimmed;
+  const candidate = extractFencedJson(trimmed) ?? trimmed;
 
   try {
     return parseJsonCandidate(candidate);
@@ -487,10 +486,28 @@ function parseJsonCandidate(candidate: string): unknown {
   } catch (error) {
     const repaired = repairEscapedMarkdownBackticks(candidate);
     if (repaired !== candidate) {
-      return JSON.parse(repaired) as unknown;
+      try {
+        return JSON.parse(repaired) as unknown;
+      } catch {
+        throw error;
+      }
     }
     throw error;
   }
+}
+
+function extractFencedJson(trimmed: string): string | undefined {
+  const opening = trimmed.match(/^```(?:json)?[^\n]*\n/i);
+  if (opening === null) {
+    return undefined;
+  }
+
+  const closingIndex = trimmed.lastIndexOf("```");
+  if (closingIndex <= opening[0].length) {
+    return undefined;
+  }
+
+  return trimmed.slice(opening[0].length, closingIndex).trim();
 }
 
 function repairEscapedMarkdownBackticks(candidate: string): string {
@@ -498,7 +515,7 @@ function repairEscapedMarkdownBackticks(candidate: string): string {
   // which is not a valid JSON escape sequence. Keep this repair intentionally narrow:
   // do not strip arbitrary backslashes because recommendations can legitimately contain
   // regexes, shell snippets, or paths where a backslash is meaningful.
-  return candidate.replace(/\\`/g, "`");
+  return candidate.replace(/(?<!\\)\\`/g, "`");
 }
 
 function getRecord(value: unknown): Record<string, unknown> {
