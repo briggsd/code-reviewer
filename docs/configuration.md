@@ -39,9 +39,9 @@ bun run schema:config
     "performance": "full_only"
   },
   "timeouts": {
-    "reviewerMs": 120000,
-    "coordinatorMs": 180000,
-    "overallMs": 300000
+    "reviewerMs": 240000,
+    "coordinatorMs": 240000,
+    "overallMs": 420000
   },
   "modelRouting": {
     "default": {
@@ -72,7 +72,7 @@ bun run schema:config
 - `sensitivePaths`: glob-like path patterns that escalate risk.
 - `ignoredPaths`: glob-like path patterns filtered out before review.
 - `reviewerPolicy`: role name to `enabled`, `disabled`, or `full_only`.
-- `timeouts`: reviewer/coordinator/overall budgets in milliseconds.
+- `timeouts`: reviewer/coordinator/overall budgets in milliseconds. Defaults are sized for live model-backed review; lower them for tighter CI budgets or raise them for slower self-hosted/model paths.
 - `modelRouting.default`: fallback model for roles without an override.
 - `modelRouting.roles`: role-specific model selections.
 - `projectInstructionsPath`: reserved path for trusted project instructions.

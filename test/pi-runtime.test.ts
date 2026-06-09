@@ -140,7 +140,7 @@ class FencedJsonWithInvalidBacktickEscapePiProcessRunner implements PiProcessRun
       location: "docs/example.md",
       confidence: "medium" as const,
       evidence: "Recommendation contains invalid JSON backtick escapes.",
-      recommendation: "Replace `foo` with `bar`.\n```ts\nfoo();\n```",
+      recommendation: "Replace `foo` with `bar`, keep C:\\`path`, and preserve the fenced example.\n```ts\nfoo();\n```",
     };
     const output = input.role === "coordinator"
       ? {
@@ -329,7 +329,7 @@ describe("PiAgentRuntime", () => {
       now: new Date("2026-06-09T00:00:00.000Z"),
     });
 
-    const expectedRecommendation = "Replace `foo` with `bar`.\n```ts\nfoo();\n```";
+    const expectedRecommendation = "Replace `foo` with `bar`, keep C:\\`path`, and preserve the fenced example.\n```ts\nfoo();\n```";
     const securityResult = result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "security");
     expect(securityResult?.findings[0]?.recommendation).toBe(expectedRecommendation);
     expect(result.summary.findings[0]?.recommendation).toBe(expectedRecommendation);

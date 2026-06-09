@@ -46,7 +46,7 @@ When enabled, the script packs the current trusted checkout with `npm pack`, ins
 - `pi --mode json`
 - default CI-hardening flags: `--no-session --no-approve --no-extensions --no-skills --no-prompt-templates --no-context-files`
 - untrusted read-only runtime tool policy
-- reviewer structured output parsing, including a narrow repair for model-emitted Markdown backtick escapes (`\``) inside fenced JSON strings
+- reviewer structured output parsing, including a narrow repair for model-emitted Markdown backtick escapes (`` \` ``) inside fenced JSON strings
 - coordinator summary parsing/fallback
 - streaming JSONL event forwarding into the trace sink
 - JSONL trace and filesystem state artifacts

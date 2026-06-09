@@ -502,20 +502,41 @@ function extractFencedJson(trimmed: string): string | undefined {
     return undefined;
   }
 
-  const closingIndex = trimmed.lastIndexOf("```");
-  if (closingIndex <= opening[0].length) {
+  const body = trimmed.slice(opening[0].length);
+  const closing = body.match(/\n```[^\n]*$/);
+  if (closing?.index === undefined) {
     return undefined;
   }
 
-  return trimmed.slice(opening[0].length, closingIndex).trim();
+  return body.slice(0, closing.index).trim();
 }
 
 function repairEscapedMarkdownBackticks(candidate: string): string {
   // Some models emit fenced JSON whose string fields escape Markdown code ticks as \`,
   // which is not a valid JSON escape sequence. Keep this repair intentionally narrow:
   // do not strip arbitrary backslashes because recommendations can legitimately contain
-  // regexes, shell snippets, or paths where a backslash is meaningful.
-  return candidate.replace(/(?<!\\)\\`/g, "`");
+  // regexes, shell snippets, or paths where a backslash is meaningful. Only remove the
+  // final backslash from an odd-length run immediately before a backtick.
+  let repaired = "";
+
+  for (const character of candidate) {
+    if (character === "`" && countTrailingBackslashes(repaired) % 2 === 1) {
+      repaired = repaired.slice(0, -1);
+    }
+    repaired += character;
+  }
+
+  return repaired;
+}
+
+function countTrailingBackslashes(value: string): number {
+  let count = 0;
+
+  for (let index = value.length - 1; index >= 0 && value[index] === "\\"; index -= 1) {
+    count += 1;
+  }
+
+  return count;
 }
 
 function getRecord(value: unknown): Record<string, unknown> {
