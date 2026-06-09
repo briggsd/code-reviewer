@@ -11,6 +11,8 @@ describe("re-review state documentation", () => {
     expect(guide).toContain("createStableFindingId()");
     expect(guide).toContain("schemaVersion: 1");
     expect(guide).toContain("findingIds");
+    expect(guide).toContain("parseSummaryHiddenMetadata()");
+    expect(guide).toContain("createPriorReviewStateFromMetadata()");
     expect(guide).toContain("new, recurring, or absent/fixed");
     expect(readme).toContain("[Re-review state](docs/re-review-state.md)");
   });

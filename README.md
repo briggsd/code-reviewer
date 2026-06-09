@@ -101,6 +101,7 @@ Example `.ai-review.json`:
 - Disabled-by-default GitHub Actions Pi live smoke workflow for trusted maintainer runs.
 - Release readiness checklist for package verification, CI adoption, secrets, and release blockers.
 - Stable finding IDs in completed summaries and hidden summary metadata.
+- Prior summary metadata parsing from existing GitHub comments and GitLab notes.
 
 ## Design stance
 

@@ -162,6 +162,48 @@ describe("GitLabVcsAdapter", () => {
     });
   });
 
+  test("loads prior review state from existing summary note metadata", async () => {
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+
+        if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes") {
+          return jsonResponse([
+            { id: 111, body: "unrelated note" },
+            {
+              id: 222,
+              body: [
+                "<!-- ai-code-review-factory",
+                JSON.stringify({
+                  schemaVersion: 1,
+                  runId: "prior-run",
+                  headSha: "old-head",
+                  provider: "gitlab",
+                  repository: "example/payments-api",
+                  changeId: "7",
+                  findingIds: ["fnd_auth_1", "fnd_auth_2"],
+                }),
+                "-->",
+              ].join("\n"),
+            },
+          ]);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const state = await adapter.getPriorReviewState(changeRef);
+
+    expect(state?.previousRunId).toBe("prior-run");
+    expect(state?.previousHeadSha).toBe("old-head");
+    expect(state?.findings.map((finding) => finding.stableId)).toEqual(["fnd_auth_1", "fnd_auth_2"]);
+    expect(state?.hiddenMetadata?.repository).toBe("example/payments-api");
+  });
+
   test("updates an existing summary note instead of posting a duplicate", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const adapter = new GitLabVcsAdapter({

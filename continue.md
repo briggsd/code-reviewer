@@ -142,9 +142,9 @@ Continue M002 re-review state foundation.
 
 Concrete next steps:
 
-1. Continue M002 S02: parse prior bot summary hidden metadata from GitHub/GitLab comments/notes.
-2. Then continue M002 S03: load `PriorReviewState` into `ReviewContext.priorState` for provider-backed runs.
-3. Later M002 slices classify current findings as new/recurring/fixed before any inline discussion resolution.
+1. Continue M002 S03: load `PriorReviewState` into `ReviewContext.priorState` for provider-backed runs.
+2. Then M002 S04: classify current findings as new/recurring/fixed before any inline discussion resolution.
+3. Finish M002 S05 with docs and fixtures for the re-review state flow.
 
 ## Why
 
@@ -169,6 +169,7 @@ Local `main` tracks `origin/main` and includes merged PR #1. At the handoff poin
 ## Open threads
 
 - M002 S01 is complete: stable finding IDs are assigned to completed summaries, runtime-supplied IDs are preserved, and summary hidden metadata records `findingIds` with `schemaVersion: 1`.
+- M002 S02 is complete: `parseSummaryHiddenMetadata()` and `createPriorReviewStateFromMetadata()` recover prior run IDs/head SHAs/finding IDs from hidden metadata; GitHub/GitLab adapters now return minimal `PriorReviewState` from existing bot summary comments/notes.
 - Decide first external package distribution target when ready: npm package, container image, GitHub Action, GitLab component, or staged combination.
 - If using Pi live, explicitly control resource loading in CI so reviewed repositories cannot load untrusted project-local extensions/settings/instructions as privileged instructions. The current Pi subprocess adapter disables these by default.
 

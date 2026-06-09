@@ -1,6 +1,6 @@
 # Re-review state
 
-Re-review support starts with stable finding IDs. Inline comment/discussion resolution is still deferred, but every completed review summary now has deterministic finding IDs that future re-review logic can compare across runs.
+Re-review support starts with stable finding IDs and parseable prior summary metadata. Inline comment/discussion resolution is still deferred, but every completed review summary now has deterministic finding IDs that future re-review logic can compare across runs.
 
 ## Stable finding IDs
 
@@ -38,7 +38,9 @@ Published summary comments/notes include hidden metadata with `schemaVersion: 1`
 }
 ```
 
-The metadata is a seed for future prior-state parsing. It is not the canonical state store; CI artifacts and any future external state backend should still persist full summaries.
+The metadata is parsed by `parseSummaryHiddenMetadata()` and converted to a minimal `PriorReviewState` by `createPriorReviewStateFromMetadata()`. GitHub and GitLab adapters use this to recover prior run IDs, prior head SHA, and prior stable finding IDs from existing bot summary comments/notes.
+
+The metadata is not the canonical state store; CI artifacts and any future external state backend should still persist full summaries. When only summary metadata is available, prior findings are represented as placeholder findings keyed by stable ID until full prior summary details are loaded.
 
 ## Future re-review flow
 

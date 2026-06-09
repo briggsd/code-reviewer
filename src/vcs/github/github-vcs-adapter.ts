@@ -11,6 +11,7 @@ import type {
   VcsAdapter,
 } from "../../contracts/index.ts";
 import { formatReviewSummaryMarkdown } from "../../publisher/summary-markdown.ts";
+import { createPriorReviewStateFromMetadata, parseSummaryHiddenMetadata } from "../../publisher/summary-metadata.ts";
 
 export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -144,8 +145,12 @@ export class GitHubVcsAdapter implements VcsAdapter {
     };
   }
 
-  async getPriorReviewState(_ref: ChangeRef): Promise<PriorReviewState | undefined> {
-    return undefined;
+  async getPriorReviewState(ref: ChangeRef): Promise<PriorReviewState | undefined> {
+    const comments = await this.requestAllPages<GitHubIssueCommentResponse>(this.issueCommentsPath(ref));
+    const existing = comments.findLast((comment) => parseSummaryHiddenMetadata(comment.body) !== undefined);
+    const metadata = parseSummaryHiddenMetadata(existing?.body);
+
+    return metadata === undefined ? undefined : createPriorReviewStateFromMetadata(metadata, ref);
   }
 
   async publishSummary(input: PublishSummaryInput): Promise<PublishSummaryResult> {
@@ -184,11 +189,11 @@ export class GitHubVcsAdapter implements VcsAdapter {
     return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${encodeURIComponent(ref.changeId)}`;
   }
 
-  private issueCommentsPath(change: ChangeMetadata): string {
-    const owner = change.repository.owner ?? ownerFromSlug(change.repository.slug);
-    const repo = repoNameFromSlug(change.repository.slug, change.repository.name);
+  private issueCommentsPath(ref: ChangeRef | ChangeMetadata): string {
+    const owner = ref.repository.owner ?? ownerFromSlug(ref.repository.slug);
+    const repo = repoNameFromSlug(ref.repository.slug, ref.repository.name);
 
-    return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${encodeURIComponent(change.changeId)}/comments`;
+    return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${encodeURIComponent(ref.changeId)}/comments`;
   }
 
   private issueCommentPath(change: ChangeMetadata, commentId: number): string {

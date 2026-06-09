@@ -17,7 +17,7 @@ Make a second review of the same PR/MR aware of the first one. Before adding inl
 - [x] **S01: Stable finding IDs** `risk:medium` `depends:[]`
   > After this: all review summaries include deterministic finding IDs derived from reviewer/category/location/title/body, and published hidden metadata records those IDs.
 
-- [ ] **S02: Prior summary metadata parser** `risk:medium` `depends:[S01]`
+- [x] **S02: Prior summary metadata parser** `risk:medium` `depends:[S01]`
   > After this: GitHub/GitLab adapters can recover prior run metadata from existing bot summary comments/notes instead of only finding the comment to update.
 
 - [ ] **S03: Prior state loading path** `risk:medium` `depends:[S02]`

@@ -140,6 +140,48 @@ describe("GitHubVcsAdapter", () => {
     });
   });
 
+  test("loads prior review state from existing summary comment metadata", async () => {
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+
+        if (url === "https://api.github.com/repos/example/payments-api/issues/42/comments?per_page=100") {
+          return jsonResponse([
+            { id: 111, body: "unrelated comment" },
+            {
+              id: 222,
+              body: [
+                "<!-- ai-code-review-factory",
+                JSON.stringify({
+                  schemaVersion: 1,
+                  runId: "prior-run",
+                  headSha: "old-head",
+                  provider: "github",
+                  repository: "example/payments-api",
+                  changeId: "42",
+                  findingIds: ["fnd_auth_1", "fnd_auth_2"],
+                }),
+                "-->",
+              ].join("\n"),
+            },
+          ]);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const state = await adapter.getPriorReviewState(changeRef);
+
+    expect(state?.previousRunId).toBe("prior-run");
+    expect(state?.previousHeadSha).toBe("old-head");
+    expect(state?.findings.map((finding) => finding.stableId)).toEqual(["fnd_auth_1", "fnd_auth_2"]);
+    expect(state?.hiddenMetadata?.repository).toBe("example/payments-api");
+  });
+
   test("updates an existing summary comment instead of posting a duplicate", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const adapter = new GitHubVcsAdapter({

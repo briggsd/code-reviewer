@@ -11,6 +11,7 @@ import type {
   VcsAdapter,
 } from "../../contracts/index.ts";
 import { formatReviewSummaryMarkdown } from "../../publisher/summary-markdown.ts";
+import { createPriorReviewStateFromMetadata, parseSummaryHiddenMetadata } from "../../publisher/summary-metadata.ts";
 
 export type GitLabFetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -134,8 +135,12 @@ export class GitLabVcsAdapter implements VcsAdapter {
     };
   }
 
-  async getPriorReviewState(_ref: ChangeRef): Promise<PriorReviewState | undefined> {
-    return undefined;
+  async getPriorReviewState(ref: ChangeRef): Promise<PriorReviewState | undefined> {
+    const notes = await this.request<GitLabNoteResponse[]>(this.mergeRequestNotesPath(ref));
+    const existing = notes.findLast((note) => parseSummaryHiddenMetadata(note.body) !== undefined);
+    const metadata = parseSummaryHiddenMetadata(existing?.body);
+
+    return metadata === undefined ? undefined : createPriorReviewStateFromMetadata(metadata, ref);
   }
 
   async publishSummary(input: PublishSummaryInput): Promise<PublishSummaryResult> {
@@ -171,8 +176,8 @@ export class GitLabVcsAdapter implements VcsAdapter {
     return `/projects/${encodeURIComponent(ref.repository.slug)}/merge_requests/${encodeURIComponent(ref.changeId)}`;
   }
 
-  private mergeRequestNotesPath(change: ChangeMetadata): string {
-    return `/projects/${encodeURIComponent(change.repository.slug)}/merge_requests/${encodeURIComponent(change.changeId)}/notes`;
+  private mergeRequestNotesPath(ref: ChangeRef | ChangeMetadata): string {
+    return `/projects/${encodeURIComponent(ref.repository.slug)}/merge_requests/${encodeURIComponent(ref.changeId)}/notes`;
   }
 
   private mergeRequestNotePath(change: ChangeMetadata, noteId: number): string {
