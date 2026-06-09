@@ -24,7 +24,7 @@ Prepare AI Code Review Factory for a first internal beta in Fortis self-managed 
 - [x] **S03: Fortis-style GitLab MR pipeline template** `risk:high` `depends:[S01,S02]`
   > After this: a beta repo can copy one GitLab CI example with dry-run artifacts and guarded same-project summary publishing.
 
-- [ ] **S04: Beta operator onboarding guide** `risk:medium` `depends:[S03]`
+- [x] **S04: Beta operator onboarding guide** `risk:medium` `depends:[S03]`
   > After this: first-repo onboarding has token scopes, CI variables, artifact inspection, failure debugging, and rotation guidance.
 
 - [ ] **S05: Self-managed GitLab smoke/readiness profile** `risk:medium` `depends:[S01,S03]`

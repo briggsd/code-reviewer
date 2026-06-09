@@ -1,6 +1,6 @@
 # Adoption guide
 
-Use this guide when wiring AI Code Review Factory into another repository.
+Use this guide when wiring AI Code Review Factory into another repository. For the Fortis/self-managed GitLab beta operator checklist, see [Fortis GitLab beta onboarding](fortis-gitlab-beta.md).
 
 ## Recommended adoption path
 

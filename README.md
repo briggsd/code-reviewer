@@ -10,6 +10,7 @@ This repository starts as an architecture/design workspace. The implementation t
 - [Runtime comparison](docs/runtime-comparison.md) — OpenCode vs Pi as the review factory agent runtime.
 - [Configuration](docs/configuration.md) — `.ai-review.json` fields, merging behavior, and schema command.
 - [Adoption guide](docs/adoption.md) — recommended install path, live-tested evidence, deferred channels, and adopter checklist.
+- [Fortis GitLab beta onboarding](docs/fortis-gitlab-beta.md) — self-managed GitLab beta setup, variables, debugging, and token rotation.
 - [CI templates](docs/ci-templates.md) — GitHub Actions and GitLab CI starter templates.
 - [GitHub Action wrapper](docs/github-action-wrapper.md) — thin `uses:` wrapper around the packaged CLI.
 - [Fork safety](docs/fork-safety.md) — public-repo fork strategy and secret/write-token boundaries.
