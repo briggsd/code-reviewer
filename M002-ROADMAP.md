@@ -23,7 +23,7 @@ Make a second review of the same PR/MR aware of the first one. Before adding inl
 - [x] **S03: Prior state loading path** `risk:medium` `depends:[S02]`
   > After this: provider-backed review runs can load `PriorReviewState` into `ReviewContext.priorState` before agents run.
 
-- [ ] **S04: Fixed-vs-still-present summary classification** `risk:high` `depends:[S03]`
+- [x] **S04: Fixed-vs-still-present summary classification** `risk:high` `depends:[S03]`
   > After this: summaries can distinguish new, recurring, and fixed prior findings using stable IDs, without resolving provider threads yet.
 
 - [ ] **S05: Re-review docs and fixtures** `risk:low` `depends:[S04]`

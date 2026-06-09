@@ -23,6 +23,7 @@ import type {
 import { filterDiff } from "./diff-filter.ts";
 import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
 import { classifyRisk } from "./risk-classifier.ts";
+import { classifyReReviewFindings } from "./re-review.ts";
 import { assignStableFindingIds } from "./stable-finding-id.ts";
 
 export interface RunReviewOptions {
@@ -146,7 +147,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     traceSink: options.traceSink,
     fakeFindings: fixture.fakeFindings ?? [],
   });
-  const summary = assignStableFindingIds(runtimeResult.summary);
+  const summary = classifyReReviewFindings(assignStableFindingIds(runtimeResult.summary), context.priorState);
 
   await emitTrace(options.traceSink, {
     type: "coordinator.completed",
@@ -157,6 +158,13 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       decision: summary.decision,
       outcome: summary.outcome,
       findingCount: summary.findings.length,
+      ...(summary.reReview !== undefined
+        ? {
+          newFindingCount: summary.reReview.newFindingIds.length,
+          recurringFindingCount: summary.reReview.recurringFindingIds.length,
+          fixedFindingCount: summary.reReview.fixedFindingIds.length,
+        }
+        : {}),
     },
   });
 

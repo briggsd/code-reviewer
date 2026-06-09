@@ -48,6 +48,17 @@ Provider-backed runs now call `VcsAdapter.getPriorReviewState()` while fetching 
 
 The context-building trace includes `priorFindingCount` so artifacts show whether a re-review had prior state available.
 
+## New, recurring, and fixed classification
+
+When `ReviewContext.priorState` is present, the runner attaches `summary.reReview` after stable IDs are assigned:
+
+- `newFindingIds`: current finding IDs that were not in prior state.
+- `recurringFindingIds`: current finding IDs that were also in prior state.
+- `fixedFindingIds`: prior finding IDs that are absent from the current review.
+- `classifications`: per-ID records with status `new`, `recurring`, or `fixed`, plus current/prior finding details where available.
+
+Summary markdown renders a **Re-review status** section with the new/recurring/fixed counts. Fixed findings are reported in the summary only; provider threads are not resolved yet.
+
 ## Future re-review flow
 
 1. Load prior bot summary metadata from the provider.

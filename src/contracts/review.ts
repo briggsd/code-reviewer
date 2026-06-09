@@ -119,6 +119,23 @@ export interface Finding {
   recommendation: string;
 }
 
+export type ReReviewFindingStatus = "new" | "recurring" | "fixed";
+
+export interface ReReviewFindingClassification {
+  stableId: string;
+  status: ReReviewFindingStatus;
+  finding?: Finding;
+  priorFinding?: Finding;
+  lastSeenHeadSha?: string;
+}
+
+export interface ReReviewSummary {
+  newFindingIds: string[];
+  recurringFindingIds: string[];
+  fixedFindingIds: string[];
+  classifications: ReReviewFindingClassification[];
+}
+
 export interface ReviewSummary {
   decision: ReviewDecision;
   outcome: CiOutcome;
@@ -126,6 +143,7 @@ export interface ReviewSummary {
   body: string;
   findings: Finding[];
   risk: RiskAssessment;
+  reReview?: ReReviewSummary;
 }
 
 export interface PriorFindingState {

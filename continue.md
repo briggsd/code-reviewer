@@ -142,8 +142,7 @@ Continue M002 re-review state foundation.
 
 Concrete next steps:
 
-1. Continue M002 S04: classify current findings as new/recurring/fixed before any inline discussion resolution.
-2. Finish M002 S05 with docs and fixtures for the re-review state flow.
+1. Finish M002 S05 with docs and fixtures for the re-review state flow.
 
 ## Why
 
@@ -170,6 +169,7 @@ Local `main` tracks `origin/main` and includes merged PR #1. At the handoff poin
 - M002 S01 is complete: stable finding IDs are assigned to completed summaries, runtime-supplied IDs are preserved, and summary hidden metadata records `findingIds` with `schemaVersion: 1`.
 - M002 S02 is complete: `parseSummaryHiddenMetadata()` and `createPriorReviewStateFromMetadata()` recover prior run IDs/head SHAs/finding IDs from hidden metadata; GitHub/GitLab adapters now return minimal `PriorReviewState` from existing bot summary comments/notes.
 - M002 S03 is complete: fixtures and `runReviewFromChange()` accept `priorState`, provider-backed CLI loading fetches `adapter.getPriorReviewState(ref)` alongside metadata/diff, and `ReviewContext.priorState` is populated before agents run. `context.built` trace data includes `priorFindingCount`.
+- M002 S04 is complete: `createReReviewSummary()`/`classifyReReviewFindings()` compare stable current/prior IDs and attach `summary.reReview` with `newFindingIds`, `recurringFindingIds`, `fixedFindingIds`, and per-ID classifications. Summary markdown renders re-review counts and fixed IDs.
 - Decide first external package distribution target when ready: npm package, container image, GitHub Action, GitLab component, or staged combination.
 - If using Pi live, explicitly control resource loading in CI so reviewed repositories cannot load untrusted project-local extensions/settings/instructions as privileged instructions. The current Pi subprocess adapter disables these by default.
 
