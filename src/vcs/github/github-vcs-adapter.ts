@@ -218,7 +218,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
         const response = await this.request<GitHubPullReviewCommentResponse>(this.pullCommentsPath(input.change), {
           method: "POST",
           body: {
-            body: formatInlineFindingComment(finding, input.change),
+            body: formatInlineFindingComment(finding, input.change, input.runId),
             commit_id: input.change.headSha,
             path: coordinate.path,
             line: coordinate.line,
@@ -363,28 +363,56 @@ function githubInlineCoordinateForFinding(finding: Finding): { path: string; lin
   };
 }
 
-function formatInlineFindingComment(finding: Finding, change: ChangeMetadata): string {
+function formatInlineFindingComment(finding: Finding, change: ChangeMetadata, runId: string | undefined): string {
   const metadata = JSON.stringify({
     schemaVersion: 1,
-    findingId: finding.id ?? null,
+    provider: change.provider,
+    repository: change.repository.slug,
+    changeId: change.changeId,
     headSha: change.headSha,
+    findingId: finding.id ?? null,
+    runId: runId ?? null,
   });
+  const evidence = finding.evidence.length === 0
+    ? ["- No separate evidence was provided."]
+    : finding.evidence.map((item) => `- ${item}`);
 
   return [
-    `### AI review: ${finding.title}`,
+    `### AI review: ${formatSeverity(finding.severity)} · ${finding.category}`,
     "",
-    `**Severity:** ${finding.severity}`,
-    `**Category:** ${finding.category}`,
-    `**Confidence:** ${finding.confidence}`,
+    `**${finding.title}**`,
     "",
     finding.body,
     "",
-    `**Recommendation:** ${finding.recommendation}`,
+    `**Confidence:** ${formatTitleCase(finding.confidence)}`,
+    "",
+    "<details>",
+    "<summary>Evidence</summary>",
+    "",
+    ...evidence,
+    "",
+    "</details>",
+    "",
+    "**Recommendation**",
+    "",
+    finding.recommendation,
+    "",
+    "_AI review inline comment. CI status and the summary comment remain authoritative._",
     "",
     "<!-- ai-code-review-factory-inline",
     metadata,
     "-->",
   ].join("\n");
+}
+
+function formatSeverity(severity: Finding["severity"]): string {
+  const icon = severity === "critical" ? "🚨" : severity === "warning" ? "⚠️" : "💬";
+
+  return `${icon} ${formatTitleCase(severity)}`;
+}
+
+function formatTitleCase(value: string): string {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function parseInlineCommentMetadata(body: string | undefined): { findingId?: string; headSha?: string } | undefined {

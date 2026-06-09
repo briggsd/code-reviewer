@@ -51,11 +51,11 @@ Use the full template in `examples/ci/github-actions-ai-review.yml` for the sepa
 - **Packaged Pi runtime:** `AI_REVIEW_LIVE_PI=1 bun run smoke:pi` has run successfully through the packed CLI and Pi JSON mode, producing `run.json`, `summary.json`, and `trace.jsonl` artifacts.
 - **Failure observability:** tests simulate runtime failure and assert persisted `run.json.error` plus a terminal `review.failed` trace event.
 - **GitHub inline publishing:** unit/adapter coverage verifies readiness gating, GitHub review comment creation, skipped reasons, and duplicate suppression. Live smoke status is tracked in `docs/inline-publishing.md` and `docs/workflow-smoke-test.md`.
+- **GitLab live summary publishing:** M005 smoke against `test-group-zinga/general` MR #3 verified metadata/diff fetch, summary note publish, and idempotent update of one GitLab note.
 
 ## Not yet live-tested or intentionally deferred
 
 - **GitLab inline discussions:** deferred. `evaluateInlinePublishReadiness()` exists, but GitLab diff discussion posting is not implemented yet.
-- **GitLab live publishing:** adapters and templates are covered by tests, but no live GitLab MR smoke has been recorded in this repository yet.
 - **Container image, GitHub Action wrapper, GitLab component wrapper:** deferred until the CLI/package interface and safety controls stabilize.
 - **Fork privileged write-back:** not enabled by default. Fork PRs/MRs should remain artifact/status-only unless a separate approved privileged reporter flow is designed.
 

@@ -16,6 +16,7 @@ This repository starts as an architecture/design workspace. The implementation t
 - [Packaging](docs/packaging.md) — package artifact contents and smoke test.
 - [Workflow smoke test](docs/workflow-smoke-test.md) — notes for the first same-repo GitHub Actions smoke PR.
 - [Pi live smoke test](docs/pi-live-smoke.md) — opt-in local and GitHub Actions Pi/model smoke instructions.
+- [GitLab live smoke](docs/gitlab-live-smoke.md) — opt-in real GitLab MR smoke for metadata/diff and summary publishing.
 - [Release readiness](docs/release-readiness.md) — checklist for verification, packaging, CI adoption, and release blockers.
 - [Re-review state](docs/re-review-state.md) — stable finding IDs and hidden metadata for future incremental review.
 - [Research findings](research/ci-vcs-runtime-findings.md) — CI/VCS/runtime questions researched before drafting the architecture.
@@ -29,6 +30,7 @@ bun run check
 bun run pack:smoke # validates npm tarball contents and packaged CLI execution
 bun run smoke:external-package # installs the tarball into an isolated Bun global dir and runs installed ai-code-review
 bun run smoke:pi # exits 0 unless AI_REVIEW_LIVE_PI=1 is set
+bun run smoke:gitlab # exits 0 unless AI_REVIEW_LIVE_GITLAB=1 is set
 bun run src/cli.ts schemas # includes structured output schemas and .ai-review.json config schema
 bun run schema:config # regenerate .ai-review.schema.json
 bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json
@@ -98,7 +100,7 @@ Example `.ai-review.json`:
 - Deterministic dummy agent runtime for coordinator/reviewer lifecycle tests.
 - Experimental Pi subprocess/JSON-mode runtime adapter behind `AgentRuntime`, with streaming JSONL trace forwarding.
 - GitHub VCS adapter MVP for PR metadata and changed-file diff fetching.
-- GitLab VCS adapter MVP for MR metadata and changed-file diff fetching.
+- GitLab VCS adapter MVP for MR metadata and changed-file diff fetching, with an opt-in live smoke harness.
 - CI decision policy and markdown summary formatter.
 - Package artifact allowlist, external packaged install smoke, and adoption guide for the Bun-backed CLI tarball.
 - Distribution-facing CI templates that install the package and run `ai-code-review` instead of repository-local source commands.

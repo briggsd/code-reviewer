@@ -43,6 +43,7 @@ export async function publishReviewInlineFindings(input: PublishReviewInlineFind
     : await input.adapter.publishInlineFindings({
       change: input.change,
       findings: readiness.readyFindings,
+      runId: input.runId,
     } satisfies PublishInlineFindingsInput);
   const outcomes = [...providerResult.findings, ...blockedOutcomes];
   const result: PublishInlineFindingsResult = {
@@ -65,6 +66,7 @@ export async function publishReviewInlineFindings(input: PublishReviewInlineFind
       postedInlineCount: result.postedInlineCount,
       skippedInlineCount: result.skippedInlineCount,
       failedInlineCount: result.failedInlineCount,
+      inlineFindings: inlineFindingTraceData(result.findings),
       skippedInlineReasons: skippedReasons(result.findings),
     },
   });
@@ -81,6 +83,16 @@ function emptyInlineResult(provider: PublishInlineFindingsResult["provider"]): P
     failedInlineCount: 0,
     findings: [],
   };
+}
+
+function inlineFindingTraceData(findings: PublishInlineFindingOutcome[]): JsonValue {
+  return findings.map((finding) => ({
+    ...(finding.findingId !== undefined ? { findingId: finding.findingId } : {}),
+    disposition: finding.disposition,
+    ...(finding.reason !== undefined ? { reason: finding.reason } : {}),
+    ...(finding.providerCommentId !== undefined ? { providerCommentId: finding.providerCommentId } : {}),
+    ...(finding.url !== undefined ? { url: finding.url } : {}),
+  }));
 }
 
 function skippedReasons(findings: PublishInlineFindingOutcome[]): JsonValue {

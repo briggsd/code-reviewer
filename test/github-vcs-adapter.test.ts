@@ -186,6 +186,7 @@ describe("GitHubVcsAdapter", () => {
     const result = await adapter.publishInlineFindings({
       change: fixture.metadata,
       findings: [finding],
+      runId: "run-inline-polish",
     });
 
     const requestBody = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
@@ -199,10 +200,17 @@ describe("GitHubVcsAdapter", () => {
       line: 27,
       side: "RIGHT",
     });
-    expect(String(requestBody.body)).toContain("Account lookup misses authorization");
+    expect(String(requestBody.body)).toContain("### AI review: 🚨 Critical · authorization");
+    expect(String(requestBody.body)).toContain("**Account lookup misses authorization**");
+    expect(String(requestBody.body)).toContain("<summary>Evidence</summary>");
+    expect(String(requestBody.body)).toContain("- The handler reads accountId and returns data without an ownership check.");
+    expect(String(requestBody.body)).toContain("**Recommendation**");
+    expect(String(requestBody.body)).toContain("CI status and the summary comment remain authoritative");
     expect(String(requestBody.body)).toContain("<!-- ai-code-review-factory-inline");
     expect(String(requestBody.body)).toContain("fnd_auth_missing_owner_check");
     expect(String(requestBody.body)).toContain("abc123");
+    expect(String(requestBody.body)).toContain("example/payments-api");
+    expect(String(requestBody.body)).toContain("run-inline-polish");
     expect(result).toEqual({
       provider: "github",
       attemptedInlineCount: 1,
@@ -351,6 +359,80 @@ describe("GitHubVcsAdapter", () => {
           url: "https://github.com/example/payments-api/pull/17#discussion_r456",
         },
       ],
+    });
+  });
+
+  test("ignores malformed inline metadata and still publishes new comments", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+          return jsonResponse([
+            {
+              id: 111,
+              body: "<!-- ai-code-review-factory-inline\nnot-json\n-->",
+            },
+            {
+              id: 222,
+              body: [
+                "<!-- ai-code-review-factory-inline",
+                JSON.stringify({ schemaVersion: 1, findingId: "same-finding-without-head" }),
+                "-->",
+              ].join("\n"),
+            },
+          ]);
+        }
+
+        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments") {
+          return jsonResponse({
+            id: 789,
+            html_url: "https://github.com/example/payments-api/pull/17#discussion_r789",
+          }, {}, 201);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+
+    const result = await adapter.publishInlineFindings({
+      change: fixture.metadata,
+      findings: [
+        {
+          id: "same-finding-without-head",
+          reviewer: "security",
+          severity: "warning",
+          category: "metadata",
+          title: "Malformed metadata should not block publishing",
+          body: "Older or malformed inline metadata is ignored for duplicate suppression.",
+          location: {
+            path: "src/auth/accounts.ts",
+            line: 27,
+            side: "RIGHT",
+          },
+          confidence: "medium",
+          evidence: [],
+          recommendation: "Publish the new comment with complete metadata.",
+        },
+      ],
+    });
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100",
+      "https://api.github.com/repos/example/payments-api/pulls/17/comments",
+    ]);
+    expect(result.postedInlineCount).toBe(1);
+    expect(result.skippedInlineCount).toBe(0);
+    expect(result.findings[0]).toMatchObject({
+      findingId: "same-finding-without-head",
+      disposition: "posted",
+      providerCommentId: "789",
     });
   });
 

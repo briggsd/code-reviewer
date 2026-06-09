@@ -63,12 +63,15 @@ GitHub inline comments include hidden metadata:
 
 Before posting, the GitHub adapter fetches existing pull request review comments and skips a finding when the same `findingId` has already been posted for the same `headSha`. The skipped outcome records `duplicate_inline_comment` with the existing provider comment ID/URL.
 
+Duplicate suppression is intentionally scoped to the exact same head SHA and stable finding ID. Older comments without `headSha`, malformed hidden metadata, or comments from a different head are ignored for duplicate matching so they do not block a fresh, fully tagged inline comment.
+
 ## Trace output
 
 Inline publishing writes a `publisher.completed` trace event with:
 
 - `publisher: "inline"`,
 - attempted/posted/skipped/failed inline counts,
+- `inlineFindings`, a deterministic per-finding list of `findingId`, `disposition`, provider comment IDs/URLs, and failure/skip reasons,
 - skipped inline reasons, including readiness-gate reasons such as `line_not_in_patch`.
 
 Summary publishing still writes its own `publisher.completed` event and remains idempotent via the summary hidden metadata.

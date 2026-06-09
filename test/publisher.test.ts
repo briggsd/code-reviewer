@@ -165,6 +165,7 @@ describe("inline publishing orchestration", () => {
         .map((line) => JSON.parse(line) as RuntimeEvent);
 
       expect(publisher.inputs).toHaveLength(1);
+      expect(publisher.inputs[0]?.runId).toBe("run-inline-1");
       expect(publisher.inputs[0]?.findings.map((finding) => finding.id)).toEqual(["ready-finding"]);
       expect(result.attemptedInlineCount).toBe(2);
       expect(result.postedInlineCount).toBe(1);
@@ -195,6 +196,19 @@ describe("inline publishing orchestration", () => {
             postedInlineCount: 1,
             skippedInlineCount: 1,
             failedInlineCount: 0,
+            inlineFindings: [
+              {
+                findingId: "ready-finding",
+                disposition: "posted",
+                providerCommentId: "inline-1",
+                url: "https://example.test/inline-1",
+              },
+              {
+                findingId: "blocked-finding",
+                disposition: "skipped",
+                reason: "line_not_in_patch",
+              },
+            ],
             skippedInlineReasons: [
               {
                 findingId: "blocked-finding",
