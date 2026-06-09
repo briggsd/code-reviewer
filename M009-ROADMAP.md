@@ -46,8 +46,9 @@ Improve review quality by moving from generic reviewer instructions to trusted, 
   > Implemented: coordinator prompt now requires root-cause dedup, evidence filtering, and the approval-bias decision rubric. Deterministic summaries deduplicate repeated findings and encode single-warning → `approved_with_comments`, multiple-warning pattern → `minor_issues`, critical → `significant_concerns`.
   > **Target rubric (from the Cloudflare primary source):** only suggestions → `approved_with_comments`; **single warning with no production risk → `approved_with_comments`**; **multiple warnings suggesting a risk pattern → `minor_issues` (unapprove)**; any critical or production-safety risk → `significant_concerns` (block).
 
-- [ ] **S06: Prompt quality verification sweep** `risk:medium` `depends:[S02,S04,S05]` `issues:[#10,#13,#14,#17]`
+- [x] **S06: Prompt quality verification sweep** `risk:medium` `depends:[S02,S04,S05]` `issues:[#10,#13,#14,#17]`
   > After this: tests lock trusted-resource docs, hostile input handling, reviewer module coverage, and coordinator fallback behavior.
+  > Implemented: `test/prompt-quality.test.ts` locks MVP trusted reviewer coverage, JSON prompt-boundary sanitization for hostile content, deterministic dedup/approval-bias fallback behavior, and architecture docs for the completed coordinator rubric.
 
 ## Deferred From This Stub
 

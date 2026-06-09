@@ -2,19 +2,21 @@
 
 ## Last action
 
-Committed **M009 S04: MVP per-domain reviewer modules**:
+Committed **M009 S05: Coordinator judgment and deterministic dedup floor**:
 
-- `8b72261 Add domain-specific reviewer guidance`
+- `d4fa5e8 Add coordinator judgment and dedup floor`
 
-Then implemented **M009 S05: Coordinator judgment and deterministic dedup floor** (not yet committed).
+Then implemented **M009 S06: Prompt quality verification sweep** (not yet committed).
 
-Key S05 changes:
+Key S06 changes:
 
-- Coordinator prompt now requires root-cause/changed-location dedup, evidence filtering, speculation suppression, and the approval-bias decision rubric.
-- Deterministic fallback summaries now deduplicate repeated findings before decision/outcome construction.
-- `chooseDecision` now maps single warning → `approved_with_comments`, multiple warnings → `minor_issues`, critical → `significant_concerns`.
-- Added tests for single-warning approval bias, multiple-warning minor issue decisions, deterministic dedup, and coordinator prompt guidance.
-- Marked S05 complete in `M009-ROADMAP.md` and documented the deterministic floor in `docs/architecture.md`.
+- Added `test/prompt-quality.test.ts` to lock M009 prompt-quality invariants:
+  - MVP trusted reviewer definitions have complete trusted guidance.
+  - hostile prompt-boundary content stays inert JSON data after sanitization.
+  - deterministic fallback summaries deduplicate repeated findings and preserve the approval-bias decision floor.
+  - architecture docs no longer contain the stale `chooseDecision` over-block note and record the completed S05 rubric.
+- Marked S06 complete in `M009-ROADMAP.md`.
+- Updated the architecture primary-source delta for the coordinator rubric from future-work language to implemented-in-S05 language.
 
 ## Verification
 
@@ -22,11 +24,11 @@ Recent scoped verification before this handoff edit:
 
 ```bash
 bunx tsc --noEmit
-bun test test/runner.test.ts test/pi-runtime.test.ts
-# 27 pass, 0 fail, 118 expect() calls
+bun test test/prompt-quality.test.ts
+# 4 pass, 0 fail, 39 expect() calls
 ```
 
-Run full verification before committing S05:
+Run full verification before committing S06:
 
 ```bash
 bun run check
@@ -34,32 +36,32 @@ bun run check
 
 ## Next action
 
-Run fresh full verification, then commit S05 if clean.
+Run fresh full verification, then commit S06 if clean.
 
 Recommended commands:
 
 ```bash
 git status --short
 bun run check
-git add M009-ROADMAP.md continue.md docs/architecture.md src/runner/run-review.ts src/runtime/pi-agent-runtime.ts test/pi-runtime.test.ts test/runner.test.ts
-git commit -m "Add coordinator judgment and dedup floor"
+git add M009-ROADMAP.md continue.md docs/architecture.md test/prompt-quality.test.ts
+git commit -m "Add prompt quality verification sweep"
 ```
 
-Then start **M009 S06: Prompt quality verification sweep**.
+After that, M009 should be complete. Consider whether to push the accumulated local commits or move to the next roadmap. Local `main` will be ahead of `origin/main` by 12 commits after S06.
 
 ## Current state
 
 - Branch: `main`
-- Local `main` is ahead of `origin/main` by at least 10 commits.
-- M009 status: S01/S02/S03/S04 committed; S05 implemented but not committed; S06 remains.
+- Local `main` is ahead of `origin/main` by 11 commits before the S06 commit.
+- M009 status: S01/S02/S03/S04/S05 committed; S06 implemented but not committed.
 - There is no project-local `.gsd/STATE.md`; this repo currently uses root `continue.md` plus roadmap files.
 - Pre-existing uncommitted note remains in `src/runner/risk-classifier.ts` for #21 risk-tier recalibration; do not stage it unless explicitly asked.
 
 ## Open threads
 
 - #21 risk-tier recalibration is only noted, not implemented (`src/runner/risk-classifier.ts`).
-- S06 should run/lock a prompt-quality verification sweep across trusted-resource docs, hostile input handling, reviewer module coverage, and coordinator fallback behavior.
 - Backlog/out-of-scope note: `validateFinding` accepts any string `reviewer`; consider normalizing or rejecting reviewer outputs that mislabel their own role because coordinator/re-review keying may trust that field.
+- M010 is the likely next roadmap if continuing prompt/context quality work; M011/M012 cover telemetry and advanced resilience.
 
 ## Do not
 
