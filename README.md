@@ -11,9 +11,11 @@ This repository starts as an architecture/design workspace. The implementation t
 - [Configuration](docs/configuration.md) — `.ai-review.json` fields, merging behavior, and schema command.
 - [Adoption guide](docs/adoption.md) — recommended install path, live-tested evidence, deferred channels, and adopter checklist.
 - [CI templates](docs/ci-templates.md) — GitHub Actions and GitLab CI starter templates.
+- [GitHub Action wrapper](docs/github-action-wrapper.md) — thin `uses:` wrapper around the packaged CLI.
 - [Fork safety](docs/fork-safety.md) — public-repo fork strategy and secret/write-token boundaries.
 - [Inline publishing](docs/inline-publishing.md) — experimental opt-in GitHub inline comments with conservative readiness gates.
 - [Packaging](docs/packaging.md) — package artifact contents and smoke test.
+- [Release artifacts](docs/release-artifacts.md) — manual immutable tarball artifact workflow.
 - [Workflow smoke test](docs/workflow-smoke-test.md) — notes for the first same-repo GitHub Actions smoke PR.
 - [Pi live smoke test](docs/pi-live-smoke.md) — opt-in local and GitHub Actions Pi/model smoke instructions.
 - [GitLab live smoke](docs/gitlab-live-smoke.md) — opt-in real GitLab MR smoke for metadata/diff and summary publishing.

@@ -1,0 +1,54 @@
+name: Release package artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_checks:
+        description: "Run full check suite before packing"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  pack:
+    name: Build npm tarball artifact
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out trusted source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run checks
+        if: inputs.run_checks
+        run: bun run check
+
+      - name: Run package smoke
+        run: bun run pack:smoke
+
+      - name: Create release tarball
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist
+          ls -l dist/*.tgz
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-code-review-package-${{ github.sha }}
+          path: dist/*.tgz
+          if-no-files-found: error

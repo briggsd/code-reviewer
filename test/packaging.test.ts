@@ -2,6 +2,18 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
 
 interface PackageJson {
+  name?: string;
+  version?: string;
+  private?: boolean;
+  license?: string;
+  homepage?: string;
+  repository?: {
+    type?: string;
+    url?: string;
+  };
+  bugs?: {
+    url?: string;
+  };
   bin?: Record<string, string>;
   files?: string[];
   scripts?: Record<string, string>;
@@ -15,9 +27,31 @@ describe("package distribution metadata", () => {
     expect(manifest.scripts?.["pack:smoke"]).toBe("bun run scripts/package-smoke.ts");
     expect(manifest.scripts?.["smoke:external-package"]).toBe("bun run scripts/external-package-smoke.ts");
     expect(manifest.scripts?.["smoke:gitlab"]).toBe("bun run scripts/gitlab-live-smoke.ts");
+    expect(manifest.scripts?.["smoke:action-wrapper"]).toBe("bun run scripts/action-wrapper-smoke.ts");
 
     const cli = await readFile("src/cli.ts", "utf8");
     expect(cli.startsWith("#!/usr/bin/env bun\n")).toBe(true);
+  });
+
+  test("locks release identity metadata and explicit registry publish blockers", async () => {
+    const manifest = JSON.parse(await readFile("package.json", "utf8")) as PackageJson;
+    const packaging = await readFile("docs/packaging.md", "utf8");
+    const releaseReadiness = await readFile("docs/release-readiness.md", "utf8");
+
+    expect(manifest.name).toBe("ai-code-review-factory");
+    expect(manifest.version).toBe("0.1.0");
+    expect(manifest.private).toBe(true);
+    expect(manifest.license).toBe("UNLICENSED");
+    expect(manifest.homepage).toBe("https://github.com/briggsd/ai-code-review-factory#readme");
+    expect(manifest.repository).toEqual({
+      type: "git",
+      url: "git+https://github.com/briggsd/ai-code-review-factory.git",
+    });
+    expect(manifest.bugs?.url).toBe("https://github.com/briggsd/ai-code-review-factory/issues");
+    expect(packaging).toContain("Registry publishing is intentionally blocked");
+    expect(packaging).toContain("private: true");
+    expect(packaging).toContain("license: \"UNLICENSED\"");
+    expect(releaseReadiness).toContain("Registry publish is currently blocked");
   });
 
   test("documents external packaged install smoke", async () => {

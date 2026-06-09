@@ -8,6 +8,7 @@ describe("release readiness documentation", () => {
     expect(guide).toContain("bun run check");
     expect(guide).toContain("bun run pack:smoke");
     expect(guide).toContain("bun run smoke:external-package");
+    expect(guide).toContain("bun run smoke:action-wrapper");
     expect(guide).toContain("bun run smoke:pi");
     expect(guide).toContain("Bun-backed npm tarball/package");
     expect(guide).toContain("AI_REVIEW_PACKAGE");

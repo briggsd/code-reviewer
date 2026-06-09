@@ -10,6 +10,7 @@ Run from a clean checkout:
 bun run check
 bun run pack:smoke
 bun run smoke:external-package
+bun run smoke:action-wrapper
 bun run smoke:pi
 ```
 
@@ -18,11 +19,13 @@ Expected results:
 - `bun run check` passes TypeScript and the unit test suite.
 - `bun run pack:smoke` validates tarball contents and packaged CLI schema execution.
 - `bun run smoke:external-package` validates isolated Bun global install and installed `ai-code-review` execution; provider-backed dry-run runs only when `AI_REVIEW_EXTERNAL_SMOKE_PROVIDER`, repo/change env vars, and a provider token are set.
+- `bun run smoke:action-wrapper` validates the package install/run boundary used by the composite GitHub Action wrapper.
 - `bun run smoke:pi` exits 0 without model/network access unless `AI_REVIEW_LIVE_PI=1` is explicitly set.
 
 ## Version and artifact
 
 - Choose the package version in `package.json`.
+- Registry publish is currently blocked until the package name, license, and access policy are finalized; see [Packaging](packaging.md) and [Release artifacts](release-artifacts.md).
 - Confirm the package `files` allowlist still excludes `.github/`, `test/`, local run artifacts, and handoff notes.
 - Run `npm pack --dry-run --json` if you need to inspect the full file list manually.
 - Run `bun run smoke:external-package` with live provider env vars before handing a package source to another repository.
@@ -33,7 +36,7 @@ Expected results:
 
 Current supported channel:
 
-- **Bun-backed npm tarball/package** — install with `bun add --global "$AI_REVIEW_PACKAGE"`, run `ai-code-review`.
+- **Bun-backed npm tarball/package** — install with `bun add --global "$AI_REVIEW_PACKAGE"`, run `ai-code-review`. Before registry publish, use an immutable tarball URL produced by the manual release artifact workflow, or a full Git commit SHA for internal smoke.
 
 Install-source priority:
 

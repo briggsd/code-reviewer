@@ -22,6 +22,23 @@ describe("CI starter templates", () => {
     expect(workflow).not.toContain("bun install --frozen-lockfile");
   });
 
+  test("GitHub Actions wrapper template keeps dry-run and guarded write-back explicit", async () => {
+    const workflow = await readFile("examples/ci/github-actions-ai-review-action.yml", "utf8");
+
+    expect(workflow).toContain("pull_request:");
+    expect(workflow).toContain("pull-requests: read");
+    expect(workflow).toContain("pull-requests: write");
+    expect(workflow).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+    expect(workflow).toContain("uses: briggsd/ai-code-review-factory@REPLACE_WITH_FULL_COMMIT_SHA_OR_IMMUTABLE_TAG");
+    expect(workflow).toContain("package-source: ${{ env.AI_REVIEW_PACKAGE }}");
+    expect(workflow).toContain("publish-summary: \"true\"");
+    expect(workflow).toContain("actions/upload-artifact@v4");
+    expect(workflow).toContain("include-hidden-files: true");
+    expect(workflow).not.toContain("bun run src/cli.ts");
+    expect(workflow).not.toContain("bun install --frozen-lockfile");
+    expect(workflow).not.toContain("publish-inline: \"true\"");
+  });
+
   test("GitLab CI template separates MR dry run from same-project write-back", async () => {
     const pipeline = await readFile("examples/ci/gitlab-ai-review.yml", "utf8");
 

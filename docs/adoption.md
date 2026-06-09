@@ -5,7 +5,7 @@ Use this guide when wiring AI Code Review Factory into another repository.
 ## Recommended adoption path
 
 1. **Pin the package source.** Set `AI_REVIEW_PACKAGE` to an immutable npm tarball URL, an exact registry package version, or a full Git commit SHA for internal smoke only. Do not use `main`, floating tags, `latest`, or a checkout of the runner repository as the adopter install source.
-2. **Start with dry-run only.** Copy `examples/ci/github-actions-ai-review.yml` or `examples/ci/gitlab-ai-review.yml`, keep `--runtime dummy`, and verify `.ai-review/` artifacts upload successfully.
+2. **Start with dry-run only.** Copy `examples/ci/github-actions-ai-review.yml`, `examples/ci/github-actions-ai-review-action.yml`, or `examples/ci/gitlab-ai-review.yml`, keep `--runtime dummy`, and verify `.ai-review/` artifacts upload successfully.
 3. **Enable same-repo/same-project summary publishing.** Keep dry-run and publish jobs separate. Only the guarded publish job should use write permissions and `--publish-summary`.
 4. **Optionally enable GitHub inline publishing in the guarded write-back job.** Only after summary publishing is stable, add `--publish-inline` for same-repository GitHub PRs. Keep the default dry-run job inline-free.
 5. **Switch to Pi only in trusted jobs.** After summary-only dummy runs are stable, replace `--runtime dummy` with `--runtime pi` in a trusted job that can install Pi and access model credentials.
@@ -41,7 +41,7 @@ jobs:
             --ci-exit
 ```
 
-Use the full template in `examples/ci/github-actions-ai-review.yml` for the separate guarded publish job.
+Use the full raw CLI template in `examples/ci/github-actions-ai-review.yml` or the wrapper template in `examples/ci/github-actions-ai-review-action.yml` for the separate guarded publish job. The wrapper is documented in [GitHub Action wrapper](github-action-wrapper.md).
 
 ## What has been live-tested
 
