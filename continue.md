@@ -62,6 +62,7 @@ Added:
   - Fixed hidden `.ai-review` artifact upload by adding `include-hidden-files: true` and opted actions into Node 24 via `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`.
   - Second live run passed and uploaded artifact `ai-review-1`.
   - Live smoke exposed duplicate summary comments on each rerun; adapters now update existing bot summary comments/notes instead of posting duplicates.
+  - Third live run passed, uploaded artifact `ai-review-1`, and updated the existing bot comment instead of adding a third comment.
 
 Updated:
 
@@ -124,7 +125,7 @@ Continue S11 hardening.
 
 Concrete next steps:
 
-1. Confirm PR #1 rerun updates the existing bot comment rather than posting a third comment, then merge once satisfied.
+1. Merge PR #1 once the user confirms the smoke branch should land on `main`.
 2. Consider a formal `M001-ROADMAP.md` before expanding beyond S11 hardening.
 3. Consider packaging/distribution target: npm package, container image, GitHub Action, GitLab component, or staged combination.
 4. Consider inline comment/discussion publishing only after summary publishing proves safe.
