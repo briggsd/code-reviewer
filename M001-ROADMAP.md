@@ -23,7 +23,7 @@ Make the current AI Code Review Factory prototype repeatable outside this checko
 - [x] **S03: Public-repo fork strategy guide** `risk:high` `depends:[S02]`
   > After this: docs give a concrete recommended default for forks and show which jobs may use secrets/write tokens.
 
-- [ ] **S04: Inline publishing readiness gate** `risk:high` `depends:[S03]`
+- [x] **S04: Inline publishing readiness gate** `risk:high` `depends:[S03]`
   > After this: the codebase has explicit line-coordinate and stale-diff checks that can block inline comment/discussion publishing until safe, even if implementation remains deferred.
 
 - [ ] **S05: Opt-in live runtime CI smoke** `risk:medium` `depends:[S01,S03]`

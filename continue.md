@@ -57,13 +57,15 @@ Added:
   - `docs/ci-templates.md` documents how to adapt the package source and the safety stance.
   - `test/ci-templates.test.ts` checks the templates preserve read/write separation and provider command wiring while avoiding repo-local source commands/project dependency installs.
 - M001 packageability roadmap and first package slices
-  - `M001-ROADMAP.md` captures the packageable MVP hardening slices; S01, S02, and S03 are complete.
+  - `M001-ROADMAP.md` captures the packageable MVP hardening slices; S01, S02, S03, and S04 are complete.
   - `package.json` now has an explicit `files` allowlist and `pack:smoke` script.
   - `scripts/package-smoke.ts` validates npm tarball contents, excludes repo-local internals, extracts the tarball, and runs the packaged CLI `schemas` command.
   - `docs/packaging.md` documents the Bun-backed npm tarball stance and CI package install shape.
   - `test/packaging.test.ts` locks package metadata and allowlist expectations.
   - `docs/fork-safety.md` documents the public-repo fork default, permission matrix, token/model-secret boundaries, and `pull_request_target` caveat.
   - `test/fork-safety-docs.test.ts` locks the fork-safety guidance links and key assertions.
+  - `src/publisher/inline-readiness.ts` adds conservative preflight gates for future inline publishing: stale head SHA, truncated diff, missing location/line/side, missing patch, binary files, invalid deleted/added side, and line-not-in-patch.
+  - `docs/inline-publishing.md`, `test/inline-readiness.test.ts`, and `test/inline-publishing-docs.test.ts` document and verify the deferred inline publishing stance.
 - Real GitHub workflow smoke test
   - Pushed repo to `https://github.com/briggsd/ai-code-review-factory`.
   - Added `.github/workflows/ai-review.yml` and opened PR #1 from `smoke/github-actions-ai-review`.
@@ -135,9 +137,8 @@ Continue S11 hardening.
 
 Concrete next steps:
 
-1. Continue M001 S04: add explicit inline publishing readiness gates before implementing inline comments/discussions.
-2. Then continue M001 S05: add disabled-by-default live runtime CI smoke after secrets/runtime setup is decided.
-3. Finish with M001 S06: release readiness checklist.
+1. Continue M001 S05: add disabled-by-default live runtime CI smoke after secrets/runtime setup is decided.
+2. Finish with M001 S06: release readiness checklist.
 
 ## Why
 
