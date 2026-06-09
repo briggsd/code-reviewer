@@ -138,13 +138,13 @@ The GitHub adapter covers read-only metadata/diff fetching and explicit summary 
 
 ## Next action
 
-Continue S11 hardening.
+Continue M002 re-review state foundation.
 
 Concrete next steps:
 
-1. Decide next milestone: publish/package channel execution (npm/container/action), or move into Phase 2 review quality/re-review work.
-2. If publishing soon, follow `docs/release-readiness.md` and decide final package name/access policy.
-3. If improving review UX, start from inline publishing implementation using `evaluateInlinePublishReadiness()` as the required preflight.
+1. Continue M002 S02: parse prior bot summary hidden metadata from GitHub/GitLab comments/notes.
+2. Then continue M002 S03: load `PriorReviewState` into `ReviewContext.priorState` for provider-backed runs.
+3. Later M002 slices classify current findings as new/recurring/fixed before any inline discussion resolution.
 
 ## Why
 
@@ -168,9 +168,8 @@ Local `main` tracks `origin/main` and includes merged PR #1. At the handoff poin
 
 ## Open threads
 
-- Decide whether to add a formal `M001-ROADMAP.md` or keep working from `continue.md` + architecture docs.
-- Decide first package distribution target after prototype: npm package, container image, GitHub Action, GitLab component, or staged combination.
-- Decide public-repo fork strategy default: read-only analysis, two-stage artifact handoff, or maintainer-approved privileged run.
+- M002 S01 is complete: stable finding IDs are assigned to completed summaries, runtime-supplied IDs are preserved, and summary hidden metadata records `findingIds` with `schemaVersion: 1`.
+- Decide first external package distribution target when ready: npm package, container image, GitHub Action, GitLab component, or staged combination.
 - If using Pi live, explicitly control resource loading in CI so reviewed repositories cannot load untrusted project-local extensions/settings/instructions as privileged instructions. The current Pi subprocess adapter disables these by default.
 
 ## Do not

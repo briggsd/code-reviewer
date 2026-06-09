@@ -43,14 +43,18 @@ describe("summary publishing orchestration", () => {
         .split("\n")
         .map((line) => JSON.parse(line) as RuntimeEvent);
 
+      const findingId = review.summary.findings[0]?.id;
+      expect(typeof findingId).toBe("string");
       expect(result.summaryCommentId).toBe("123");
       expect(publisher.inputs).toHaveLength(1);
       expect(publisher.inputs[0]?.hiddenMetadata).toEqual({
+        schemaVersion: 1,
         runId: "fixture-auth-pr",
         headSha: "abc123",
         provider: "github",
         repository: "example/payments-api",
         changeId: "17",
+        findingIds: [findingId as string],
       });
       expect(events).toEqual([
         {
@@ -111,6 +115,7 @@ describe("summary publishing orchestration", () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
 
     expect(createPublishHiddenMetadata("run-123", fixture.metadata)).toEqual({
+      schemaVersion: 1,
       runId: "run-123",
       headSha: "abc123",
       provider: "github",

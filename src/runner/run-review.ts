@@ -22,6 +22,7 @@ import type {
 import { filterDiff } from "./diff-filter.ts";
 import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
 import { classifyRisk } from "./risk-classifier.ts";
+import { assignStableFindingIds } from "./stable-finding-id.ts";
 
 export interface RunReviewOptions {
   fixture: ReviewFixture;
@@ -140,7 +141,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     traceSink: options.traceSink,
     fakeFindings: fixture.fakeFindings ?? [],
   });
-  const summary = runtimeResult.summary;
+  const summary = assignStableFindingIds(runtimeResult.summary);
 
   await emitTrace(options.traceSink, {
     type: "coordinator.completed",

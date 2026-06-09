@@ -16,6 +16,7 @@ This repository starts as an architecture/design workspace. The implementation t
 - [Workflow smoke test](docs/workflow-smoke-test.md) — notes for the first same-repo GitHub Actions smoke PR.
 - [Pi live smoke test](docs/pi-live-smoke.md) — opt-in local and GitHub Actions Pi/model smoke instructions.
 - [Release readiness](docs/release-readiness.md) — checklist for verification, packaging, CI adoption, and release blockers.
+- [Re-review state](docs/re-review-state.md) — stable finding IDs and hidden metadata for future incremental review.
 - [Research findings](research/ci-vcs-runtime-findings.md) — CI/VCS/runtime questions researched before drafting the architecture.
 
 ## Development
@@ -99,6 +100,7 @@ Example `.ai-review.json`:
 - Inline publishing readiness checks for stale head SHAs and unsafe line coordinates; inline publishing itself remains deferred.
 - Disabled-by-default GitHub Actions Pi live smoke workflow for trusted maintainer runs.
 - Release readiness checklist for package verification, CI adoption, secrets, and release blockers.
+- Stable finding IDs in completed summaries and hidden summary metadata.
 
 ## Design stance
 

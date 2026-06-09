@@ -18,7 +18,7 @@ export interface PublishReviewSummaryInput {
 }
 
 export async function publishReviewSummary(input: PublishReviewSummaryInput): Promise<PublishSummaryResult> {
-  const hiddenMetadata = input.hiddenMetadata ?? createPublishHiddenMetadata(input.runId, input.change);
+  const hiddenMetadata = input.hiddenMetadata ?? createPublishHiddenMetadata(input.runId, input.change, input.summary);
   const publishResult = await input.adapter.publishSummary({
     change: input.change,
     summary: input.summary,
@@ -41,12 +41,20 @@ export async function publishReviewSummary(input: PublishReviewSummaryInput): Pr
   return publishResult;
 }
 
-export function createPublishHiddenMetadata(runId: string, change: ChangeMetadata): Record<string, JsonValue> {
+export function createPublishHiddenMetadata(
+  runId: string,
+  change: ChangeMetadata,
+  summary?: ReviewSummary,
+): Record<string, JsonValue> {
   return {
+    schemaVersion: 1,
     runId,
     headSha: change.headSha,
     provider: change.provider,
     repository: change.repository.slug,
     changeId: change.changeId,
+    ...(summary !== undefined
+      ? { findingIds: summary.findings.map((finding) => finding.id ?? "").filter((id) => id.length > 0) }
+      : {}),
   };
 }
