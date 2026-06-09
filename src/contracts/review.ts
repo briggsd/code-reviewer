@@ -14,6 +14,7 @@ import type {
   Severity,
   TimeoutPolicy,
   ModelSelection,
+  ReviewErrorClassification,
   TokenUsage,
 } from "./common.ts";
 
@@ -198,4 +199,5 @@ export interface ReviewRunRecord {
   metrics?: ReviewRunMetrics;
   tracePath?: string;
   error?: string;
+  errorClassification?: ReviewErrorClassification;
 }

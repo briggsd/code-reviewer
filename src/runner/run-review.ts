@@ -23,6 +23,7 @@ import type {
   TraceSink,
 } from "../contracts/index.ts";
 import { filterDiff } from "./diff-filter.ts";
+import { classifyReviewError } from "./error-classifier.ts";
 import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
 import { classifyRisk } from "./risk-classifier.ts";
 import { classifyReReviewFindings } from "./re-review.ts";
@@ -235,6 +236,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     const failedAtTimestamp = failedAt.toISOString();
     const overallMs = elapsedMs(startedAt, failedAt);
     const serializedError = serializeError(error);
+    const errorClassification = classifyReviewError(error);
     await emitTrace(options.traceSink, {
       type: "review.failed",
       runId,
@@ -244,6 +246,13 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         phase: "agent_runtime",
         errorName: serializedError.name,
         errorMessage: serializedError.message,
+        errorClassification: {
+          category: errorClassification.category,
+          retryable: errorClassification.retryable,
+          reason: errorClassification.reason,
+        },
+        errorCategory: errorClassification.category,
+        retryable: errorClassification.retryable,
         ...(serializedError.stack !== undefined ? { errorStack: serializedError.stack } : {}),
         durationMs: overallMs,
       },
@@ -265,6 +274,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         },
       },
       error: serializedError.message,
+      errorClassification,
       ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
     });
 

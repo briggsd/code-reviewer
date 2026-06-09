@@ -174,7 +174,14 @@ describe("JSONL trace and filesystem state", () => {
       expect(events.at(-1)?.type).toBe("review.failed");
       expect(events.at(-1)?.data?.phase).toBe("agent_runtime");
       expect(events.at(-1)?.data?.errorMessage).toBe("synthetic runtime failure");
+      expect(events.at(-1)?.data?.errorCategory).toBe("unknown");
+      expect(events.at(-1)?.data?.retryable).toBe(false);
       expect(runRecord.error).toBe("synthetic runtime failure");
+      expect(runRecord.errorClassification).toEqual({
+        category: "unknown",
+        retryable: false,
+        reason: "unclassified runtime failure",
+      });
       expect(runRecord.metrics?.durationsMs.overallMs).toBeGreaterThan(0);
       expect(runRecord.metrics?.durationsMs.contextBuildMs).toBeGreaterThan(0);
       expect(runRecord.metrics?.durationsMs.riskAssessmentMs).toBeGreaterThan(0);

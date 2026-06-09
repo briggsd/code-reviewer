@@ -28,6 +28,7 @@ Triage live self-review findings into the relevant slice rather than tracking th
 - Reviewer fan-out is isolated: one reviewer failure degrades that reviewer to unavailable instead of failing the whole review run.
 - Per-reviewer failures emit structured `agent.failed` trace events with a stable error classification.
 - Retry behavior is bounded by attempt count and remaining overall run budget.
+- A silent reviewer (no output for an inactivity window) is killed early and marked errored, rather than burning the full per-reviewer timeout.
 - Lifecycle trace timestamps are stamped at event emission time, not copied from run start.
 - Run artifacts expose phase durations, overall duration, per-agent token/cost metrics, and run-level totals.
 - Existing dry-run, summary publish, GitHub, and GitLab paths keep their current safety posture.
@@ -41,11 +42,12 @@ Triage live self-review findings into the relevant slice rather than tracking th
 - [x] **S02: Token and cost metrics in trace artifacts** `risk:medium` `depends:[]` `issues:[#18]`
   > After this: reviewer/coordinator `TokenUsage` is emitted on completion events and aggregated into a run-level metrics block with input/output/cache read/cache write/estimated cost totals.
 
-- [ ] **S03: Error classification contract** `risk:medium` `depends:[]` `issues:[#12,#18]`
+- [x] **S03: Error classification contract** `risk:medium` `depends:[]` `issues:[#12,#18]`
   > After this: runtime errors are classified into stable categories such as `retryable_transient`, `rate_limited`, `auth`, `context_overflow`, `schema_invalid`, `timeout`, `truncated`, `unsafe_fork`, and `unknown`, without leaking secrets.
 
 - [ ] **S04: Per-reviewer isolation and `agent.failed` events** `risk:high` `depends:[S03]` `issues:[#12,#18]`
   > After this: reviewer fan-out uses settled results, successful reviewers still feed the coordinator, failed reviewers are preserved as unavailable/error metadata, and every failed reviewer emits `agent.failed` with classification and elapsed time.
+  > **Inactivity watchdog (from the Cloudflare primary source):** in addition to the per-reviewer/coordinator/overall timeouts, add a no-output watchdog that kills a session after an inactivity window (Cloudflare uses 60s) and marks it errored with a `timeout`/inactivity classification. Catches silently-crashed sessions that would otherwise burn the full `reviewerMs` (360s) before timing out.
 
 - [ ] **S05: Bounded retries within the run budget** `risk:high` `depends:[S03,S04]` `issues:[#12]`
   > After this: retryable reviewer failures can retry under a small bounded policy, but retries stop when attempts are exhausted or the remaining overall review budget is too low.

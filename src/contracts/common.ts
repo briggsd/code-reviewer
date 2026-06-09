@@ -83,6 +83,23 @@ export interface TokenUsage {
   estimatedCostUsd?: number;
 }
 
+export type ReviewErrorCategory =
+  | "retryable_transient"
+  | "rate_limited"
+  | "auth"
+  | "context_overflow"
+  | "schema_invalid"
+  | "timeout"
+  | "truncated"
+  | "unsafe_fork"
+  | "unknown";
+
+export interface ReviewErrorClassification {
+  category: ReviewErrorCategory;
+  retryable: boolean;
+  reason: string;
+}
+
 export interface TimeoutPolicy {
   reviewerMs: number;
   coordinatorMs: number;

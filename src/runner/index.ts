@@ -1,6 +1,7 @@
 export * from "./config.ts";
 export * from "./default-config.ts";
 export * from "./diff-filter.ts";
+export * from "./error-classifier.ts";
 export * from "./fixture.ts";
 export * from "./path-match.ts";
 export * from "./risk-classifier.ts";
