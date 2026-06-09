@@ -10,6 +10,7 @@ This repository starts as an architecture/design workspace. The implementation t
 - [Runtime comparison](docs/runtime-comparison.md) — OpenCode vs Pi as the review factory agent runtime.
 - [Configuration](docs/configuration.md) — `.ai-review.json` fields, merging behavior, and schema command.
 - [CI templates](docs/ci-templates.md) — GitHub Actions and GitLab CI starter templates.
+- [Workflow smoke test](docs/workflow-smoke-test.md) — notes for the first same-repo GitHub Actions smoke PR.
 - [Pi live smoke test](docs/pi-live-smoke.md) — opt-in end-to-end Pi/model smoke instructions.
 - [Research findings](research/ci-vcs-runtime-findings.md) — CI/VCS/runtime questions researched before drafting the architecture.
 

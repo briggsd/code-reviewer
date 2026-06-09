@@ -12,6 +12,8 @@ describe("CI starter templates", () => {
     expect(workflow).toContain("--provider github");
     expect(workflow).toContain("--publish-summary");
     expect(workflow).toContain("actions/upload-artifact@v4");
+    expect(workflow).toContain("include-hidden-files: true");
+    expect(workflow).toContain("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true");
   });
 
   test("GitLab CI template separates MR dry run from same-project write-back", async () => {

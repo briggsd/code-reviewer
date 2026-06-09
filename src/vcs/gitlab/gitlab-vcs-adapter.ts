@@ -67,6 +67,7 @@ interface GitLabChangesResponse {
 
 interface GitLabNoteResponse {
   id: number;
+  body?: string;
   web_url?: string;
 }
 
@@ -138,15 +139,20 @@ export class GitLabVcsAdapter implements VcsAdapter {
   }
 
   async publishSummary(input: PublishSummaryInput): Promise<PublishSummaryResult> {
-    const response = await this.request<GitLabNoteResponse>(this.mergeRequestNotesPath(input.change), {
-      method: "POST",
-      body: {
-        body: formatReviewSummaryMarkdown(input.summary, {
-          includeHiddenMetadata: true,
-          ...(input.hiddenMetadata !== undefined ? { hiddenMetadata: input.hiddenMetadata } : {}),
-        }),
-      },
+    const body = formatReviewSummaryMarkdown(input.summary, {
+      includeHiddenMetadata: true,
+      ...(input.hiddenMetadata !== undefined ? { hiddenMetadata: input.hiddenMetadata } : {}),
     });
+    const existing = await this.findExistingSummaryNote(input.change);
+    const response = existing === undefined
+      ? await this.request<GitLabNoteResponse>(this.mergeRequestNotesPath(input.change), {
+        method: "POST",
+        body: { body },
+      })
+      : await this.request<GitLabNoteResponse>(this.mergeRequestNotePath(input.change, existing.id), {
+        method: "PUT",
+        body: { body },
+      });
 
     return {
       provider: "gitlab",
@@ -167,6 +173,16 @@ export class GitLabVcsAdapter implements VcsAdapter {
 
   private mergeRequestNotesPath(change: ChangeMetadata): string {
     return `/projects/${encodeURIComponent(change.repository.slug)}/merge_requests/${encodeURIComponent(change.changeId)}/notes`;
+  }
+
+  private mergeRequestNotePath(change: ChangeMetadata, noteId: number): string {
+    return `${this.mergeRequestNotesPath(change)}/${encodeURIComponent(String(noteId))}`;
+  }
+
+  private async findExistingSummaryNote(change: ChangeMetadata): Promise<GitLabNoteResponse | undefined> {
+    const notes = await this.request<GitLabNoteResponse[]>(this.mergeRequestNotesPath(change));
+
+    return notes.findLast((note) => note.body?.includes("<!-- ai-code-review-factory") === true);
   }
 
   private async request<T>(pathOrUrl: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
