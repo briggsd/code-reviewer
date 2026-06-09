@@ -63,6 +63,7 @@ Added:
   - Second live run passed and uploaded artifact `ai-review-1`.
   - Live smoke exposed duplicate summary comments on each rerun; adapters now update existing bot summary comments/notes instead of posting duplicates.
   - Third live run passed, uploaded artifact `ai-review-1`, and updated the existing bot comment instead of adding a third comment.
+  - PR #1 was merged to `main` as merge commit `3a28e0480b32c024620a0ee4e424502ebadf9c43`; local `main` was fast-forwarded to `origin/main`.
 
 Updated:
 
@@ -125,11 +126,11 @@ Continue S11 hardening.
 
 Concrete next steps:
 
-1. Merge PR #1 once the user confirms the smoke branch should land on `main`.
-2. Consider a formal `M001-ROADMAP.md` before expanding beyond S11 hardening.
-3. Consider packaging/distribution target: npm package, container image, GitHub Action, GitLab component, or staged combination.
-4. Consider inline comment/discussion publishing only after summary publishing proves safe.
-5. Consider replacing prototype `bun run src/cli.ts` template commands once package/container/action distribution is chosen.
+1. Consider a formal `M001-ROADMAP.md` before expanding beyond S11 hardening.
+2. Consider packaging/distribution target: npm package, container image, GitHub Action, GitLab component, or staged combination.
+3. Consider inline comment/discussion publishing only after summary publishing proves safe.
+4. Consider replacing prototype `bun run src/cli.ts` template commands once package/container/action distribution is chosen.
+5. Consider an opt-in Pi/model GitHub Actions smoke test after secrets/runtime setup is decided.
 
 ## Why
 
@@ -147,7 +148,9 @@ S10 proves the first real runtime adapter shape. Before turning this into live C
 
 ## Current files / git state
 
-The repo is newly initialized and all project files are currently untracked.
+Remote repo: `https://github.com/briggsd/ai-code-review-factory`.
+
+Local `main` tracks `origin/main` and includes merged PR #1. At the handoff point, only this `continue.md` update is expected after the merge-state refresh; commit it before ending if a perfectly clean working tree is required.
 
 ## Open threads
 
