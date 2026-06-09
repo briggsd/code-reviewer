@@ -5,6 +5,7 @@ import type {
   CoordinatorRunResult,
   Finding,
   JsonValue,
+  ReviewerRunFailure,
   ReviewerRunInput,
   ReviewerRunResult,
   RuntimeEvent,
@@ -12,6 +13,7 @@ import type {
   RuntimeToolPolicy,
   TokenUsage,
 } from "../contracts/index.ts";
+import { classifyReviewError } from "../runner/error-classifier.ts";
 import { summarizeReview } from "../runner/run-review.ts";
 
 export interface PiProcessRunInput {
@@ -21,6 +23,7 @@ export interface PiProcessRunInput {
   prompt: string;
   cwd: string;
   timeoutMs: number;
+  inactivityTimeoutMs?: number;
   toolPolicy: RuntimeToolPolicy;
   model?: {
     provider: string;
@@ -77,8 +80,34 @@ export class PiAgentRuntime implements AgentRuntime {
       runtime: this.name,
     });
 
-    const reviewerResults = await Promise.all(input.selectedReviewers.map((reviewer) => this.runReviewer(reviewer)));
-    const coordinatorPrompt = buildCoordinatorPrompt(input, reviewerResults);
+    const reviewerSettled = await Promise.allSettled(input.selectedReviewers.map(async (reviewer) => ({
+      reviewer,
+      result: await this.runReviewer(reviewer),
+    })));
+    const reviewerResults = reviewerSettled.flatMap((settled) => settled.status === "fulfilled" ? [settled.value.result] : []);
+    const reviewerFailures = reviewerSettled.flatMap((settled, index): ReviewerRunFailure[] => {
+      if (settled.status === "fulfilled") {
+        return [];
+      }
+
+      const reviewer = input.selectedReviewers[index];
+      if (reviewer === undefined) {
+        return [];
+      }
+
+      return [createReviewerFailure(input.runId, `${input.runId}:pi:${reviewer.role}`, reviewer.role, settled.reason)];
+    });
+
+    if (reviewerResults.length === 0 && input.selectedReviewers.length > 0) {
+      const firstFailure = reviewerSettled.find((settled) => settled.status === "rejected");
+      if (firstFailure?.status === "rejected") {
+        throw firstFailure.reason;
+      }
+
+      throw new Error("All selected reviewers failed before coordinator synthesis");
+    }
+
+    const coordinatorPrompt = buildCoordinatorPrompt(input, reviewerResults, reviewerFailures);
     let streamedEventCount = 0;
     const processResult = await this.processRunner.run({
       runId: input.runId,
@@ -106,9 +135,11 @@ export class PiAgentRuntime implements AgentRuntime {
       outcome: summary.outcome,
       findingCount: summary.findings.length,
       structuredOutput: parsed !== undefined,
+      failedReviewerCount: reviewerFailures.length,
     });
     this.emitAgentEvent("agent.completed", input.runId, agentRunId, "coordinator", {
       reviewerCount: reviewerResults.length,
+      failedReviewerCount: reviewerFailures.length,
       ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
     });
 
@@ -117,6 +148,7 @@ export class PiAgentRuntime implements AgentRuntime {
       agentRunId,
       summary,
       reviewerResults,
+      ...(reviewerFailures.length > 0 ? { reviewerFailures } : {}),
       rawOutput: processResult.finalText,
       ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
     };
@@ -124,48 +156,62 @@ export class PiAgentRuntime implements AgentRuntime {
 
   async runReviewer(input: ReviewerRunInput): Promise<ReviewerRunResult> {
     const agentRunId = `${input.runId}:pi:${input.role}`;
+    const startedAt = Date.now();
     this.emitAgentEvent("agent.started", input.runId, agentRunId, input.role, {
       assignedFileCount: input.assignedFiles?.length ?? input.context.diff.files.length,
       runtime: this.name,
     });
 
-    let streamedEventCount = 0;
-    const processResult = await this.processRunner.run({
-      runId: input.runId,
-      agentRunId,
-      role: input.role,
-      prompt: buildReviewerPrompt(input),
-      cwd: input.context.workingDirectory,
-      timeoutMs: input.timeoutMs,
-      toolPolicy: input.toolPolicy,
-      onEvent: (event) => {
-        streamedEventCount += 1;
-        this.forwardPiEvent(input.runId, agentRunId, input.role, event);
-      },
-      ...this.modelArgs(input.model),
-    });
-    if (streamedEventCount === 0) {
-      this.forwardPiEvents(input.runId, agentRunId, input.role, processResult.events);
+    try {
+      let streamedEventCount = 0;
+      const processResult = await this.processRunner.run({
+        runId: input.runId,
+        agentRunId,
+        role: input.role,
+        prompt: buildReviewerPrompt(input),
+        cwd: input.context.workingDirectory,
+        timeoutMs: input.timeoutMs,
+        toolPolicy: input.toolPolicy,
+        onEvent: (event) => {
+          streamedEventCount += 1;
+          this.forwardPiEvent(input.runId, agentRunId, input.role, event);
+        },
+        ...this.modelArgs(input.model),
+      });
+      if (streamedEventCount === 0) {
+        this.forwardPiEvents(input.runId, agentRunId, input.role, processResult.events);
+      }
+
+      const findings = parseReviewerOutput(processResult.finalText);
+
+      this.emitAgentEvent("agent.output", input.runId, agentRunId, input.role, {
+        findingCount: findings.length,
+      });
+      this.emitAgentEvent("agent.completed", input.runId, agentRunId, input.role, {
+        findingCount: findings.length,
+        ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
+      });
+
+      return {
+        runId: input.runId,
+        agentRunId,
+        role: input.role,
+        findings,
+        rawOutput: processResult.finalText,
+        ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
+      };
+    } catch (error) {
+      const failure = createReviewerFailure(input.runId, agentRunId, input.role, error, Date.now() - startedAt);
+      this.emitAgentEvent("agent.failed", input.runId, agentRunId, input.role, {
+        errorName: failure.errorName,
+        errorMessage: failure.errorMessage,
+        errorClassification: failure.errorClassification,
+        errorCategory: failure.errorClassification.category,
+        retryable: failure.errorClassification.retryable,
+        durationMs: failure.durationMs ?? 0,
+      });
+      throw error;
     }
-
-    const findings = parseReviewerOutput(processResult.finalText);
-
-    this.emitAgentEvent("agent.output", input.runId, agentRunId, input.role, {
-      findingCount: findings.length,
-    });
-    this.emitAgentEvent("agent.completed", input.runId, agentRunId, input.role, {
-      findingCount: findings.length,
-      ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
-    });
-
-    return {
-      runId: input.runId,
-      agentRunId,
-      role: input.role,
-      findings,
-      rawOutput: processResult.finalText,
-      ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
-    };
   }
 
   streamEvents(runId: string, onEvent: (event: RuntimeEvent) => void): RuntimeEventSubscription {
@@ -293,17 +339,37 @@ export class BunPiProcessRunner implements PiProcessRunner {
     this.processesByRunId.set(input.runId, { kill: () => process.kill() });
 
     let timedOut = false;
+    let inactivityTimedOut = false;
+    const inactivityTimeoutMs = input.inactivityTimeoutMs ?? Math.min(60_000, input.timeoutMs);
     const timer = setTimeout(() => {
       timedOut = true;
       process.kill();
     }, input.timeoutMs);
+    let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
+    const resetInactivityTimer = () => {
+      if (inactivityTimer !== undefined) {
+        clearTimeout(inactivityTimer);
+      }
+      inactivityTimer = setTimeout(() => {
+        inactivityTimedOut = true;
+        process.kill();
+      }, inactivityTimeoutMs);
+    };
+    resetInactivityTimer();
 
     try {
       const [stdout, rawError, exitCode] = await Promise.all([
-        readJsonlStream(process.stdout, input.onEvent),
+        readJsonlStream(process.stdout, (event) => {
+          resetInactivityTimer();
+          input.onEvent?.(event);
+        }),
         new Response(process.stderr).text(),
         process.exited,
       ]);
+
+      if (inactivityTimedOut) {
+        throw new Error(`Pi process produced no output for ${inactivityTimeoutMs}ms for ${input.agentRunId}`);
+      }
 
       if (timedOut) {
         throw new Error(`Pi process timed out after ${input.timeoutMs}ms for ${input.agentRunId}`);
@@ -323,6 +389,9 @@ export class BunPiProcessRunner implements PiProcessRunner {
       };
     } finally {
       clearTimeout(timer);
+      if (inactivityTimer !== undefined) {
+        clearTimeout(inactivityTimer);
+      }
       this.processesByRunId.delete(input.runId);
     }
   }
@@ -330,6 +399,39 @@ export class BunPiProcessRunner implements PiProcessRunner {
   async cancel(runId: string): Promise<void> {
     this.processesByRunId.get(runId)?.kill();
   }
+}
+
+function createReviewerFailure(
+  runId: string,
+  agentRunId: string,
+  role: AgentRole | string,
+  error: unknown,
+  durationMs?: number,
+): ReviewerRunFailure {
+  const serialized = serializeRuntimeError(error);
+  return {
+    runId,
+    agentRunId,
+    role,
+    errorName: serialized.name,
+    errorMessage: serialized.message,
+    errorClassification: classifyReviewError(error),
+    ...(durationMs !== undefined ? { durationMs } : {}),
+  };
+}
+
+function serializeRuntimeError(error: unknown): { name: string; message: string } {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+    };
+  }
+
+  return {
+    name: "Error",
+    message: String(error),
+  };
 }
 
 function buildReviewerPrompt(input: ReviewerRunInput): string {
@@ -356,7 +458,11 @@ function buildReviewerPrompt(input: ReviewerRunInput): string {
   ].join("\n");
 }
 
-function buildCoordinatorPrompt(input: CoordinatorRunInput, reviewerResults: ReviewerRunResult[]): string {
+function buildCoordinatorPrompt(
+  input: CoordinatorRunInput,
+  reviewerResults: ReviewerRunResult[],
+  reviewerFailures: ReviewerRunFailure[] = [],
+): string {
   return [
     "You are the coordinator for an AI code review factory.",
     "Consolidate reviewer findings, remove duplicates and speculative items, and return ONLY valid JSON matching ReviewSummary.",
@@ -374,6 +480,7 @@ function buildCoordinatorPrompt(input: CoordinatorRunInput, reviewerResults: Rev
         failOn: input.context.config.failOn,
       },
       reviewerResults,
+      reviewerFailures,
     }, null, 2),
   ].join("\n");
 }

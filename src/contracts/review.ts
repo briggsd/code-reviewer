@@ -184,10 +184,20 @@ export interface ReviewRunTokenMetrics extends TokenUsage {
   agentCount: number;
 }
 
+export interface ReviewRunAgentFailureMetrics {
+  agentRunId: string;
+  role: AgentRole | string;
+  kind: "reviewer" | "coordinator";
+  errorName: string;
+  errorClassification: ReviewErrorClassification;
+  durationMs?: number;
+}
+
 export interface ReviewRunMetrics {
   durationsMs: ReviewRunDurations;
   tokens?: ReviewRunTokenMetrics;
   agents?: ReviewRunAgentMetrics[];
+  failures?: ReviewRunAgentFailureMetrics[];
 }
 
 export interface ReviewRunRecord {

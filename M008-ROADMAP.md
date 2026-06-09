@@ -45,7 +45,7 @@ Triage live self-review findings into the relevant slice rather than tracking th
 - [x] **S03: Error classification contract** `risk:medium` `depends:[]` `issues:[#12,#18]`
   > After this: runtime errors are classified into stable categories such as `retryable_transient`, `rate_limited`, `auth`, `context_overflow`, `schema_invalid`, `timeout`, `truncated`, `unsafe_fork`, and `unknown`, without leaking secrets.
 
-- [ ] **S04: Per-reviewer isolation and `agent.failed` events** `risk:high` `depends:[S03]` `issues:[#12,#18]`
+- [x] **S04: Per-reviewer isolation and `agent.failed` events** `risk:high` `depends:[S03]` `issues:[#12,#18]`
   > After this: reviewer fan-out uses settled results, successful reviewers still feed the coordinator, failed reviewers are preserved as unavailable/error metadata, and every failed reviewer emits `agent.failed` with classification and elapsed time.
   > **Inactivity watchdog (from the Cloudflare primary source):** in addition to the per-reviewer/coordinator/overall timeouts, add a no-output watchdog that kills a session after an inactivity window (Cloudflare uses 60s) and marks it errored with a `timeout`/inactivity classification. Catches silently-crashed sessions that would otherwise burn the full `reviewerMs` (360s) before timing out.
 

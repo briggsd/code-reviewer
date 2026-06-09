@@ -390,14 +390,24 @@ function createRunMetrics(input: {
     }]),
   ];
 
-  if (agentMetrics.length === 0) {
-    return { durationsMs: input.durationsMs };
-  }
+  const failureMetrics = input.coordinatorResult?.reviewerFailures?.map((failure) => ({
+    agentRunId: failure.agentRunId,
+    role: failure.role,
+    kind: "reviewer" as const,
+    errorName: failure.errorName,
+    errorClassification: failure.errorClassification,
+    ...(failure.durationMs !== undefined ? { durationMs: failure.durationMs } : {}),
+  })) ?? [];
 
   return {
     durationsMs: input.durationsMs,
-    agents: agentMetrics,
-    tokens: sumTokenUsage(agentMetrics.map((agent) => agent.usage)),
+    ...(agentMetrics.length > 0
+      ? {
+        agents: agentMetrics,
+        tokens: sumTokenUsage(agentMetrics.map((agent) => agent.usage)),
+      }
+      : {}),
+    ...(failureMetrics.length > 0 ? { failures: failureMetrics } : {}),
   };
 }
 

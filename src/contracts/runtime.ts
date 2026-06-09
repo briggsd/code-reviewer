@@ -6,6 +6,7 @@ import type {
   TraceEventType,
 } from "./common.ts";
 import type { Finding, ReviewContext, ReviewSummary } from "./review.ts";
+import type { ReviewErrorClassification } from "./common.ts";
 
 export interface RuntimeToolPolicy {
   allowRead: boolean;
@@ -59,11 +60,22 @@ export interface ReviewerRunResult {
   tracePath?: string;
 }
 
+export interface ReviewerRunFailure {
+  runId: string;
+  agentRunId: string;
+  role: AgentRole | string;
+  errorName: string;
+  errorMessage: string;
+  errorClassification: ReviewErrorClassification;
+  durationMs?: number;
+}
+
 export interface CoordinatorRunResult {
   runId: string;
   agentRunId: string;
   summary: ReviewSummary;
   reviewerResults: ReviewerRunResult[];
+  reviewerFailures?: ReviewerRunFailure[];
   rawOutput?: string;
   usage?: TokenUsage;
   tracePath?: string;

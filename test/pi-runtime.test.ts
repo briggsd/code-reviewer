@@ -4,12 +4,13 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   BunPiProcessRunner,
+  FileSystemReviewStateStore,
   JsonlTraceSink,
   loadReviewFixture,
   PiAgentRuntime,
   runReview,
 } from "../src/index.ts";
-import type { PiProcessRunInput, PiProcessRunner, PiProcessRunResult, RuntimeEvent } from "../src/index.ts";
+import type { PiProcessRunInput, PiProcessRunner, PiProcessRunResult, ReviewRunRecord, RuntimeEvent } from "../src/index.ts";
 
 class FakePiProcessRunner implements PiProcessRunner {
   readonly calls: PiProcessRunInput[] = [];
@@ -76,6 +77,17 @@ class FakePiProcessRunner implements PiProcessRunner {
       },
       rawOutput: "",
     };
+  }
+}
+
+class OneReviewerFailsPiProcessRunner extends FakePiProcessRunner {
+  override async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "security") {
+      this.calls.push(input);
+      throw new Error("503 service unavailable from reviewer");
+    }
+
+    return super.run(input);
   }
 }
 
@@ -254,6 +266,54 @@ describe("PiAgentRuntime", () => {
     expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("Return at most 5 findings");
   });
 
+  test("isolates a failed reviewer and continues coordinator synthesis", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-partial-failure-"));
+
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const runId = fixture.runId ?? "fixture-auth-pr";
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const stateStore = new FileSystemReviewStateStore(outputDirectory);
+      const runner = new OneReviewerFailsPiProcessRunner();
+      const runtime = new PiAgentRuntime({
+        processRunner: runner,
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        stateStore,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const failedSecurity = events.find((event) => event.type === "agent.failed" && event.role === "security");
+      const coordinatorCall = runner.calls.find((call) => call.role === "coordinator");
+      const runRecord = JSON.parse(
+        await readFile(join(outputDirectory, "runs", runId, "run.json"), "utf8"),
+      ) as ReviewRunRecord;
+
+      expect(result.coordinatorResult?.reviewerResults.map((reviewer) => reviewer.role)).not.toContain("security");
+      expect(result.coordinatorResult?.reviewerFailures).toHaveLength(1);
+      expect(result.coordinatorResult?.reviewerFailures?.[0]?.errorClassification.category).toBe("retryable_transient");
+      expect(failedSecurity?.data?.errorCategory).toBe("retryable_transient");
+      expect(failedSecurity?.data?.retryable).toBe(true);
+      expect(coordinatorCall?.prompt).toContain("reviewerFailures");
+      expect(runRecord.metrics?.failures?.[0]?.errorClassification.category).toBe("retryable_transient");
+      expect(events.at(-1)?.type).toBe("review.completed");
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
   test("forwards Pi JSON events into the existing trace stream", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-runtime-"));
 
@@ -292,6 +352,41 @@ describe("PiAgentRuntime", () => {
         estimatedCostUsd: 0.001,
       });
       expect(events.at(-1)?.type).toBe("review.completed");
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("BunPiProcessRunner kills sessions that produce no output within the inactivity window", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-inactivity-"));
+
+    try {
+      const scriptPath = join(outputDirectory, "silent-pi.ts");
+      await writeFile(scriptPath, [
+        "await new Promise((resolve) => setTimeout(resolve, 1000));",
+        "console.log(JSON.stringify({ type: \"message_end\", message: { role: \"assistant\", content: [{ type: \"text\", text: \"{\\\"findings\\\":[]}\" }] } }));",
+      ].join("\n"));
+      const runner = new BunPiProcessRunner({
+        command: "bun",
+        baseArgs: ["run", scriptPath],
+      });
+
+      await expect(runner.run({
+        runId: "silent-run",
+        agentRunId: "silent-run:pi:security",
+        role: "security",
+        prompt: "Return findings JSON.",
+        cwd: process.cwd(),
+        timeoutMs: 5_000,
+        inactivityTimeoutMs: 20,
+        toolPolicy: {
+          allowRead: false,
+          allowWrite: false,
+          allowShell: false,
+          allowedTools: [],
+          deniedTools: [],
+        },
+      })).rejects.toThrow("Pi process produced no output for 20ms for silent-run:pi:security");
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
     }
