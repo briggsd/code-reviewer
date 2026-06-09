@@ -324,15 +324,18 @@ The coordinator decides when to spawn reviewers and later performs consolidation
 
 ### 7. Specialist reviewers run
 
-Specialist reviewers run concurrently. Each reviewer gets:
+Specialist reviewers run concurrently. Each reviewer is selected from a trusted operator-owned reviewer definition contract, not from reviewed-repo resources. Each definition carries:
 
-- domain-specific prompt,
+- stable role and display name,
+- trusted source marker (`trusted_operator`),
+- domain summary,
+- shared mandatory rules,
 - what-to-flag list,
 - what-not-to-flag list,
 - severity rubric,
-- scoped context,
-- structured output schema,
-- timeout.
+- output expectations.
+
+Each runtime adapter then combines that trusted definition with scoped context, structured output schema, and timeout settings native to the runtime.
 
 MVP reviewers:
 
@@ -546,7 +549,7 @@ Fork MR parent-project pipelines are privileged. They must not execute untrusted
 
 The factory separates **trusted operator resources** from **reviewed-repo resources**. Trusted operator resources are controlled by the review factory maintainer: reviewer definitions, coordinator rubrics, CI defaults, runtime hardening flags, and model credentials. Reviewed-repo resources are supplied by the repository or change under review: metadata, diffs, project config, checked-out files, and project-local agent instructions or extensions.
 
-Only trusted operator resources may define reviewer authority in CI. Reviewed-repo content can be quoted, summarized, filtered, or used as data, but it must not become trusted runtime configuration unless a maintainer explicitly chooses a privileged mode. For the Pi runtime, this means reviewed-repo context files, skills, prompt templates, extensions, session state, and approval state remain disabled in CI-oriented runs.
+Only trusted operator resources may define reviewer authority in CI. Reviewed-repo content can be quoted, summarized, filtered, or used as data, but it must not become trusted runtime configuration unless a maintainer explicitly chooses a privileged mode. Reviewer policy in project config may enable or disable trusted factory-provided reviewer roles; it does not define new reviewer prompts. For the Pi runtime, this means reviewed-repo context files, skills, prompt templates, extensions, session state, and approval state remain disabled in CI-oriented runs.
 
 ## Resilience design
 
@@ -608,13 +611,14 @@ Every run emits JSONL events. Event types:
 - `risk.assessed`
 - `agent.started`
 - `agent.output`
+- `agent.skipped`
 - `agent.failed`
 - `agent.completed`
 - `coordinator.completed`
 - `publisher.completed`
 - `review.completed`
 
-Each event includes run ID, project ID, change ID, timestamp, and enough metadata to debug without reading the full raw prompt.
+Each event includes run ID, project ID, change ID, timestamp, and enough metadata to debug without reading the full raw prompt. When project config references an enabled reviewer role with no trusted operator definition, the runner emits `agent.skipped` with `reason: "no_trusted_reviewer_definition"` instead of silently ignoring it.
 
 ### Metrics
 
@@ -762,3 +766,15 @@ This design is grounded in:
 - Cloudflare’s production writeup: https://blog.cloudflare.com/ai-code-review/
 - The previously captured vault notes on Cloudflare’s source article and the IndyDevDan commentary.
 - Project research notes: [CI, VCS, runtime, and security interface points](../research/ci-vcs-runtime-findings.md)
+
+### Primary-source deltas (exact values from the Cloudflare article)
+
+Concrete values from the primary source that the vault synthesis abstracted. Recorded here so re-implementers use the real numbers and know where our build deliberately diverges. Tracked in roadmaps M008–M009 and issues #13/#14/#21.
+
+- **Coordinator decision rubric.** only suggestions → `approved_with_comments`; *single* warning with no production risk → `approved_with_comments`; *multiple* warnings suggesting a risk pattern → `minor_issues` (unapprove); critical / production-safety → `significant_concerns` (block). Our current `chooseDecision` over-blocks: any single warning → `minor_issues`. Fix in M009 S05 (#13).
+- **Prompt-injection.** Cloudflare strips a fixed XML tag set (`mr_input`, `mr_body`, `mr_comments`, `changed_files`, `existing_inline_findings`, `previous_review`, `custom_review_instructions`, `agents_md_template_instructions`) via `/<\/?(?:tag)[^>]*>/gi`. Ours embeds via JSON, so the vector is JSON-structure breakout; `repairUnescapedStringQuotes` is in scope as an attack surface. M009 S02 (#14).
+- **Risk tiers (theirs).** `files > 50 || hasSecurityFiles → full`; `lines ≤ 10 && files ≤ 20 → trivial`; `lines ≤ 100 && files ≤ 20 → lite`; else full. Ours is stricter on trivial (`files ≤ 2 && lines ≤ 20`) and on full (`files > 20 || lines > 500`). Recalibration decision: #21.
+- **Resilience constants.** per-task 5 min (10 for code quality); overall 25 min; retry skipped if < 2 min remain; **inactivity kill at 60s no-output**; circuit-breaker 2-min cooldown + exactly one probe; failback within model family via a flat map (`{"opus-4-7":"opus-4-6","opus-4-6":null}`); coordinator hot-swaps its model on retryable failure. Inactivity watchdog → M008 S04; advanced resilience → M012.
+- **Observability signals.** token usage from `step_finish`; truncation = `step_finish` with `reason:"length"` → *retryable*; heartbeat every 30s (`"Model is thinking... (Ns since last output)"`); JSONL flushed every 100 lines / 50ms. M008 S03 + M011 S03.
+- **Diff filtering.** content-marker generated detection (`// @generated`, `/* eslint-disable */`) in addition to path globs; **migrations exempt** from generated-filtering. Our build covers migrations via `sensitivePaths` short-circuit; content-marker detection is an unbuilt minor enrichment.
+- **Reported scale.** 131,246 runs / 48,095 MRs / 5,169 repos in 30 days; median 3m39s; cost avg $1.19 / median $0.98 / P99 $4.45; 1.2 findings/review; 85.7% cache hit; trivial $0.20 / lite $0.67 / full $1.68.

@@ -26,6 +26,7 @@ import { filterDiff } from "./diff-filter.ts";
 import { classifyReviewError } from "./error-classifier.ts";
 import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
 import { classifyRisk } from "./risk-classifier.ts";
+import { findUnsupportedReviewerPolicyEntries, selectTrustedReviewerDefinitions } from "./reviewer-definitions.ts";
 import { classifyReReviewFindings } from "./re-review.ts";
 import { assignStableFindingIds } from "./stable-finding-id.ts";
 
@@ -155,6 +156,20 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       durationMs: riskAssessmentMs,
     },
   });
+
+  for (const unsupportedReviewer of findUnsupportedReviewerPolicyEntries({ config: context.config })) {
+    await emitTrace(options.traceSink, {
+      type: "agent.skipped",
+      runId,
+      role: unsupportedReviewer.role,
+      timestamp: clock().toISOString(),
+      message: `Configured reviewer role ${formatRoleForTraceMessage(unsupportedReviewer.role)} has no trusted definition; ignored.`,
+      data: {
+        reason: unsupportedReviewer.reason,
+        policy: unsupportedReviewer.policy,
+      },
+    });
+  }
 
   try {
     const coordinatorStartedAt = clock();
@@ -367,6 +382,10 @@ function formatRunIdForError(runId: string): string {
   return runId.replace(/[^A-Za-z0-9:._-]/g, "_");
 }
 
+function formatRoleForTraceMessage(role: string): string {
+  return role.replaceAll(/[\r\n\t]/g, " ").slice(0, 120);
+}
+
 function elapsedMs(startedAt: Date, completedAt: Date): number {
   return Math.max(0, completedAt.getTime() - startedAt.getTime());
 }
@@ -460,19 +479,18 @@ function createCoordinatorRunInput(context: ReviewContext): CoordinatorRunInput 
 }
 
 function createReviewerRunInputs(context: ReviewContext): ReviewerRunInput[] {
-  return Object.entries(context.config.reviewerPolicy)
-    .filter(([, policy]) => policy === "enabled" || (policy === "full_only" && context.risk.tier === "full"))
-    .map(([role]) => ({
+  return selectTrustedReviewerDefinitions({ config: context.config, risk: context.risk })
+    .map((reviewerDefinition) => ({
       runId: context.runId,
-      role,
-      prompt: `Review the change as the ${role} reviewer.`,
+      role: reviewerDefinition.role,
+      prompt: `Review the change as the ${reviewerDefinition.role} reviewer.`,
       context,
-      model: selectModel(context, role),
+      model: selectModel(context, reviewerDefinition.role),
       toolPolicy: createRuntimeToolPolicy(context.safetyMode),
       timeoutMs: context.config.timeouts.reviewerMs,
       outputSchemaName: "reviewer",
       assignedFiles: context.diff.files.map((file) => file.path),
-      domainInstructions: `Return only concrete ${role} findings for the filtered diff.`,
+      reviewerDefinition,
     }));
 }
 

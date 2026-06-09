@@ -27,10 +27,25 @@ export interface AgentRunInput {
   outputSchemaName: string;
 }
 
+export interface ReviewerDefinition {
+  role: Exclude<AgentRole, "coordinator"> | string;
+  displayName: string;
+  source: "trusted_operator";
+  version: string;
+  summary: string;
+  guidance: {
+    sharedMandatoryRules: string[];
+    flag: string[];
+    doNotFlag: string[];
+    severityCalibration: string[];
+    outputExpectations: string[];
+  };
+}
+
 export interface ReviewerRunInput extends AgentRunInput {
   role: Exclude<AgentRole, "coordinator"> | string;
   assignedFiles?: string[];
-  domainInstructions: string;
+  reviewerDefinition: ReviewerDefinition;
 }
 
 export interface CoordinatorRunInput extends AgentRunInput {

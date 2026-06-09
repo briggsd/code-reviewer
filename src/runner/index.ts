@@ -6,5 +6,6 @@ export * from "./fixture.ts";
 export * from "./path-match.ts";
 export * from "./risk-classifier.ts";
 export * from "./re-review.ts";
+export * from "./reviewer-definitions.ts";
 export * from "./run-review.ts";
 export * from "./stable-finding-id.ts";

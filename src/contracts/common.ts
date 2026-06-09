@@ -44,6 +44,7 @@ export type TraceEventType =
   | "risk.assessed"
   | "agent.started"
   | "agent.output"
+  | "agent.skipped"
   | "agent.failed"
   | "agent.completed"
   | "coordinator.completed"
