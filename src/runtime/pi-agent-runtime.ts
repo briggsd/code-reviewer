@@ -15,6 +15,7 @@ import type {
 } from "../contracts/index.ts";
 import { classifyReviewError } from "../runner/error-classifier.ts";
 import { summarizeReview } from "../runner/run-review.ts";
+import { stringifyPromptData } from "./prompt-boundary.ts";
 
 export interface PiProcessRunInput {
   runId: string;
@@ -553,14 +554,15 @@ function buildReviewerPrompt(input: ReviewerRunInput): string {
     "Omit low-confidence nitpicks.",
     "",
     "Review context:",
-    JSON.stringify({
+    stringifyPromptData({
       runId: input.runId,
       role: input.role,
       metadata: input.context.metadata,
       risk: input.context.risk,
       files: input.context.diff.files,
       assignedFiles: input.assignedFiles ?? [],
-    }, null, 2),
+      priorState: input.context.priorState,
+    }),
   ].join("\n");
 }
 
@@ -578,16 +580,17 @@ function buildCoordinatorPrompt(
     "Prefer silence over generic review spam.",
     "",
     "Context and reviewer results:",
-    JSON.stringify({
+    stringifyPromptData({
       metadata: input.context.metadata,
       risk: input.context.risk,
       config: {
         mode: input.context.config.mode,
         failOn: input.context.config.failOn,
       },
+      priorState: input.context.priorState,
       reviewerResults,
       reviewerFailures,
-    }, null, 2),
+    }),
   ].join("\n");
 }
 
@@ -710,10 +713,13 @@ function parseJsonCandidate(candidate: string): unknown {
       }
     }
 
-    const quoteRepaired = repairUnescapedStringQuotes(backtickRepaired);
-    if (quoteRepaired !== backtickRepaired) {
+    const quoteRepair = repairUnescapedStringQuotes(backtickRepaired);
+    if (quoteRepair.repairCount > MAX_UNESCAPED_QUOTE_REPAIRS) {
+      throw new Error("Pi output did not contain valid JSON after bounded quote repair");
+    }
+    if (quoteRepair.text !== backtickRepaired) {
       try {
-        return JSON.parse(quoteRepaired) as unknown;
+        return JSON.parse(quoteRepair.text) as unknown;
       } catch {
         throw error;
       }
@@ -759,13 +765,16 @@ function repairEscapedMarkdownBackticks(candidate: string): string {
   return repaired.join("");
 }
 
-function repairUnescapedStringQuotes(candidate: string): string {
+const MAX_UNESCAPED_QUOTE_REPAIRS = 20;
+
+function repairUnescapedStringQuotes(candidate: string): { text: string; repairCount: number } {
   // Live model output can occasionally include prose quotes inside a JSON string without
   // escaping them. Treat a quote inside a string as a closing delimiter only when the next
   // non-whitespace character is valid JSON structure for the end of a string token.
   const repaired: string[] = [];
   let inString = false;
   let escaped = false;
+  let repairCount = 0;
 
   for (let index = 0; index < candidate.length; index += 1) {
     const character = candidate[index] ?? "";
@@ -796,6 +805,7 @@ function repairUnescapedStringQuotes(candidate: string): string {
         repaired.push(character);
       } else {
         repaired.push("\\\"");
+        repairCount += 1;
       }
       continue;
     }
@@ -803,7 +813,7 @@ function repairUnescapedStringQuotes(candidate: string): string {
     repaired.push(character);
   }
 
-  return repaired.join("");
+  return { text: repaired.join(""), repairCount };
 }
 
 function isLikelyJsonStringTerminator(candidate: string, quoteIndex: number): boolean {
