@@ -109,6 +109,7 @@ export class PiAgentRuntime implements AgentRuntime {
     });
     this.emitAgentEvent("agent.completed", input.runId, agentRunId, "coordinator", {
       reviewerCount: reviewerResults.length,
+      ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
     });
 
     return {
@@ -154,6 +155,7 @@ export class PiAgentRuntime implements AgentRuntime {
     });
     this.emitAgentEvent("agent.completed", input.runId, agentRunId, input.role, {
       findingCount: findings.length,
+      ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
     });
 
     return {

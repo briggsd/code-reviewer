@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
 import {
+  DummyAgentRuntime,
   FileSystemReviewStateStore,
   JsonlTraceSink,
   loadReviewFixture,
@@ -100,6 +101,42 @@ describe("JSONL trace and filesystem state", () => {
       expect(summary.findings).toHaveLength(1);
       expect(latestState?.previousRunId).toBe("fixture-auth-pr");
       expect(latestState?.findings[0]?.finding.title).toBe("Account lookup misses authorization");
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("runner aggregates per-agent token and cost metrics into run state", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-state-metrics-"));
+
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const runId = fixture.runId ?? "fixture-auth-pr";
+      const stateStore = new FileSystemReviewStateStore(outputDirectory);
+      const runtime = new DummyAgentRuntime({
+        defaultFindings: fixture.fakeFindings ?? [],
+      });
+
+      await runReview({
+        fixture,
+        clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+        stateStore,
+        runtime,
+      });
+
+      const runRecord = JSON.parse(
+        await readFile(join(outputDirectory, "runs", runId, "run.json"), "utf8"),
+      ) as ReviewRunRecord;
+
+      expect(runRecord.metrics?.tokens).toEqual({
+        agentCount: 5,
+        inputTokens: 0,
+        outputTokens: 0,
+        estimatedCostUsd: 0,
+      });
+      expect(runRecord.metrics?.agents).toHaveLength(5);
+      expect(runRecord.metrics?.agents?.map((agent) => `${agent.kind}:${agent.role}`)).toContain("coordinator:coordinator");
+      expect(runRecord.metrics?.agents?.map((agent) => `${agent.kind}:${agent.role}`)).toContain("reviewer:security");
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
     }

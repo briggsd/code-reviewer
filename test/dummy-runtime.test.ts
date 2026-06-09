@@ -63,7 +63,14 @@ describe("DummyAgentRuntime", () => {
 
       expect(events[0]?.type).toBe("review.started");
       expect(agentEvents.map((event) => `${event.type}:${event.role}`)).toContain("agent.started:coordinator");
+      const securityCompleted = agentEvents.find((event) => event.type === "agent.completed" && event.role === "security");
+
       expect(agentEvents.map((event) => `${event.type}:${event.role}`)).toContain("agent.completed:security");
+      expect(securityCompleted?.data?.usage).toEqual({
+        inputTokens: 0,
+        outputTokens: 0,
+        estimatedCostUsd: 0,
+      });
       expect(agentEvents.map((event) => `${event.type}:${event.role}`)).toContain("agent.output:coordinator");
       expect(events.at(-1)?.type).toBe("review.completed");
     } finally {

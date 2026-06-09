@@ -11,6 +11,7 @@ import type {
   ReviewContext,
   ReviewDecision,
   ReviewerRunInput,
+  ReviewRunMetrics,
   ReviewStateStore,
   ReviewSummary,
   RuntimeEvent,
@@ -18,6 +19,7 @@ import type {
   RuntimeToolPolicy,
   SafetyMode,
   Severity,
+  TokenUsage,
   TraceSink,
 } from "../contracts/index.ts";
 import { filterDiff } from "./diff-filter.ts";
@@ -188,6 +190,15 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     const completedAt = clock();
     const completedAtTimestamp = completedAt.toISOString();
     const overallMs = elapsedMs(startedAt, completedAt);
+    const metrics = createRunMetrics({
+      durationsMs: {
+        overallMs,
+        contextBuildMs,
+        riskAssessmentMs,
+        coordinatorMs,
+      },
+      ...(runtimeResult.coordinatorResult !== undefined ? { coordinatorResult: runtimeResult.coordinatorResult } : {}),
+    });
     await options.stateStore?.saveRun({
       runId,
       startedAt: timestamp,
@@ -198,14 +209,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         risk: context.risk,
       },
       summary,
-      metrics: {
-        durationsMs: {
-          overallMs,
-          contextBuildMs,
-          riskAssessmentMs,
-          coordinatorMs,
-        },
-      },
+      metrics,
       ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
     });
     await options.stateStore?.saveSummary(runId, summary);
@@ -355,6 +359,62 @@ function formatRunIdForError(runId: string): string {
 
 function elapsedMs(startedAt: Date, completedAt: Date): number {
   return Math.max(0, completedAt.getTime() - startedAt.getTime());
+}
+
+function createRunMetrics(input: {
+  durationsMs: ReviewRunMetrics["durationsMs"];
+  coordinatorResult?: CoordinatorRunResult;
+}): ReviewRunMetrics {
+  const agentMetrics = input.coordinatorResult === undefined ? [] : [
+    ...input.coordinatorResult.reviewerResults.flatMap((result) => result.usage === undefined ? [] : [{
+      agentRunId: result.agentRunId,
+      role: result.role,
+      kind: "reviewer" as const,
+      usage: result.usage,
+    }]),
+    ...(input.coordinatorResult.usage === undefined ? [] : [{
+      agentRunId: input.coordinatorResult.agentRunId,
+      role: "coordinator",
+      kind: "coordinator" as const,
+      usage: input.coordinatorResult.usage,
+    }]),
+  ];
+
+  if (agentMetrics.length === 0) {
+    return { durationsMs: input.durationsMs };
+  }
+
+  return {
+    durationsMs: input.durationsMs,
+    agents: agentMetrics,
+    tokens: sumTokenUsage(agentMetrics.map((agent) => agent.usage)),
+  };
+}
+
+function sumTokenUsage(usages: TokenUsage[]): NonNullable<ReviewRunMetrics["tokens"]> {
+  const inputTokens = sumOptional(usages.map((usage) => usage.inputTokens));
+  const outputTokens = sumOptional(usages.map((usage) => usage.outputTokens));
+  const cacheReadTokens = sumOptional(usages.map((usage) => usage.cacheReadTokens));
+  const cacheWriteTokens = sumOptional(usages.map((usage) => usage.cacheWriteTokens));
+  const estimatedCostUsd = sumOptional(usages.map((usage) => usage.estimatedCostUsd));
+
+  return {
+    agentCount: usages.length,
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+    ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
+    ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
+  };
+}
+
+function sumOptional(values: Array<number | undefined>): number | undefined {
+  const present = values.filter((value): value is number => value !== undefined);
+  if (present.length === 0) {
+    return undefined;
+  }
+
+  return present.reduce((total, value) => total + value, 0);
 }
 
 function runDeterministicFakeReviewers(fakeFindings: Finding[]): Finding[] {

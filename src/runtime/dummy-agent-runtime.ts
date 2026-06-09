@@ -65,6 +65,12 @@ export class DummyAgentRuntime implements AgentRuntime {
         findingCount: findings.length,
       },
     });
+    const usage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCostUsd: 0,
+    };
+
     this.emit({
       type: "agent.completed",
       runId: input.runId,
@@ -73,6 +79,7 @@ export class DummyAgentRuntime implements AgentRuntime {
       timestamp: this.now(),
       data: {
         reviewerCount: reviewerResults.length,
+        usage,
       },
     });
 
@@ -82,11 +89,7 @@ export class DummyAgentRuntime implements AgentRuntime {
       summary,
       reviewerResults,
       rawOutput: JSON.stringify(summary),
-      usage: {
-        inputTokens: 0,
-        outputTokens: 0,
-        estimatedCostUsd: 0,
-      },
+      usage,
     };
   }
 
@@ -118,6 +121,12 @@ export class DummyAgentRuntime implements AgentRuntime {
         findingCount: findings.length,
       },
     });
+    const usage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCostUsd: 0,
+    };
+
     this.emit({
       type: "agent.completed",
       runId: input.runId,
@@ -126,6 +135,7 @@ export class DummyAgentRuntime implements AgentRuntime {
       timestamp: this.now(),
       data: {
         findingCount: findings.length,
+        usage,
       },
     });
 
@@ -135,11 +145,7 @@ export class DummyAgentRuntime implements AgentRuntime {
       role: input.role,
       findings,
       rawOutput: JSON.stringify({ findings }),
-      usage: {
-        inputTokens: 0,
-        outputTokens: 0,
-        estimatedCostUsd: 0,
-      },
+      usage,
     };
   }
 

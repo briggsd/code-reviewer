@@ -38,7 +38,7 @@ Triage live self-review findings into the relevant slice rather than tracking th
   > Quick win, do first: a localized fix in `run-review.ts`, and the foundation every later slice's durations depend on.
   > After this: `review.started`, `context.built`, `risk.assessed`, `coordinator.completed`, publish, and failure events carry real emission timestamps, and `run.json`/trace artifacts expose fetch/context/risk/coordinator/publish/overall durations where available.
 
-- [ ] **S02: Token and cost metrics in trace artifacts** `risk:medium` `depends:[]` `issues:[#18]`
+- [x] **S02: Token and cost metrics in trace artifacts** `risk:medium` `depends:[]` `issues:[#18]`
   > After this: reviewer/coordinator `TokenUsage` is emitted on completion events and aggregated into a run-level metrics block with input/output/cache read/cache write/estimated cost totals.
 
 - [ ] **S03: Error classification contract** `risk:medium` `depends:[]` `issues:[#12,#18]`

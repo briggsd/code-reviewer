@@ -70,6 +70,8 @@ class FakePiProcessRunner implements PiProcessRunner {
       usage: {
         inputTokens: 10,
         outputTokens: 5,
+        cacheReadTokens: 2,
+        cacheWriteTokens: 1,
         estimatedCostUsd: 0.001,
       },
       rawOutput: "",
@@ -278,8 +280,17 @@ describe("PiAgentRuntime", () => {
         .map((line) => JSON.parse(line) as RuntimeEvent);
 
       expect(events.map((event) => event.type)).toContain("runtime.event");
+      const securityCompleted = events.find((event) => event.type === "agent.completed" && event.role === "security");
+
       expect(events.map((event) => `${event.type}:${event.role}`)).toContain("agent.started:coordinator");
       expect(events.map((event) => `${event.type}:${event.role}`)).toContain("agent.completed:security");
+      expect(securityCompleted?.data?.usage).toEqual({
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 2,
+        cacheWriteTokens: 1,
+        estimatedCostUsd: 0.001,
+      });
       expect(events.at(-1)?.type).toBe("review.completed");
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });

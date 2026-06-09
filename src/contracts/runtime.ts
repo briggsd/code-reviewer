@@ -2,6 +2,7 @@ import type {
   AgentRole,
   JsonValue,
   ModelSelection,
+  TokenUsage,
   TraceEventType,
 } from "./common.ts";
 import type { Finding, ReviewContext, ReviewSummary } from "./review.ts";
@@ -36,13 +37,7 @@ export interface CoordinatorRunInput extends AgentRunInput {
   selectedReviewers: ReviewerRunInput[];
 }
 
-export interface TokenUsage {
-  inputTokens?: number;
-  outputTokens?: number;
-  cacheReadTokens?: number;
-  cacheWriteTokens?: number;
-  estimatedCostUsd?: number;
-}
+export type { TokenUsage } from "./common.ts";
 
 export interface RuntimeEvent {
   type: TraceEventType | "runtime.event";

@@ -75,6 +75,14 @@ export interface ModelSelection {
   maxOutputTokens?: number;
 }
 
+export interface TokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  estimatedCostUsd?: number;
+}
+
 export interface TimeoutPolicy {
   reviewerMs: number;
   coordinatorMs: number;

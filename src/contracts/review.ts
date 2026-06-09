@@ -14,6 +14,7 @@ import type {
   Severity,
   TimeoutPolicy,
   ModelSelection,
+  TokenUsage,
 } from "./common.ts";
 
 export interface ChangeRef {
@@ -171,8 +172,21 @@ export interface ReviewRunDurations {
   fetchMs?: number;
 }
 
+export interface ReviewRunAgentMetrics {
+  agentRunId: string;
+  role: AgentRole | string;
+  kind: "reviewer" | "coordinator";
+  usage: TokenUsage;
+}
+
+export interface ReviewRunTokenMetrics extends TokenUsage {
+  agentCount: number;
+}
+
 export interface ReviewRunMetrics {
   durationsMs: ReviewRunDurations;
+  tokens?: ReviewRunTokenMetrics;
+  agents?: ReviewRunAgentMetrics[];
 }
 
 export interface ReviewRunRecord {
