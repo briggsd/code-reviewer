@@ -129,6 +129,93 @@ class InvalidJsonPiProcessRunner implements PiProcessRunner {
   }
 }
 
+class JsonWithUnescapedQuotePiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    const quotedFinding = {
+      ...securityFinding(),
+      severity: "suggestion" as const,
+      category: "docs",
+      title: "Unescaped quote suggestion",
+      body: "The docs describe \"timeouts\" as enforced.",
+      confidence: "medium" as const,
+      evidence: "The model emitted unescaped prose quotes.",
+      recommendation: "Keep quoted prose parseable.",
+    };
+    const output = input.role === "coordinator"
+      ? {
+        decision: "approved_with_comments",
+        outcome: "pass",
+        title: "AI review found suggestions",
+        body: "Coordinator preserved the \"timeouts\" suggestion.",
+        findings: [quotedFinding],
+        risk: {
+          tier: "lite",
+          reason: "Fake coordinator fallback risk.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      }
+      : input.role === "documentation"
+        ? { findings: [quotedFinding] }
+        : { findings: [] };
+    const finalText = `\`\`\`json\n${JSON.stringify(output, null, 2).replace(/\\\"timeouts\\\"/g, "\"timeouts\"")}\n\`\`\``;
+
+    return {
+      finalText,
+      events: [],
+      rawOutput: finalText,
+    };
+  }
+}
+
+class FencedJsonWithInvalidBacktickEscapePiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    const escapedFinding = {
+      ...securityFinding(),
+      severity: "suggestion" as const,
+      category: "docs",
+      title: "Escaped backtick suggestion",
+      body: "The model escaped markdown backticks.",
+      location: "docs/example.md",
+      confidence: "medium" as const,
+      evidence: "Recommendation contains invalid JSON backtick escapes.",
+      recommendation: "Replace `foo` with `bar`, keep C:\\`path`, and preserve the fenced example.\n```ts\nfoo();\n```",
+    };
+    const output = input.role === "coordinator"
+      ? {
+        decision: "approved_with_comments",
+        outcome: "pass",
+        title: "AI review found suggestions",
+        body: "Coordinator preserved one suggestion.",
+        findings: [escapedFinding],
+        risk: {
+          tier: "lite",
+          reason: "Fake coordinator fallback risk.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      }
+      : input.role === "security"
+        ? { findings: [escapedFinding] }
+        : { findings: [] };
+    const shouldFenceAndEscape = input.role === "coordinator" || input.role === "security";
+    const jsonText = JSON.stringify(output, null, 2);
+    const finalText = shouldFenceAndEscape
+      ? `\`\`\`json\n${jsonText.replace(/`/g, "\\`")}\n\`\`\``
+      : jsonText;
+
+    return {
+      finalText,
+      events: [],
+      rawOutput: finalText,
+    };
+  }
+}
+
 describe("PiAgentRuntime", () => {
   test("runs coordinator and reviewers through a fake Pi process runner", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
@@ -162,6 +249,7 @@ describe("PiAgentRuntime", () => {
       "coordinator",
     ]);
     expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("Return ONLY valid JSON");
+    expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("Return at most 5 findings");
   });
 
   test("forwards Pi JSON events into the existing trace stream", async () => {
@@ -271,6 +359,38 @@ describe("PiAgentRuntime", () => {
       line: 23,
     });
     expect(result.summary.findings[0]?.evidence).toEqual([]);
+  });
+
+  test("repairs invalid markdown backtick escapes in fenced reviewer JSON", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new PiAgentRuntime({ processRunner: new FencedJsonWithInvalidBacktickEscapePiProcessRunner() });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const expectedRecommendation = "Replace `foo` with `bar`, keep C:\\`path`, and preserve the fenced example.\n```ts\nfoo();\n```";
+    const securityResult = result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "security");
+    expect(securityResult?.findings[0]?.recommendation).toBe(expectedRecommendation);
+    expect(result.summary.findings[0]?.recommendation).toBe(expectedRecommendation);
+  });
+
+  test("repairs unescaped prose quotes in fenced reviewer and coordinator JSON", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new PiAgentRuntime({ processRunner: new JsonWithUnescapedQuotePiProcessRunner() });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const documentationResult = result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "documentation");
+    expect(documentationResult?.findings[0]?.body).toBe("The docs describe \"timeouts\" as enforced.");
+    expect(result.summary.body).toBe("Coordinator preserved the \"timeouts\" suggestion.");
+    expect(result.summary.findings[0]?.body).toBe("The docs describe \"timeouts\" as enforced.");
   });
 
   test("rejects invalid structured reviewer output", async () => {

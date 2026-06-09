@@ -39,9 +39,9 @@ bun run schema:config
     "performance": "full_only"
   },
   "timeouts": {
-    "reviewerMs": 120000,
-    "coordinatorMs": 180000,
-    "overallMs": 300000
+    "reviewerMs": 360000,
+    "coordinatorMs": 240000,
+    "overallMs": 660000
   },
   "modelRouting": {
     "default": {
@@ -73,6 +73,9 @@ bun run schema:config
 - `ignoredPaths`: glob-like path patterns filtered out before review.
 - `reviewerPolicy`: role name to `enabled`, `disabled`, or `full_only`.
 - `timeouts`: reviewer/coordinator/overall budgets in milliseconds.
+  - Reviewer agents run in parallel; the coordinator runs after all reviewers complete.
+  - `overallMs` is an enforced wall-clock ceiling for the whole runtime phase and should be at least `reviewerMs + coordinatorMs` plus headroom.
+  - Defaults were raised after PR #9 live Pi smoke exposed model-backed review latency. Lower them for tighter CI budgets or raise them for slower self-hosted/model paths.
 - `modelRouting.default`: fallback model for roles without an override.
 - `modelRouting.roles`: role-specific model selections.
 - `projectInstructionsPath`: reserved path for trusted project instructions.

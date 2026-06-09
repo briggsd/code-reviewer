@@ -173,6 +173,53 @@ describe("fixture local runner", () => {
       .toBe("claude-haiku");
   });
 
+  test("cancels the runtime when the overall timeout expires", async () => {
+    const fixture = normalizeReviewFixture({
+      runId: "local/<script>",
+      metadata: {
+        provider: "local",
+        repository: {
+          provider: "local",
+          name: "demo",
+          slug: "demo",
+        },
+        changeId: "local",
+        headSha: "abc123",
+        title: "Update code",
+        author: {
+          username: "dev",
+        },
+        labels: [],
+      },
+      diff: {
+        files: [
+          {
+            path: "src/auth.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            isBinary: false,
+          },
+        ],
+        totalAdditions: 1,
+        totalDeletions: 0,
+        truncated: false,
+      },
+      config: {
+        timeouts: {
+          reviewerMs: 5_000,
+          coordinatorMs: 5_000,
+          overallMs: 5,
+        },
+      },
+    });
+    const runtime = new SlowRuntime({ rejectCancel: true });
+
+    await expect(runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") }))
+      .rejects.toThrow("Review run timed out after overall timeout 5ms for local__script_");
+    expect(runtime.cancelledRunId).toBe("local/<script>");
+  });
+
   test("carries prior review state into review context", async () => {
     const fixture = normalizeReviewFixture({
       metadata: {
@@ -258,6 +305,42 @@ describe("fixture local runner", () => {
     });
   });
 });
+
+class SlowRuntime implements AgentRuntime {
+  readonly name = "slow";
+
+  cancelledRunId: string | undefined;
+
+  constructor(private readonly options: { rejectCancel?: boolean } = {}) {}
+
+  async runCoordinator(_input: CoordinatorRunInput): Promise<CoordinatorRunResult> {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    throw new Error("Slow runtime should have been cancelled");
+  }
+
+  async runReviewer(input: ReviewerRunInput): Promise<ReviewerRunResult> {
+    return {
+      runId: input.runId,
+      agentRunId: `${input.runId}:${input.role}`,
+      role: input.role,
+      findings: [],
+      rawOutput: "{\"findings\":[]}",
+    };
+  }
+
+  streamEvents(_runId: string, _onEvent: (event: RuntimeEvent) => void): RuntimeEventSubscription {
+    return {
+      unsubscribe: () => {},
+    };
+  }
+
+  async cancel(runId: string): Promise<void> {
+    this.cancelledRunId = runId;
+    if (this.options.rejectCancel === true) {
+      throw new Error("cancel failed");
+    }
+  }
+}
 
 class RecordingRuntime implements AgentRuntime {
   readonly name = "recording";

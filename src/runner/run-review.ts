@@ -265,7 +265,12 @@ async function runAgents(input: {
   });
 
   try {
-    const coordinatorResult = await input.runtime.runCoordinator(createCoordinatorRunInput(input.context));
+    const coordinatorResult = await withOverallTimeout(
+      input.runtime.runCoordinator(createCoordinatorRunInput(input.context)),
+      input.context.config.timeouts.overallMs,
+      input.context.runId,
+      () => input.runtime?.cancel(input.context.runId) ?? Promise.resolve(),
+    );
     await Promise.all(runtimeTraceWrites);
 
     return {
@@ -275,6 +280,40 @@ async function runAgents(input: {
   } finally {
     subscription.unsubscribe();
   }
+}
+
+async function withOverallTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  runId: string,
+  onTimeout: () => Promise<void>,
+): Promise<T> {
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error(`Review run timed out after overall timeout ${timeoutMs}ms for ${formatRunIdForError(runId)}`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } catch (error) {
+    if (timedOut) {
+      promise.catch(() => undefined);
+      await onTimeout().catch(() => undefined);
+    }
+    throw error;
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+function formatRunIdForError(runId: string): string {
+  return runId.replace(/[^A-Za-z0-9:._-]/g, "_");
 }
 
 function runDeterministicFakeReviewers(fakeFindings: Finding[]): Finding[] {

@@ -339,6 +339,7 @@ function buildReviewerPrompt(input: ReviewerRunInput): string {
     "Do not wrap the JSON in prose unless impossible.",
     "Finding fields: reviewer, severity, category, title, body, location, confidence, evidence, recommendation.",
     "Allowed severity values: critical, warning, suggestion. Allowed confidence values: high, medium, low.",
+    "Return at most 5 findings; choose the highest-impact, highest-confidence issues.",
     "Omit low-confidence nitpicks.",
     "",
     "Review context:",
@@ -459,26 +460,148 @@ function normalizeEvidence(value: unknown): string[] | undefined {
 
 function parseJsonObject(text: string): unknown {
   const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
-  const candidate = fenced ?? trimmed;
+  const candidate = extractFencedJson(trimmed) ?? trimmed;
 
   try {
-    return JSON.parse(candidate) as unknown;
+    return parseJsonCandidate(candidate);
   } catch {
     const objectStart = candidate.indexOf("{");
     const objectEnd = candidate.lastIndexOf("}");
     if (objectStart !== -1 && objectEnd > objectStart) {
-      return JSON.parse(candidate.slice(objectStart, objectEnd + 1)) as unknown;
+      return parseJsonCandidate(candidate.slice(objectStart, objectEnd + 1));
     }
 
     const arrayStart = candidate.indexOf("[");
     const arrayEnd = candidate.lastIndexOf("]");
     if (arrayStart !== -1 && arrayEnd > arrayStart) {
-      return JSON.parse(candidate.slice(arrayStart, arrayEnd + 1)) as unknown;
+      return parseJsonCandidate(candidate.slice(arrayStart, arrayEnd + 1));
     }
 
     throw new Error("Pi output did not contain valid JSON");
   }
+}
+
+function parseJsonCandidate(candidate: string): unknown {
+  try {
+    return JSON.parse(candidate) as unknown;
+  } catch (error) {
+    const backtickRepaired = repairEscapedMarkdownBackticks(candidate);
+    if (backtickRepaired !== candidate) {
+      try {
+        return JSON.parse(backtickRepaired) as unknown;
+      } catch {
+        // Keep trying narrowly-scoped repairs below, but preserve the original error
+        // if none of the repair attempts produce valid JSON.
+      }
+    }
+
+    const quoteRepaired = repairUnescapedStringQuotes(backtickRepaired);
+    if (quoteRepaired !== backtickRepaired) {
+      try {
+        return JSON.parse(quoteRepaired) as unknown;
+      } catch {
+        throw error;
+      }
+    }
+
+    throw error;
+  }
+}
+
+function extractFencedJson(trimmed: string): string | undefined {
+  const opening = trimmed.match(/^```(?:json)?[^\n]*\n/i);
+  if (opening === null) {
+    return undefined;
+  }
+
+  const body = trimmed.slice(opening[0].length);
+  const closing = body.match(/\n```[^\n]*$/);
+  if (closing?.index === undefined) {
+    return undefined;
+  }
+
+  return body.slice(0, closing.index).trim();
+}
+
+function repairEscapedMarkdownBackticks(candidate: string): string {
+  // Some models emit fenced JSON whose string fields escape Markdown code ticks as \`,
+  // which is not a valid JSON escape sequence. Keep this repair intentionally narrow:
+  // do not strip arbitrary backslashes because recommendations can legitimately contain
+  // regexes, shell snippets, or paths where a backslash is meaningful. Only remove the
+  // final backslash from an odd-length run immediately before a backtick.
+  const repaired: string[] = [];
+  let trailingBackslashes = 0;
+
+  for (const character of candidate) {
+    if (character === "`" && trailingBackslashes % 2 === 1) {
+      repaired.pop();
+    }
+
+    repaired.push(character);
+    trailingBackslashes = character === "\\" ? trailingBackslashes + 1 : 0;
+  }
+
+  return repaired.join("");
+}
+
+function repairUnescapedStringQuotes(candidate: string): string {
+  // Live model output can occasionally include prose quotes inside a JSON string without
+  // escaping them. Treat a quote inside a string as a closing delimiter only when the next
+  // non-whitespace character is valid JSON structure for the end of a string token.
+  const repaired: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < candidate.length; index += 1) {
+    const character = candidate[index] ?? "";
+
+    if (!inString) {
+      if (character === "\"") {
+        inString = true;
+      }
+      repaired.push(character);
+      continue;
+    }
+
+    if (escaped) {
+      repaired.push(character);
+      escaped = false;
+      continue;
+    }
+
+    if (character === "\\") {
+      repaired.push(character);
+      escaped = true;
+      continue;
+    }
+
+    if (character === "\"") {
+      if (isLikelyJsonStringTerminator(candidate, index)) {
+        inString = false;
+        repaired.push(character);
+      } else {
+        repaired.push("\\\"");
+      }
+      continue;
+    }
+
+    repaired.push(character);
+  }
+
+  return repaired.join("");
+}
+
+function isLikelyJsonStringTerminator(candidate: string, quoteIndex: number): boolean {
+  for (let index = quoteIndex + 1; index < candidate.length; index += 1) {
+    const character = candidate[index] ?? "";
+    if (/\s/.test(character)) {
+      continue;
+    }
+
+    return character === ":" || character === "," || character === "}" || character === "]";
+  }
+
+  return true;
 }
 
 function getRecord(value: unknown): Record<string, unknown> {
