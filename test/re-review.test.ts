@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  classifyReReviewFindings,
   createReReviewSummary,
   formatReviewSummaryMarkdown,
   loadReviewFixture,
@@ -128,6 +129,18 @@ describe("re-review finding classification", () => {
     expect(result.summary.reReview?.newFindingIds).toEqual([]);
     expect(result.summary.reReview?.recurringFindingIds).toEqual(["fnd_fixture_recurring_auth"]);
     expect(result.summary.reReview?.fixedFindingIds).toEqual(["fnd_fixture_fixed_null_check"]);
+  });
+
+  test("omits empty zero-count re-review state", () => {
+    const summary = classifyReReviewFindings(createSummary([]), {
+      previousRunId: "prior-empty-run",
+      previousHeadSha: "old-head",
+      findings: [],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(summary.reReview).toBeUndefined();
+    expect(markdown).not.toContain("### Re-review status");
   });
 
   test("summary markdown renders re-review counts and fixed IDs", () => {

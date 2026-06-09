@@ -11,3 +11,5 @@ Expected workflow behavior for this PR:
 - The publish job posts a summary comment using `--publish-summary`.
 
 If this works, the next smoke step is to switch a controlled branch to `--runtime pi` with explicitly configured model credentials.
+
+Live smoke started: 2026-06-09T11:18:26Z
