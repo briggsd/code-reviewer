@@ -1,11 +1,11 @@
 # Adoption guide
 
-Use this guide when wiring AI Code Review Factory into another repository.
+Use this guide when wiring AI Code Review Factory into another repository. For the Fortis/self-managed GitLab beta operator checklist, see [Fortis GitLab beta onboarding](fortis-gitlab-beta.md).
 
 ## Recommended adoption path
 
-1. **Pin the package source.** Set `AI_REVIEW_PACKAGE` to an immutable npm tarball URL, an exact registry package version, or a full Git commit SHA for internal smoke only. Do not use `main`, floating tags, `latest`, or a checkout of the runner repository as the adopter install source.
-2. **Start with dry-run only.** Copy `examples/ci/github-actions-ai-review.yml`, `examples/ci/github-actions-ai-review-action.yml`, or `examples/ci/gitlab-ai-review.yml`, keep `--runtime dummy`, and verify `.ai-review/` artifacts upload successfully.
+1. **Pin the package source.** Set `AI_REVIEW_PACKAGE` to an immutable npm tarball URL, an exact registry package version, or a full Git commit SHA for internal smoke only. For the Fortis/self-managed GitLab beta, prefer a versioned internal tarball URL and keep the package private/`UNLICENSED`; public npm is not required. Do not use `main`, floating tags, `latest`, or a checkout of the runner repository as the adopter install source.
+2. **Start with dry-run only.** Copy `examples/ci/github-actions-ai-review.yml`, `examples/ci/github-actions-ai-review-action.yml`, or the Fortis/self-managed GitLab beta template at `examples/ci/gitlab-ai-review.yml`, keep the runtime variables at `dummy`, and verify `.ai-review/` artifacts upload successfully. For self-managed GitLab, keep `AI_REVIEW_GITLAB_API_BASE_URL` set to `$CI_API_V4_URL` or your explicit `https://gitlab.example.com/api/v4` endpoint.
 3. **Enable same-repo/same-project summary publishing.** Keep dry-run and publish jobs separate. Only the guarded publish job should use write permissions and `--publish-summary`.
 4. **Optionally enable GitHub inline publishing in the guarded write-back job.** Only after summary publishing is stable, add `--publish-inline` for same-repository GitHub PRs. Keep the default dry-run job inline-free.
 5. **Switch to Pi only in trusted jobs.** After summary-only dummy runs are stable, replace `--runtime dummy` with `--runtime pi` in a trusted job that can install Pi and access model credentials.
@@ -15,7 +15,7 @@ Use this guide when wiring AI Code Review Factory into another repository.
 
 ```yaml
 env:
-  AI_REVIEW_PACKAGE: https://example.invalid/ai-code-review-factory-0.1.0.tgz
+  AI_REVIEW_PACKAGE: https://gitlab.example.com/fortis/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz
 
 jobs:
   dry-run:
@@ -62,8 +62,10 @@ Use the full raw CLI template in `examples/ci/github-actions-ai-review.yml` or t
 ## Adoption checklist
 
 - [ ] Bun is installed before `bun add --global "$AI_REVIEW_PACKAGE"`.
-- [ ] `AI_REVIEW_PACKAGE` is immutable or exact-version pinned.
+- [ ] `AI_REVIEW_PACKAGE` is an immutable internal tarball URL or exact-version pinned package source.
+- [ ] Self-managed GitLab jobs pass `--api-base-url` from `$CI_API_V4_URL` or an explicit `AI_REVIEW_GITLAB_API_BASE_URL`.
 - [ ] Dry-run and publish jobs are separate.
+- [ ] GitLab beta templates keep `AI_REVIEW_DRY_RUN_RUNTIME` and `AI_REVIEW_PUBLISH_RUNTIME` explicit, defaulting to `dummy` until trusted model-backed jobs are approved.
 - [ ] Fork PR/MR jobs do not receive write tokens or model/runtime credentials.
 - [ ] `.ai-review/` artifacts upload even on failure.
 - [ ] Summary publishing updates an existing bot comment/note instead of duplicating it.

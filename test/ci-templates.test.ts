@@ -42,14 +42,25 @@ describe("CI starter templates", () => {
   test("GitLab CI template separates MR dry run from same-project write-back", async () => {
     const pipeline = await readFile("examples/ci/gitlab-ai-review.yml", "utf8");
 
+    expect(pipeline).toContain("Fortis/self-managed GitLab beta template");
     expect(pipeline).toContain("$CI_PIPELINE_SOURCE == \"merge_request_event\"");
     expect(pipeline).toContain("$CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID");
     expect(pipeline).toContain("GITLAB_TOKEN_READ");
     expect(pipeline).toContain("GITLAB_TOKEN_WRITE");
-    expect(pipeline).toContain("AI_REVIEW_PACKAGE: ai-code-review-factory@0.1.0");
+    expect(pipeline).toContain("AI_REVIEW_PACKAGE: https://gitlab.example.com/fortis/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz");
+    expect(pipeline).not.toContain("AI_REVIEW_PACKAGE: ai-code-review-factory@0.1.0");
+    expect(pipeline).toContain('AI_REVIEW_GITLAB_API_BASE_URL: "$CI_API_V4_URL"');
+    expect(pipeline).toContain("AI_REVIEW_DRY_RUN_RUNTIME: dummy");
+    expect(pipeline).toContain("AI_REVIEW_PUBLISH_RUNTIME: dummy");
+    expect(pipeline).toContain("interruptible: true");
+    expect(pipeline).toContain("expire_in: 14 days");
+    expect(pipeline).toContain("artifacts: false");
     expect(pipeline).toContain("bun add --global \"$AI_REVIEW_PACKAGE\"");
     expect(pipeline).toContain("ai-code-review run");
     expect(pipeline).toContain("--provider gitlab");
+    expect(pipeline).toContain('--api-base-url "${AI_REVIEW_GITLAB_API_BASE_URL:-$CI_API_V4_URL}"');
+    expect(pipeline).toContain('--runtime "$AI_REVIEW_DRY_RUN_RUNTIME"');
+    expect(pipeline).toContain('--runtime "$AI_REVIEW_PUBLISH_RUNTIME"');
     expect(pipeline).toContain("--publish-summary");
     expect(pipeline).not.toContain("--publish-inline");
     expect(pipeline).toContain(".ai-review/");

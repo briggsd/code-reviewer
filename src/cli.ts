@@ -271,7 +271,7 @@ function printHelp(): void {
   console.log("  run --fixture <path> [--config <path>] [--output-dir] [--runtime dummy|pi]");
   console.log("      [--format json|markdown] [--ci-exit] [--pi-provider <name> --pi-model <id>]");
   console.log("  run --provider github|gitlab --repo <owner/name> --change-id <id>");
-  console.log("      [--head-sha <sha>] [--seed-fixture <path>] [--config <path>] [--runtime dummy|pi]");
+  console.log("      [--head-sha <sha>] [--api-base-url <url>] [--seed-fixture <path>] [--config <path>] [--runtime dummy|pi]");
   console.log("      [--output-dir <path>] [--format json|markdown] [--publish-summary] [--publish-inline] [--ci-exit]");
   console.log("      [--pi-provider <name> --pi-model <id>]");
   console.log("                                       Run deterministic local review");

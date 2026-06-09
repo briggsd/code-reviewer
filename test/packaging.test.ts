@@ -49,9 +49,11 @@ describe("package distribution metadata", () => {
     });
     expect(manifest.bugs?.url).toBe("https://github.com/briggsd/ai-code-review-factory/issues");
     expect(packaging).toContain("Registry publishing is intentionally blocked");
+    expect(packaging).toContain("public npm is not part of the beta channel");
     expect(packaging).toContain("private: true");
     expect(packaging).toContain("license: \"UNLICENSED\"");
     expect(releaseReadiness).toContain("Registry publish is currently blocked");
+    expect(releaseReadiness).toContain("do not require public npm");
   });
 
   test("documents external packaged install smoke", async () => {
@@ -84,8 +86,12 @@ describe("package distribution metadata", () => {
     }
 
     expect(packaging).toContain("Do not use mutable install sources");
+    expect(packaging).toContain("Fortis/self-managed GitLab beta");
+    expect(packaging).toContain("https://gitlab.example.com/fortis/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz");
     expect(ciTemplates).toContain("Do not pin adopter CI to mutable branches");
+    expect(ciTemplates).toContain("GitLab beta template defaults to an internal immutable tarball URL placeholder");
     expect(releaseReadiness).toContain("Install-source priority");
+    expect(releaseReadiness).toContain("Immutable internal tarball URL for the Fortis/self-managed GitLab beta");
   });
 
   test("ships runtime assets without test or workflow internals", async () => {

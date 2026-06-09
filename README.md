@@ -10,6 +10,7 @@ This repository starts as an architecture/design workspace. The implementation t
 - [Runtime comparison](docs/runtime-comparison.md) — OpenCode vs Pi as the review factory agent runtime.
 - [Configuration](docs/configuration.md) — `.ai-review.json` fields, merging behavior, and schema command.
 - [Adoption guide](docs/adoption.md) — recommended install path, live-tested evidence, deferred channels, and adopter checklist.
+- [Fortis GitLab beta onboarding](docs/fortis-gitlab-beta.md) — self-managed GitLab beta setup, variables, debugging, and token rotation.
 - [CI templates](docs/ci-templates.md) — GitHub Actions and GitLab CI starter templates.
 - [GitHub Action wrapper](docs/github-action-wrapper.md) — thin `uses:` wrapper around the packaged CLI.
 - [Fork safety](docs/fork-safety.md) — public-repo fork strategy and secret/write-token boundaries.
@@ -108,6 +109,7 @@ Example `.ai-review.json`:
 - Distribution-facing CI templates that install the package and run `ai-code-review` instead of repository-local source commands.
 - Experimental GitHub-only inline publishing behind explicit `--publish-inline`, gated by stale-head/diff/line-coordinate readiness checks and same-head duplicate suppression.
 - Disabled-by-default GitHub Actions Pi live smoke workflow for trusted maintainer runs.
+- Disabled-by-default same-repository GitHub PR real-review job using Pi/model credentials behind `AI_REVIEW_REAL_REVIEW_ENABLED=true`.
 - Release readiness checklist for package verification, CI adoption, secrets, and release blockers.
 - Stable finding IDs in completed summaries and hidden summary metadata.
 - Prior summary metadata parsing from existing GitHub comments and GitLab notes.

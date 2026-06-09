@@ -57,7 +57,7 @@ rules:
   - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID'
 ```
 
-Do not assume `CI_JOB_TOKEN` can publish comments/notes. Use separate read and write token variables such as `GITLAB_TOKEN_READ` and `GITLAB_TOKEN_WRITE`, and keep write tokens protected/scoped.
+Do not assume `CI_JOB_TOKEN` can publish comments/notes. Use separate read and write token variables such as `GITLAB_TOKEN_READ` and `GITLAB_TOKEN_WRITE`, and keep write tokens protected/scoped. On self-managed GitLab, pass the instance API endpoint from `$CI_API_V4_URL` (or an explicitly configured `AI_REVIEW_GITLAB_API_BASE_URL`) to `ai-code-review run --api-base-url`; do not let templates silently fall back to GitLab.com.
 
 ## Model/runtime secrets
 

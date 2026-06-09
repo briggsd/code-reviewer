@@ -1,6 +1,6 @@
 # Release artifacts
 
-This project currently supports immutable tarball release artifacts, not registry publishing. Registry publishing remains blocked until package name, license, and access policy are finalized.
+This project currently supports immutable tarball release artifacts, not registry publishing. Registry publishing remains blocked until package name, license, and access policy are finalized. For the Fortis/self-managed GitLab beta, the release channel is an internal pinned tarball URL; public npm is intentionally out of scope.
 
 ## Manual GitHub workflow
 
@@ -20,14 +20,14 @@ It does **not** publish to npm and does not require write permissions. Workflow 
 
 ## How adopters should pin it
 
-After a maintainer downloads or attaches the generated tarball to a release, adopters should set `AI_REVIEW_PACKAGE` to an immutable URL for that tarball:
+After a maintainer downloads or attaches the generated tarball to an internal release, adopters should set `AI_REVIEW_PACKAGE` to an immutable URL for that tarball:
 
 ```yaml
 env:
-  AI_REVIEW_PACKAGE: https://example.invalid/releases/download/v0.1.0/ai-code-review-factory-0.1.0.tgz
+  AI_REVIEW_PACKAGE: https://gitlab.example.com/fortis/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz
 ```
 
-Do not use mutable branches, floating tags, or `latest` for adopter CI. The installed review toolchain must be reproducible from CI logs.
+For a self-managed GitLab beta, host the tarball as an internal release asset or generic package file reachable by beta CI runners. Keep the URL versioned and immutable, and record the tarball filename plus source commit SHA in the beta rollout notes. Do not use mutable branches, floating tags, or `latest` for adopter CI. The installed review toolchain must be reproducible from CI logs.
 
 ## When registry publishing becomes unblocked
 

@@ -25,6 +25,8 @@ describe("release artifact workflow", () => {
     expect(guide).toContain("does **not** publish to npm");
     expect(guide).toContain("contents: read");
     expect(guide).toContain("immutable URL");
+    expect(guide).toContain("Fortis/self-managed GitLab beta");
+    expect(guide).toContain("https://gitlab.example.com/fortis/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz");
     expect(readiness).toContain("manual release artifact workflow");
   });
 });
