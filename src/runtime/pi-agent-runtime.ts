@@ -411,6 +411,7 @@ function parseCoordinatorOutput(text: string) {
 
 function validateFinding(value: unknown): Finding {
   const finding = getRecord(value);
+  const evidence = normalizeEvidence(finding.evidence);
   if (
     typeof finding.reviewer !== "string" ||
     !isSeverity(finding.severity) ||
@@ -418,8 +419,7 @@ function validateFinding(value: unknown): Finding {
     typeof finding.title !== "string" ||
     typeof finding.body !== "string" ||
     !isConfidence(finding.confidence) ||
-    !Array.isArray(finding.evidence) ||
-    !finding.evidence.every((item) => typeof item === "string") ||
+    evidence === undefined ||
     typeof finding.recommendation !== "string"
   ) {
     throw new Error("Pi reviewer output contained an invalid finding");
@@ -436,9 +436,25 @@ function validateFinding(value: unknown): Finding {
       ? { location: finding.location as NonNullable<Finding["location"]> }
       : {}),
     confidence: finding.confidence,
-    evidence: finding.evidence,
+    evidence,
     recommendation: finding.recommendation,
   };
+}
+
+function normalizeEvidence(value: unknown): string[] | undefined {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (typeof value === "string") {
+    return [value];
+  }
+
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+    return value;
+  }
+
+  return undefined;
 }
 
 function parseJsonObject(text: string): unknown {

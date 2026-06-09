@@ -1,6 +1,6 @@
 # Release readiness checklist
 
-Use this checklist before publishing or handing the runner to another repository.
+Use this checklist before publishing or handing the runner to another repository. Pair it with the [Adoption guide](adoption.md), which documents the recommended adopter path, live-tested evidence, and deferred channels.
 
 ## Required verification
 
@@ -9,6 +9,7 @@ Run from a clean checkout:
 ```bash
 bun run check
 bun run pack:smoke
+bun run smoke:external-package
 bun run smoke:pi
 ```
 
@@ -16,6 +17,7 @@ Expected results:
 
 - `bun run check` passes TypeScript and the unit test suite.
 - `bun run pack:smoke` validates tarball contents and packaged CLI schema execution.
+- `bun run smoke:external-package` validates isolated Bun global install and installed `ai-code-review` execution; provider-backed dry-run runs only when `AI_REVIEW_EXTERNAL_SMOKE_PROVIDER`, repo/change env vars, and a provider token are set.
 - `bun run smoke:pi` exits 0 without model/network access unless `AI_REVIEW_LIVE_PI=1` is explicitly set.
 
 ## Version and artifact
@@ -23,13 +25,21 @@ Expected results:
 - Choose the package version in `package.json`.
 - Confirm the package `files` allowlist still excludes `.github/`, `test/`, local run artifacts, and handoff notes.
 - Run `npm pack --dry-run --json` if you need to inspect the full file list manually.
-- Keep `AI_REVIEW_PACKAGE` in CI templates pinned to a version, tarball URL, registry URL, or Git ref that adopters can reproduce.
+- Run `bun run smoke:external-package` with live provider env vars before handing a package source to another repository.
+- Keep `AI_REVIEW_PACKAGE` in CI templates pinned to an exact package version, immutable npm tarball URL, or full Git commit SHA for internal smoke only.
+- Do not use mutable install sources such as `main`, floating tags, or `latest` in adopter CI.
 
 ## Channel decision
 
 Current supported channel:
 
 - **Bun-backed npm tarball/package** — install with `bun add --global "$AI_REVIEW_PACKAGE"`, run `ai-code-review`.
+
+Install-source priority:
+
+1. Immutable tarball URL before public registry publish.
+2. Exact registry package version after publish.
+3. Full Git commit SHA for internal smoke only.
 
 Deferred channels:
 
@@ -62,6 +72,24 @@ For a target repository:
 2. Enable same-repo/same-project summary publishing and verify the bot updates, not duplicates, the summary.
 3. Keep fork PRs/MRs artifact-only unless a two-stage reporter or manual privileged flow is explicitly adopted.
 4. Run the optional Pi live smoke only after provider secrets and Pi installation are configured.
+5. On failure, inspect `.ai-review/runs/<runId>/run.json` and `trace.jsonl` before rerunning; runtime failures should include `run.json.error` and a terminal `review.failed` trace event.
+
+## Live-tested vs deferred
+
+Live-tested in this repository:
+
+- GitHub same-repository dry-run, artifact upload, and summary publishing/update behavior.
+- GitHub hidden-metadata re-review classification for new, recurring, and fixed findings.
+- Isolated packaged CLI install and live GitHub provider-backed dry-run.
+- Packaged CLI Pi runtime smoke with Pi JSON mode and model output.
+- Runtime failure persistence through `run.json.error` and `review.failed` traces.
+
+Deferred or not yet live-recorded:
+
+- Inline comments/discussions.
+- Live GitLab MR publishing smoke.
+- Container image, GitHub Action wrapper, and GitLab component wrapper.
+- Privileged fork write-back flows.
 
 ## Release blockers
 

@@ -141,63 +141,94 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     },
   });
 
-  const runtimeResult = await runAgents({
-    runtime: options.runtime,
-    context,
-    traceSink: options.traceSink,
-    fakeFindings: fixture.fakeFindings ?? [],
-  });
-  const summary = classifyReReviewFindings(assignStableFindingIds(runtimeResult.summary), context.priorState);
+  try {
+    const runtimeResult = await runAgents({
+      runtime: options.runtime,
+      context,
+      traceSink: options.traceSink,
+      fakeFindings: fixture.fakeFindings ?? [],
+    });
+    const summary = classifyReReviewFindings(assignStableFindingIds(runtimeResult.summary), context.priorState);
 
-  await emitTrace(options.traceSink, {
-    type: "coordinator.completed",
-    runId,
-    role: "coordinator",
-    timestamp,
-    data: {
-      decision: summary.decision,
-      outcome: summary.outcome,
-      findingCount: summary.findings.length,
-      ...(summary.reReview !== undefined
-        ? {
-          newFindingCount: summary.reReview.newFindingIds.length,
-          recurringFindingCount: summary.reReview.recurringFindingIds.length,
-          fixedFindingCount: summary.reReview.fixedFindingIds.length,
-        }
-        : {}),
-    },
-  });
+    await emitTrace(options.traceSink, {
+      type: "coordinator.completed",
+      runId,
+      role: "coordinator",
+      timestamp,
+      data: {
+        decision: summary.decision,
+        outcome: summary.outcome,
+        findingCount: summary.findings.length,
+        ...(summary.reReview !== undefined
+          ? {
+            newFindingCount: summary.reReview.newFindingIds.length,
+            recurringFindingCount: summary.reReview.recurringFindingIds.length,
+            fixedFindingCount: summary.reReview.fixedFindingIds.length,
+          }
+          : {}),
+      },
+    });
 
-  const completedAt = new Date(now.getTime()).toISOString();
-  await options.stateStore?.saveRun({
-    runId,
-    startedAt: timestamp,
-    completedAt,
-    context: {
-      safetyMode: context.safetyMode,
-      metadata: context.metadata,
-      risk: context.risk,
-    },
-    summary,
-    ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
-  });
-  await options.stateStore?.saveSummary(runId, summary);
+    const completedAt = new Date(now.getTime()).toISOString();
+    await options.stateStore?.saveRun({
+      runId,
+      startedAt: timestamp,
+      completedAt,
+      context: {
+        safetyMode: context.safetyMode,
+        metadata: context.metadata,
+        risk: context.risk,
+      },
+      summary,
+      ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
+    });
+    await options.stateStore?.saveSummary(runId, summary);
 
-  await emitTrace(options.traceSink, {
-    type: "review.completed",
-    runId,
-    timestamp: completedAt,
-    data: {
-      decision: summary.decision,
-      outcome: summary.outcome,
-    },
-  });
+    await emitTrace(options.traceSink, {
+      type: "review.completed",
+      runId,
+      timestamp: completedAt,
+      data: {
+        decision: summary.decision,
+        outcome: summary.outcome,
+      },
+    });
 
-  return {
-    context,
-    summary,
-    ...(runtimeResult.coordinatorResult !== undefined ? { coordinatorResult: runtimeResult.coordinatorResult } : {}),
-  };
+    return {
+      context,
+      summary,
+      ...(runtimeResult.coordinatorResult !== undefined ? { coordinatorResult: runtimeResult.coordinatorResult } : {}),
+    };
+  } catch (error) {
+    const failedAt = new Date(now.getTime()).toISOString();
+    const serializedError = serializeError(error);
+    await emitTrace(options.traceSink, {
+      type: "review.failed",
+      runId,
+      timestamp: failedAt,
+      message: serializedError.message,
+      data: {
+        phase: "agent_runtime",
+        errorName: serializedError.name,
+        errorMessage: serializedError.message,
+        ...(serializedError.stack !== undefined ? { errorStack: serializedError.stack } : {}),
+      },
+    });
+    await options.stateStore?.saveRun({
+      runId,
+      startedAt: timestamp,
+      completedAt: failedAt,
+      context: {
+        safetyMode: context.safetyMode,
+        metadata: context.metadata,
+        risk: context.risk,
+      },
+      error: serializedError.message,
+      ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
+    });
+
+    throw error;
+  }
 }
 
 export function summarizeReview(context: ReviewContext, findings: Finding[]): ReviewSummary {
@@ -380,6 +411,21 @@ function createSummaryBody(context: ReviewContext, findings: Finding[]): string 
   }
 
   return lines.join("\n");
+}
+
+function serializeError(error: unknown): { name: string; message: string; stack?: string } {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      ...(error.stack !== undefined ? { stack: error.stack } : {}),
+    };
+  }
+
+  return {
+    name: "Error",
+    message: String(error),
+  };
 }
 
 async function emitTrace(traceSink: TraceSink | undefined, event: RuntimeEvent): Promise<void> {

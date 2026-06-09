@@ -77,6 +77,48 @@ class FakePiProcessRunner implements PiProcessRunner {
   }
 }
 
+class RecoverableSchemaPiProcessRunner implements PiProcessRunner {
+  readonly calls: PiProcessRunInput[] = [];
+
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    this.calls.push(input);
+
+    const recoverableFinding = {
+      ...securityFinding(),
+      evidence: "The accountId comes from request query parameters.",
+      location: {
+        path: "auth/accounts.ts",
+        line: 23,
+      },
+    };
+    const finalText = JSON.stringify(input.role === "security"
+      ? { findings: [recoverableFinding] }
+      : input.role === "coordinator"
+        ? {
+          decision: "significant_concerns",
+          outcome: "fail",
+          title: "AI review found significant concerns",
+          body: "Coordinator consolidated one finding.",
+          findings: [omitEvidence(securityFinding())],
+          risk: {
+            tier: "full",
+            reason: "Security or production-sensitive paths changed.",
+            matchedRules: ["sensitive_paths"],
+            sensitivePaths: ["auth/accounts.ts"],
+            reviewedFileCount: 1,
+            ignoredFileCount: 0,
+          },
+        }
+        : { findings: [] });
+
+    return {
+      finalText,
+      events: [],
+      rawOutput: finalText,
+    };
+  }
+}
+
 class InvalidJsonPiProcessRunner implements PiProcessRunner {
   async run(_input: PiProcessRunInput): Promise<PiProcessRunResult> {
     return {
@@ -211,6 +253,26 @@ describe("PiAgentRuntime", () => {
     }
   });
 
+  test("normalizes recoverable reviewer schema drift from live model output", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new RecoverableSchemaPiProcessRunner();
+    const runtime = new PiAgentRuntime({ processRunner: runner });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const securityResult = result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "security");
+    expect(securityResult?.findings[0]?.evidence).toEqual(["The accountId comes from request query parameters."]);
+    expect(securityResult?.findings[0]?.location).toEqual({
+      path: "auth/accounts.ts",
+      line: 23,
+    });
+    expect(result.summary.findings[0]?.evidence).toEqual([]);
+  });
+
   test("rejects invalid structured reviewer output", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
     const runtime = new PiAgentRuntime({ processRunner: new InvalidJsonPiProcessRunner() });
@@ -233,6 +295,12 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
   }
 }
 
+
+function omitEvidence(finding: ReturnType<typeof securityFinding>) {
+  const { evidence: _evidence, ...withoutEvidence } = finding;
+
+  return withoutEvidence;
+}
 
 function securityFinding() {
   return {

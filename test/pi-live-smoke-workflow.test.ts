@@ -26,11 +26,23 @@ describe("Pi live smoke workflow", () => {
     expect(workflow).toContain("if-no-files-found: ignore");
   });
 
-  test("smoke script treats blank workflow inputs as omitted provider/model overrides", async () => {
+  test("enabled smoke path uses the packaged CLI from an adopter-like directory", async () => {
     const script = await readFile("scripts/pi-live-smoke.ts", "utf8");
+    const docs = await readFile("docs/pi-live-smoke.md", "utf8");
 
     expect(script).toContain("readOptionalEnv(\"AI_REVIEW_PI_PROVIDER\")");
     expect(script).toContain("readOptionalEnv(\"AI_REVIEW_PI_MODEL\")");
     expect(script).toContain("value === undefined || value.length === 0 ? undefined : value");
+    expect(script).toContain('"npm", "pack"');
+    expect(script).toContain('"bun", "add", "--global"');
+    expect(script).toContain("installedCli");
+    expect(script).toContain('"--runtime",\n    "pi"');
+    expect(script).toContain("AGENTS.md");
+    expect(script).toContain('safetyMode: "untrusted_read_only"');
+    expect(docs).toContain("packaged `ai-code-review` CLI");
+    expect(docs).toContain("adopter-like temporary working directory");
+    expect(docs).toContain("--no-context-files --no-extensions --no-skills --no-prompt-templates --no-approve --no-session");
+    expect(docs).toContain("trace.jsonl` ends with a structured `review.failed` event");
+    expect(docs).toContain('phase: "agent_runtime"');
   });
 });

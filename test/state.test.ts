@@ -8,7 +8,38 @@ import {
   loadReviewFixture,
   runReview,
 } from "../src/index.ts";
-import type { PriorReviewState, ReviewRunRecord, ReviewSummary, RuntimeEvent } from "../src/index.ts";
+import type {
+  AgentRuntime,
+  CoordinatorRunInput,
+  CoordinatorRunResult,
+  PriorReviewState,
+  ReviewerRunInput,
+  ReviewerRunResult,
+  ReviewRunRecord,
+  ReviewSummary,
+  RuntimeEvent,
+  RuntimeEventSubscription,
+} from "../src/index.ts";
+
+class FailingRuntime implements AgentRuntime {
+  readonly name = "failing";
+
+  async runCoordinator(_input: CoordinatorRunInput): Promise<CoordinatorRunResult> {
+    throw new Error("synthetic runtime failure");
+  }
+
+  async runReviewer(_input: ReviewerRunInput): Promise<ReviewerRunResult> {
+    throw new Error("synthetic runtime failure");
+  }
+
+  streamEvents(_runId: string, _onEvent: (event: RuntimeEvent) => void): RuntimeEventSubscription {
+    return {
+      unsubscribe: () => {},
+    };
+  }
+
+  async cancel(_runId: string): Promise<void> {}
+}
 
 describe("JSONL trace and filesystem state", () => {
   test("runner writes trace, run, summary, and latest change state artifacts", async () => {
@@ -59,6 +90,47 @@ describe("JSONL trace and filesystem state", () => {
       expect(summary.findings).toHaveLength(1);
       expect(latestState?.previousRunId).toBe("fixture-auth-pr");
       expect(latestState?.findings[0]?.finding.title).toBe("Account lookup misses authorization");
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("runner persists failure state and review.failed trace events for runtime errors", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-state-failure-"));
+
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const runId = fixture.runId ?? "fixture-auth-pr";
+      const tracePath = join(outputDirectory, "runs", runId, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const stateStore = new FileSystemReviewStateStore(outputDirectory);
+
+      await expect(runReview({
+        fixture,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+        stateStore,
+        traceSink,
+        tracePath,
+        runtime: new FailingRuntime(),
+      })).rejects.toThrow("synthetic runtime failure");
+      await traceSink.close();
+
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const runRecord = JSON.parse(
+        await readFile(join(outputDirectory, "runs", runId, "run.json"), "utf8"),
+      ) as ReviewRunRecord;
+
+      expect(events.map((event) => event.type)).toContain("review.failed");
+      expect(events.at(-1)?.type).toBe("review.failed");
+      expect(events.at(-1)?.data?.phase).toBe("agent_runtime");
+      expect(events.at(-1)?.data?.errorMessage).toBe("synthetic runtime failure");
+      expect(runRecord.error).toBe("synthetic runtime failure");
+      expect(runRecord.tracePath).toBe(tracePath);
+      expect(runRecord.summary).toBeUndefined();
+      expect(runRecord.context.risk.tier).toBe("full");
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
     }
