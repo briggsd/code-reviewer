@@ -9,7 +9,7 @@ bun add --global "$AI_REVIEW_PACKAGE"
 ai-code-review run ...
 ```
 
-`AI_REVIEW_PACKAGE` defaults to `ai-code-review-factory@0.1.0` in the templates. Until the package is published under the final name, replace that value with the package version, tarball URL, registry URL, or Git ref you want CI to install.
+`AI_REVIEW_PACKAGE` defaults to `ai-code-review-factory@0.1.0` in the templates as the eventual registry shape. Until the package is published under the final name, replace that value with an immutable npm tarball URL, exact registry version, or full Git commit SHA for internal smoke. Do not pin adopter CI to mutable branches, floating tags, `latest`, or the runner repository checkout.
 
 The templates check out repository contents only so project-local config such as `.ai-review.json` can be read. They do **not** run `bun install` or any project dependency install from the pull/merge request checkout.
 

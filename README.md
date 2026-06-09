@@ -26,6 +26,7 @@ The implementation is a Bun-friendly TypeScript CLI/package. Bun can run TypeScr
 ```bash
 bun run check
 bun run pack:smoke # validates npm tarball contents and packaged CLI execution
+bun run smoke:external-package # installs the tarball into an isolated Bun global dir and runs installed ai-code-review
 bun run smoke:pi # exits 0 unless AI_REVIEW_LIVE_PI=1 is set
 bun run src/cli.ts schemas # includes structured output schemas and .ai-review.json config schema
 bun run schema:config # regenerate .ai-review.schema.json

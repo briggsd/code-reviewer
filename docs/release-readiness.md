@@ -9,6 +9,7 @@ Run from a clean checkout:
 ```bash
 bun run check
 bun run pack:smoke
+bun run smoke:external-package
 bun run smoke:pi
 ```
 
@@ -16,6 +17,7 @@ Expected results:
 
 - `bun run check` passes TypeScript and the unit test suite.
 - `bun run pack:smoke` validates tarball contents and packaged CLI schema execution.
+- `bun run smoke:external-package` validates isolated Bun global install and installed `ai-code-review` execution; provider-backed dry-run runs only when `AI_REVIEW_EXTERNAL_SMOKE_PROVIDER`, repo/change env vars, and a provider token are set.
 - `bun run smoke:pi` exits 0 without model/network access unless `AI_REVIEW_LIVE_PI=1` is explicitly set.
 
 ## Version and artifact
@@ -23,13 +25,21 @@ Expected results:
 - Choose the package version in `package.json`.
 - Confirm the package `files` allowlist still excludes `.github/`, `test/`, local run artifacts, and handoff notes.
 - Run `npm pack --dry-run --json` if you need to inspect the full file list manually.
-- Keep `AI_REVIEW_PACKAGE` in CI templates pinned to a version, tarball URL, registry URL, or Git ref that adopters can reproduce.
+- Run `bun run smoke:external-package` with live provider env vars before handing a package source to another repository.
+- Keep `AI_REVIEW_PACKAGE` in CI templates pinned to an exact package version, immutable npm tarball URL, or full Git commit SHA for internal smoke only.
+- Do not use mutable install sources such as `main`, floating tags, or `latest` in adopter CI.
 
 ## Channel decision
 
 Current supported channel:
 
 - **Bun-backed npm tarball/package** — install with `bun add --global "$AI_REVIEW_PACKAGE"`, run `ai-code-review`.
+
+Install-source priority:
+
+1. Immutable tarball URL before public registry publish.
+2. Exact registry package version after publish.
+3. Full Git commit SHA for internal smoke only.
 
 Deferred channels:
 
