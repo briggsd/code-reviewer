@@ -178,6 +178,8 @@ export interface ReviewRunAgentMetrics {
   role: AgentRole | string;
   kind: "reviewer" | "coordinator";
   usage: TokenUsage;
+  attemptCount?: number;
+  retryCount?: number;
 }
 
 export interface ReviewRunTokenMetrics extends TokenUsage {
@@ -191,6 +193,8 @@ export interface ReviewRunAgentFailureMetrics {
   errorName: string;
   errorClassification: ReviewErrorClassification;
   durationMs?: number;
+  attemptCount?: number;
+  retryCount?: number;
 }
 
 export interface ReviewRunMetrics {

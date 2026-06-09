@@ -45,6 +45,11 @@ export interface PiProcessRunner {
   cancel?(runId: string): Promise<void>;
 }
 
+export interface PiReviewerRetryPolicy {
+  maxAttempts?: number;
+  minimumRemainingMs?: number;
+}
+
 export interface PiAgentRuntimeOptions {
   processRunner?: PiProcessRunner;
   command?: string;
@@ -54,6 +59,7 @@ export interface PiAgentRuntimeOptions {
     model: string;
   };
   timestamp?: string;
+  reviewerRetryPolicy?: PiReviewerRetryPolicy;
 }
 
 export class PiAgentRuntime implements AgentRuntime {
@@ -62,6 +68,8 @@ export class PiAgentRuntime implements AgentRuntime {
   private readonly processRunner: PiProcessRunner;
   private readonly defaultModel: { provider: string; model: string } | undefined;
   private readonly timestamp: string | undefined;
+  private readonly reviewerRetryPolicy: Required<PiReviewerRetryPolicy>;
+  private readonly reviewerBudgetStarts = new WeakMap<ReviewerRunInput, number>();
   private readonly listenersByRunId = new Map<string, Set<(event: RuntimeEvent) => void>>();
 
   constructor(options: PiAgentRuntimeOptions = {}) {
@@ -71,6 +79,10 @@ export class PiAgentRuntime implements AgentRuntime {
     });
     this.defaultModel = options.defaultModel;
     this.timestamp = options.timestamp;
+    this.reviewerRetryPolicy = {
+      maxAttempts: options.reviewerRetryPolicy?.maxAttempts ?? 2,
+      minimumRemainingMs: options.reviewerRetryPolicy?.minimumRemainingMs ?? 120_000,
+    };
   }
 
   async runCoordinator(input: CoordinatorRunInput): Promise<CoordinatorRunResult> {
@@ -80,10 +92,18 @@ export class PiAgentRuntime implements AgentRuntime {
       runtime: this.name,
     });
 
-    const reviewerSettled = await Promise.allSettled(input.selectedReviewers.map(async (reviewer) => ({
-      reviewer,
-      result: await this.runReviewer(reviewer),
-    })));
+    const reviewerBudgetStartedAt = Date.now();
+    const reviewerSettled = await Promise.allSettled(input.selectedReviewers.map(async (reviewer) => {
+      this.reviewerBudgetStarts.set(reviewer, reviewerBudgetStartedAt);
+      try {
+        return {
+          reviewer,
+          result: await this.runReviewer(reviewer),
+        };
+      } finally {
+        this.reviewerBudgetStarts.delete(reviewer);
+      }
+    }));
     const reviewerResults = reviewerSettled.flatMap((settled) => settled.status === "fulfilled" ? [settled.value.result] : []);
     const reviewerFailures = reviewerSettled.flatMap((settled, index): ReviewerRunFailure[] => {
       if (settled.status === "fulfilled") {
@@ -157,61 +177,98 @@ export class PiAgentRuntime implements AgentRuntime {
   async runReviewer(input: ReviewerRunInput): Promise<ReviewerRunResult> {
     const agentRunId = `${input.runId}:pi:${input.role}`;
     const startedAt = Date.now();
+    const budgetStartedAt = this.reviewerBudgetStarts.get(input) ?? startedAt;
+    const maxAttempts = normalizeRetryAttemptCount(this.reviewerRetryPolicy.maxAttempts);
     this.emitAgentEvent("agent.started", input.runId, agentRunId, input.role, {
       assignedFileCount: input.assignedFiles?.length ?? input.context.diff.files.length,
       runtime: this.name,
+      maxAttempts,
     });
 
-    try {
-      let streamedEventCount = 0;
-      const processResult = await this.processRunner.run({
-        runId: input.runId,
-        agentRunId,
-        role: input.role,
-        prompt: buildReviewerPrompt(input),
-        cwd: input.context.workingDirectory,
-        timeoutMs: input.timeoutMs,
-        toolPolicy: input.toolPolicy,
-        onEvent: (event) => {
-          streamedEventCount += 1;
-          this.forwardPiEvent(input.runId, agentRunId, input.role, event);
-        },
-        ...this.modelArgs(input.model),
-      });
-      if (streamedEventCount === 0) {
-        this.forwardPiEvents(input.runId, agentRunId, input.role, processResult.events);
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        let streamedEventCount = 0;
+        const processResult = await this.processRunner.run({
+          runId: input.runId,
+          agentRunId,
+          role: input.role,
+          prompt: buildReviewerPrompt(input),
+          cwd: input.context.workingDirectory,
+          timeoutMs: input.timeoutMs,
+          toolPolicy: input.toolPolicy,
+          onEvent: (event) => {
+            streamedEventCount += 1;
+            this.forwardPiEvent(input.runId, agentRunId, input.role, event);
+          },
+          ...this.modelArgs(input.model),
+        });
+        if (streamedEventCount === 0) {
+          this.forwardPiEvents(input.runId, agentRunId, input.role, processResult.events);
+        }
+
+        const findings = parseReviewerOutput(processResult.finalText);
+        const retryCount = attempt - 1;
+
+        this.emitAgentEvent("agent.output", input.runId, agentRunId, input.role, {
+          findingCount: findings.length,
+          attempt,
+          retryCount,
+        });
+        this.emitAgentEvent("agent.completed", input.runId, agentRunId, input.role, {
+          findingCount: findings.length,
+          attemptCount: attempt,
+          retryCount,
+          ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
+        });
+
+        return {
+          runId: input.runId,
+          agentRunId,
+          role: input.role,
+          findings,
+          rawOutput: processResult.finalText,
+          ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
+          attemptCount: attempt,
+          retryCount,
+        };
+      } catch (error) {
+        const retryCount = attempt - 1;
+        const failure = createReviewerFailure(input.runId, agentRunId, input.role, error, Date.now() - startedAt, {
+          attemptCount: attempt,
+          retryCount,
+        });
+        const willRetry = shouldRetryReviewerFailure({
+          classification: failure.errorClassification,
+          attempt,
+          maxAttempts,
+          elapsedMs: Date.now() - budgetStartedAt,
+          overallTimeoutMs: input.context.config.timeouts.overallMs,
+          minimumRemainingMs: this.reviewerRetryPolicy.minimumRemainingMs,
+        });
+        this.emitAgentEvent("agent.failed", input.runId, agentRunId, input.role, {
+          errorName: failure.errorName,
+          errorMessage: failure.errorMessage,
+          errorClassification: failure.errorClassification,
+          errorCategory: failure.errorClassification.category,
+          retryable: failure.errorClassification.retryable,
+          durationMs: failure.durationMs ?? 0,
+          attempt,
+          maxAttempts,
+          retryCount,
+          willRetry,
+        });
+
+        if (!willRetry) {
+          annotateRetryMetadata(error, {
+            attemptCount: attempt,
+            retryCount,
+          });
+          throw error;
+        }
       }
-
-      const findings = parseReviewerOutput(processResult.finalText);
-
-      this.emitAgentEvent("agent.output", input.runId, agentRunId, input.role, {
-        findingCount: findings.length,
-      });
-      this.emitAgentEvent("agent.completed", input.runId, agentRunId, input.role, {
-        findingCount: findings.length,
-        ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
-      });
-
-      return {
-        runId: input.runId,
-        agentRunId,
-        role: input.role,
-        findings,
-        rawOutput: processResult.finalText,
-        ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
-      };
-    } catch (error) {
-      const failure = createReviewerFailure(input.runId, agentRunId, input.role, error, Date.now() - startedAt);
-      this.emitAgentEvent("agent.failed", input.runId, agentRunId, input.role, {
-        errorName: failure.errorName,
-        errorMessage: failure.errorMessage,
-        errorClassification: failure.errorClassification,
-        errorCategory: failure.errorClassification.category,
-        retryable: failure.errorClassification.retryable,
-        durationMs: failure.durationMs ?? 0,
-      });
-      throw error;
     }
+
+    throw new Error(`Pi reviewer retry loop exhausted unexpectedly for ${agentRunId}`);
   }
 
   streamEvents(runId: string, onEvent: (event: RuntimeEvent) => void): RuntimeEventSubscription {
@@ -407,6 +464,7 @@ function createReviewerFailure(
   role: AgentRole | string,
   error: unknown,
   durationMs?: number,
+  retryMetadata: RetryMetadata = readRetryMetadata(error),
 ): ReviewerRunFailure {
   const serialized = serializeRuntimeError(error);
   return {
@@ -417,6 +475,54 @@ function createReviewerFailure(
     errorMessage: serialized.message,
     errorClassification: classifyReviewError(error),
     ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(retryMetadata.attemptCount !== undefined ? { attemptCount: retryMetadata.attemptCount } : {}),
+    ...(retryMetadata.retryCount !== undefined ? { retryCount: retryMetadata.retryCount } : {}),
+  };
+}
+
+interface RetryMetadata {
+  attemptCount?: number;
+  retryCount?: number;
+}
+
+function normalizeRetryAttemptCount(value: number): number {
+  return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1;
+}
+
+function shouldRetryReviewerFailure(input: {
+  classification: ReturnType<typeof classifyReviewError>;
+  attempt: number;
+  maxAttempts: number;
+  elapsedMs: number;
+  overallTimeoutMs: number;
+  minimumRemainingMs: number;
+}): boolean {
+  if (!input.classification.retryable || input.attempt >= input.maxAttempts) {
+    return false;
+  }
+
+  return input.overallTimeoutMs - input.elapsedMs >= input.minimumRemainingMs;
+}
+
+function annotateRetryMetadata(error: unknown, metadata: Required<RetryMetadata>): void {
+  if (typeof error !== "object" || error === null) {
+    return;
+  }
+
+  const target = error as Record<string, unknown>;
+  target.aiReviewAttemptCount = metadata.attemptCount;
+  target.aiReviewRetryCount = metadata.retryCount;
+}
+
+function readRetryMetadata(error: unknown): RetryMetadata {
+  if (typeof error !== "object" || error === null) {
+    return {};
+  }
+
+  const record = error as Record<string, unknown>;
+  return {
+    ...(typeof record.aiReviewAttemptCount === "number" ? { attemptCount: record.aiReviewAttemptCount } : {}),
+    ...(typeof record.aiReviewRetryCount === "number" ? { retryCount: record.aiReviewRetryCount } : {}),
   };
 }
 

@@ -91,6 +91,20 @@ class OneReviewerFailsPiProcessRunner extends FakePiProcessRunner {
   }
 }
 
+class FlakySecurityPiProcessRunner extends FakePiProcessRunner {
+  private securityFailuresRemaining = 1;
+
+  override async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "security" && this.securityFailuresRemaining > 0) {
+      this.securityFailuresRemaining -= 1;
+      this.calls.push(input);
+      throw new Error("503 service unavailable from reviewer");
+    }
+
+    return super.run(input);
+  }
+}
+
 class RecoverableSchemaPiProcessRunner implements PiProcessRunner {
   readonly calls: PiProcessRunInput[] = [];
 
@@ -134,7 +148,11 @@ class RecoverableSchemaPiProcessRunner implements PiProcessRunner {
 }
 
 class InvalidJsonPiProcessRunner implements PiProcessRunner {
-  async run(_input: PiProcessRunInput): Promise<PiProcessRunResult> {
+  readonly calls: PiProcessRunInput[] = [];
+
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    this.calls.push(input);
+
     return {
       finalText: "not json",
       events: [],
@@ -308,10 +326,85 @@ describe("PiAgentRuntime", () => {
       expect(failedSecurity?.data?.retryable).toBe(true);
       expect(coordinatorCall?.prompt).toContain("reviewerFailures");
       expect(runRecord.metrics?.failures?.[0]?.errorClassification.category).toBe("retryable_transient");
+      expect(runRecord.metrics?.failures?.[0]?.attemptCount).toBe(2);
+      expect(runRecord.metrics?.failures?.[0]?.retryCount).toBe(1);
       expect(events.at(-1)?.type).toBe("review.completed");
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
     }
+  });
+
+  test("retries retryable reviewer failures once within the overall run budget", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-retry-"));
+
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const runId = fixture.runId ?? "fixture-auth-pr";
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const stateStore = new FileSystemReviewStateStore(outputDirectory);
+      const runner = new FlakySecurityPiProcessRunner();
+      const runtime = new PiAgentRuntime({
+        processRunner: runner,
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        stateStore,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const failedSecurity = events.find((event) => event.type === "agent.failed" && event.role === "security");
+      const completedSecurity = events.find((event) => event.type === "agent.completed" && event.role === "security");
+      const runRecord = JSON.parse(
+        await readFile(join(outputDirectory, "runs", runId, "run.json"), "utf8"),
+      ) as ReviewRunRecord;
+      const securityMetrics = runRecord.metrics?.agents?.find((agent) => agent.role === "security");
+
+      expect(runner.calls.filter((call) => call.role === "security")).toHaveLength(2);
+      expect(result.coordinatorResult?.reviewerFailures).toBeUndefined();
+      expect(result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "security")?.retryCount).toBe(1);
+      expect(failedSecurity?.data?.errorCategory).toBe("retryable_transient");
+      expect(failedSecurity?.data?.willRetry).toBe(true);
+      expect(completedSecurity?.data?.attemptCount).toBe(2);
+      expect(completedSecurity?.data?.retryCount).toBe(1);
+      expect(securityMetrics?.attemptCount).toBe(2);
+      expect(securityMetrics?.retryCount).toBe(1);
+      expect(runRecord.metrics?.tokens?.agentCount).toBe(5);
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("does not retry when the remaining overall run budget is too low", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new OneReviewerFailsPiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      timestamp: "2026-06-09T00:00:00.000Z",
+      reviewerRetryPolicy: {
+        minimumRemainingMs: Number.MAX_SAFE_INTEGER,
+      },
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    expect(runner.calls.filter((call) => call.role === "security")).toHaveLength(1);
+    expect(result.coordinatorResult?.reviewerFailures?.[0]?.retryCount).toBe(0);
+    expect(result.coordinatorResult?.reviewerFailures?.[0]?.attemptCount).toBe(1);
   });
 
   test("forwards Pi JSON events into the existing trace stream", async () => {
@@ -499,15 +592,18 @@ describe("PiAgentRuntime", () => {
     expect(result.summary.findings[0]?.body).toBe("The docs describe \"timeouts\" as enforced.");
   });
 
-  test("rejects invalid structured reviewer output", async () => {
+  test("rejects invalid structured reviewer output without retrying non-retryable schema errors", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
-    const runtime = new PiAgentRuntime({ processRunner: new InvalidJsonPiProcessRunner() });
+    const runner = new InvalidJsonPiProcessRunner();
+    const runtime = new PiAgentRuntime({ processRunner: runner });
 
     await expect(runReview({
       fixture,
       runtime,
       now: new Date("2026-06-09T00:00:00.000Z"),
     })).rejects.toThrow("Pi output did not contain valid JSON");
+
+    expect(runner.calls.filter((call) => call.role === "security")).toHaveLength(1);
   });
 });
 

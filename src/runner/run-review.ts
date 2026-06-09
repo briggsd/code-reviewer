@@ -381,6 +381,8 @@ function createRunMetrics(input: {
       role: result.role,
       kind: "reviewer" as const,
       usage: result.usage,
+      ...(result.attemptCount !== undefined ? { attemptCount: result.attemptCount } : {}),
+      ...(result.retryCount !== undefined ? { retryCount: result.retryCount } : {}),
     }]),
     ...(input.coordinatorResult.usage === undefined ? [] : [{
       agentRunId: input.coordinatorResult.agentRunId,
@@ -397,6 +399,8 @@ function createRunMetrics(input: {
     errorName: failure.errorName,
     errorClassification: failure.errorClassification,
     ...(failure.durationMs !== undefined ? { durationMs: failure.durationMs } : {}),
+    ...(failure.attemptCount !== undefined ? { attemptCount: failure.attemptCount } : {}),
+    ...(failure.retryCount !== undefined ? { retryCount: failure.retryCount } : {}),
   })) ?? [];
 
   return {

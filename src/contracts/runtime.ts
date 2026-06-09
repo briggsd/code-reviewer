@@ -57,6 +57,8 @@ export interface ReviewerRunResult {
   findings: Finding[];
   rawOutput?: string;
   usage?: TokenUsage;
+  attemptCount?: number;
+  retryCount?: number;
   tracePath?: string;
 }
 
@@ -68,6 +70,8 @@ export interface ReviewerRunFailure {
   errorMessage: string;
   errorClassification: ReviewErrorClassification;
   durationMs?: number;
+  attemptCount?: number;
+  retryCount?: number;
 }
 
 export interface CoordinatorRunResult {

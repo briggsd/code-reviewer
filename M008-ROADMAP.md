@@ -49,10 +49,10 @@ Triage live self-review findings into the relevant slice rather than tracking th
   > After this: reviewer fan-out uses settled results, successful reviewers still feed the coordinator, failed reviewers are preserved as unavailable/error metadata, and every failed reviewer emits `agent.failed` with classification and elapsed time.
   > **Inactivity watchdog (from the Cloudflare primary source):** in addition to the per-reviewer/coordinator/overall timeouts, add a no-output watchdog that kills a session after an inactivity window (Cloudflare uses 60s) and marks it errored with a `timeout`/inactivity classification. Catches silently-crashed sessions that would otherwise burn the full `reviewerMs` (360s) before timing out.
 
-- [ ] **S05: Bounded retries within the run budget** `risk:high` `depends:[S03,S04]` `issues:[#12]`
+- [x] **S05: Bounded retries within the run budget** `risk:high` `depends:[S03,S04]` `issues:[#12]`
   > After this: retryable reviewer failures can retry under a small bounded policy, but retries stop when attempts are exhausted or the remaining overall review budget is too low.
 
-- [ ] **S06: Robustness/observability verification sweep** `risk:medium` `depends:[S01,S02,S04,S05]` `issues:[#12,#18]`
+- [x] **S06: Robustness/observability verification sweep** `risk:medium` `depends:[S01,S02,S04,S05]` `issues:[#12,#18]`
   > After this: tests cover partial reviewer failure, retry/no-retry classification, duration monotonicity, token/cost aggregation, and persisted trace/run artifact shape.
 
 ## Key Risks
