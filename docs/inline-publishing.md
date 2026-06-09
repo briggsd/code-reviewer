@@ -1,10 +1,33 @@
-# Inline publishing readiness
+# Inline publishing
 
-Inline comments/discussions are still deferred. Summary comments/notes remain the only write-back path in the templates.
+Inline comments are now available as an **experimental, opt-in GitHub-only** path. Summary comments remain the default write-back UX and CI status remains the canonical merge gate.
 
-Before any future GitHub or GitLab inline publisher posts a finding, it must pass `evaluateInlinePublishReadiness()` from `src/publisher/inline-readiness.ts`.
+By default, `ai-code-review run` does not publish inline comments. Provider-backed runs only attempt line-level comments when `--publish-inline` is supplied explicitly.
 
-## Gate inputs
+```bash
+AI_REVIEW_GITHUB_TOKEN=... ai-code-review run \
+  --provider github \
+  --repo owner/name \
+  --change-id 123 \
+  --head-sha <current-pr-head-sha> \
+  --runtime dummy \
+  --publish-summary \
+  --publish-inline \
+  --output-dir .ai-review
+```
+
+## Current support matrix
+
+| Provider | Summary publishing | Inline publishing |
+|---|---:|---:|
+| GitHub | Supported with `--publish-summary` | Experimental with `--publish-inline` |
+| GitLab | Supported with `--publish-summary` | Deferred |
+
+GitLab inline discussions are deliberately deferred because GitLab diff positions require provider-specific diff refs and discussion semantics that are separate from the GitHub review comment API.
+
+## Safety gates
+
+Before any inline publisher posts a finding, `publishReviewInlineFindings()` calls `evaluateInlinePublishReadiness()` from `src/publisher/inline-readiness.ts`.
 
 The readiness gate takes:
 
@@ -12,8 +35,6 @@ The readiness gate takes:
 - the provider `DiffSummary`, including per-file patches,
 - findings proposed for inline publication,
 - optional `expectedHeadSha` used when those findings were generated.
-
-## Blocking conditions
 
 The gate blocks inline publishing when any of these are true:
 
@@ -28,18 +49,41 @@ The gate blocks inline publishing when any of these are true:
 - the finding points to the left side of an added file,
 - the requested line is not present in the provider patch hunk.
 
-This is intentionally conservative. A blocked inline finding can still be shown in the summary comment; the whole review should not fail only because inline coordinates are unsafe.
+This is intentionally conservative. A blocked inline finding remains visible in the summary comment and trace output; the whole review should not fail only because inline coordinates are unsafe.
 
-## Future publisher contract
+## Duplicate prevention
 
-Future inline publishers should use this sequence:
+GitHub inline comments include hidden metadata:
 
-1. Fetch fresh change metadata and diff from the VCS provider.
-2. Call `evaluateInlinePublishReadiness({ change, diff, findings, expectedHeadSha: reviewHeadSha })`.
-3. Publish only `readyFindings` inline.
-4. Keep `blockedFindings` in the summary with their block reasons in trace/debug output.
-5. Re-fetch or abort if `stale_head_sha` appears.
+```text
+<!-- ai-code-review-factory-inline
+{"schemaVersion":1,"findingId":"...","headSha":"..."}
+-->
+```
 
-## Why this exists
+Before posting, the GitHub adapter fetches existing pull request review comments and skips a finding when the same `findingId` has already been posted for the same `headSha`. The skipped outcome records `duplicate_inline_comment` with the existing provider comment ID/URL.
 
-Inline APIs require provider-specific coordinates. GitHub uses PR review comment coordinates with commit SHA/path/line/side. GitLab diff discussions require diff refs and line positions. Posting with stale or guessed coordinates creates noisy, misleading comments. The readiness gate gives the future provider-specific publishers a shared safety precondition before they call those APIs.
+## Trace output
+
+Inline publishing writes a `publisher.completed` trace event with:
+
+- `publisher: "inline"`,
+- attempted/posted/skipped/failed inline counts,
+- skipped inline reasons, including readiness-gate reasons such as `line_not_in_patch`.
+
+Summary publishing still writes its own `publisher.completed` event and remains idempotent via the summary hidden metadata.
+
+## CI stance
+
+The starter CI templates do **not** pass `--publish-inline`. Keep dry-run and publish jobs separate, and enable inline publishing only in same-repository/same-project trusted write-back jobs after summary-only publishing is stable.
+
+Inline comments are human-facing review UX, not the merge blocker. CI status from `--ci-exit` remains authoritative.
+
+## Live smoke status
+
+M004 same-repository GitHub smoke ran against PR #4 with a synthetic seeded finding on `src/cli/run-options.ts:9`:
+
+1. default CI/template runs do not publish inline comments because templates do not pass `--publish-inline`,
+2. explicit `--publish-inline` posted one readiness-approved GitHub review comment,
+3. rerunning against the same head/finding recorded `duplicate_inline_comment` instead of posting another review comment,
+4. the summary comment was updated idempotently and inline skipped reasons were visible in `trace.jsonl`.

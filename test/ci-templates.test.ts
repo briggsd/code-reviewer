@@ -14,6 +14,7 @@ describe("CI starter templates", () => {
     expect(workflow).toContain("ai-code-review run");
     expect(workflow).toContain("--provider github");
     expect(workflow).toContain("--publish-summary");
+    expect(workflow).not.toContain("--publish-inline");
     expect(workflow).toContain("actions/upload-artifact@v4");
     expect(workflow).toContain("include-hidden-files: true");
     expect(workflow).toContain("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true");
@@ -33,6 +34,7 @@ describe("CI starter templates", () => {
     expect(pipeline).toContain("ai-code-review run");
     expect(pipeline).toContain("--provider gitlab");
     expect(pipeline).toContain("--publish-summary");
+    expect(pipeline).not.toContain("--publish-inline");
     expect(pipeline).toContain(".ai-review/");
     expect(pipeline).not.toContain("bun run src/cli.ts");
     expect(pipeline).not.toContain("bun install --frozen-lockfile");

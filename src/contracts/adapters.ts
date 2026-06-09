@@ -50,6 +50,30 @@ export interface PublishSummaryResult {
   failedInlineCount: number;
 }
 
+export type InlinePublishDisposition = "posted" | "skipped" | "failed";
+
+export interface PublishInlineFindingOutcome {
+  findingId?: string;
+  disposition: InlinePublishDisposition;
+  reason?: string;
+  providerCommentId?: string;
+  url?: string;
+}
+
+export interface PublishInlineFindingsInput {
+  change: ChangeMetadata;
+  findings: Finding[];
+}
+
+export interface PublishInlineFindingsResult {
+  provider: ProviderKind;
+  attemptedInlineCount: number;
+  postedInlineCount: number;
+  skippedInlineCount: number;
+  failedInlineCount: number;
+  findings: PublishInlineFindingOutcome[];
+}
+
 export interface VcsAdapter {
   readonly provider: ProviderKind;
 
@@ -61,7 +85,7 @@ export interface VcsAdapter {
 
   publishSummary(input: PublishSummaryInput): Promise<PublishSummaryResult>;
 
-  publishInlineFindings?(change: ChangeMetadata, findings: Finding[]): Promise<PublishSummaryResult>;
+  publishInlineFindings?(input: PublishInlineFindingsInput): Promise<PublishInlineFindingsResult>;
 }
 
 export interface ReviewStateStore {

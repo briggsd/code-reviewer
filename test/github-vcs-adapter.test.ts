@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
 import { GitHubVcsAdapter, loadReviewFixture, runReview } from "../src/index.ts";
-import type { ChangeRef, FetchLike } from "../src/index.ts";
+import type { ChangeRef, FetchLike, Finding } from "../src/index.ts";
 
 const changeRef: ChangeRef = {
   provider: "github",
@@ -137,6 +137,220 @@ describe("GitHubVcsAdapter", () => {
       summaryUrl: "https://github.com/example/payments-api/pull/17#issuecomment-987",
       postedInlineCount: 0,
       failedInlineCount: 0,
+    });
+  });
+
+  test("publishes inline review comments using GitHub pull request coordinates", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const adapter = new GitHubVcsAdapter({
+      token: "write-token",
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+          return jsonResponse([]);
+        }
+
+        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments") {
+          return jsonResponse({
+            id: 456,
+            html_url: "https://github.com/example/payments-api/pull/17#discussion_r456",
+          }, {}, 201);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const finding = {
+      id: "fnd_auth_missing_owner_check",
+      reviewer: "security",
+      severity: "critical",
+      category: "authorization",
+      title: "Account lookup misses authorization",
+      body: "The changed account lookup returns records without verifying ownership.",
+      location: {
+        path: "src/auth/accounts.ts",
+        line: 27,
+        side: "RIGHT" as const,
+      },
+      confidence: "high" as const,
+      evidence: ["The handler reads accountId and returns data without an ownership check."],
+      recommendation: "Verify account ownership before returning account data.",
+    } satisfies Finding;
+
+    const result = await adapter.publishInlineFindings({
+      change: fixture.metadata,
+      findings: [finding],
+    });
+
+    const requestBody = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
+    expect(calls[0]?.url).toBe("https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100");
+    expect(calls[1]?.url).toBe("https://api.github.com/repos/example/payments-api/pulls/17/comments");
+    expect(calls[1]?.init?.method).toBe("POST");
+    expect((calls[1]?.init?.headers as Record<string, string>).Authorization).toBe("Bearer write-token");
+    expect(requestBody).toMatchObject({
+      commit_id: "abc123",
+      path: "src/auth/accounts.ts",
+      line: 27,
+      side: "RIGHT",
+    });
+    expect(String(requestBody.body)).toContain("Account lookup misses authorization");
+    expect(String(requestBody.body)).toContain("<!-- ai-code-review-factory-inline");
+    expect(String(requestBody.body)).toContain("fnd_auth_missing_owner_check");
+    expect(String(requestBody.body)).toContain("abc123");
+    expect(result).toEqual({
+      provider: "github",
+      attemptedInlineCount: 1,
+      postedInlineCount: 1,
+      skippedInlineCount: 0,
+      failedInlineCount: 0,
+      findings: [
+        {
+          findingId: "fnd_auth_missing_owner_check",
+          disposition: "posted",
+          providerCommentId: "456",
+          url: "https://github.com/example/payments-api/pull/17#discussion_r456",
+        },
+      ],
+    });
+  });
+
+  test("records skipped and failed inline review comment outcomes", async () => {
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+          return jsonResponse([]);
+        }
+
+        return new Response(JSON.stringify({ message: "validation failed" }), {
+          status: 422,
+          statusText: "Unprocessable Entity",
+        });
+      },
+    });
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+
+    const result = await adapter.publishInlineFindings({
+      change: fixture.metadata,
+      findings: [
+        {
+          id: "missing-coordinates",
+          reviewer: "security",
+          severity: "warning",
+          category: "test",
+          title: "Missing coordinates",
+          body: "No line coordinate was provided.",
+          confidence: "medium",
+          evidence: [],
+          recommendation: "Add a line coordinate.",
+        },
+        {
+          id: "provider-failure",
+          reviewer: "security",
+          severity: "warning",
+          category: "test",
+          title: "Provider failure",
+          body: "GitHub rejects this comment.",
+          location: {
+            path: "src/auth/accounts.ts",
+            line: 27,
+            side: "RIGHT",
+          },
+          confidence: "medium",
+          evidence: [],
+          recommendation: "Handle provider failures.",
+        },
+      ],
+    });
+
+    expect(result.postedInlineCount).toBe(0);
+    expect(result.skippedInlineCount).toBe(1);
+    expect(result.failedInlineCount).toBe(1);
+    expect(result.findings.map((finding) => finding.disposition)).toEqual(["skipped", "failed"]);
+    expect(result.findings[1]?.reason).toContain("GitHub API request failed: 422 Unprocessable Entity");
+  });
+
+  test("skips duplicate inline comments for the same finding and head sha", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+          return jsonResponse([
+            {
+              id: 456,
+              html_url: "https://github.com/example/payments-api/pull/17#discussion_r456",
+              body: [
+                "### AI review: Account lookup misses authorization",
+                "",
+                "<!-- ai-code-review-factory-inline",
+                JSON.stringify({
+                  schemaVersion: 1,
+                  findingId: "fnd_auth_missing_owner_check",
+                  headSha: "abc123",
+                }),
+                "-->",
+              ].join("\n"),
+            },
+          ]);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+
+    const result = await adapter.publishInlineFindings({
+      change: fixture.metadata,
+      findings: [
+        {
+          id: "fnd_auth_missing_owner_check",
+          reviewer: "security",
+          severity: "critical",
+          category: "authorization",
+          title: "Account lookup misses authorization",
+          body: "The changed account lookup returns records without verifying ownership.",
+          location: {
+            path: "src/auth/accounts.ts",
+            line: 27,
+            side: "RIGHT",
+          },
+          confidence: "high",
+          evidence: ["The handler reads accountId and returns data without an ownership check."],
+          recommendation: "Verify account ownership before returning account data.",
+        },
+      ],
+    });
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100",
+    ]);
+    expect(result).toEqual({
+      provider: "github",
+      attemptedInlineCount: 1,
+      postedInlineCount: 0,
+      skippedInlineCount: 1,
+      failedInlineCount: 0,
+      findings: [
+        {
+          findingId: "fnd_auth_missing_owner_check",
+          disposition: "skipped",
+          reason: "duplicate_inline_comment",
+          providerCommentId: "456",
+          url: "https://github.com/example/payments-api/pull/17#discussion_r456",
+        },
+      ],
     });
   });
 

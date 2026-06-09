@@ -7,8 +7,9 @@ Use this guide when wiring AI Code Review Factory into another repository.
 1. **Pin the package source.** Set `AI_REVIEW_PACKAGE` to an immutable npm tarball URL, an exact registry package version, or a full Git commit SHA for internal smoke only. Do not use `main`, floating tags, `latest`, or a checkout of the runner repository as the adopter install source.
 2. **Start with dry-run only.** Copy `examples/ci/github-actions-ai-review.yml` or `examples/ci/gitlab-ai-review.yml`, keep `--runtime dummy`, and verify `.ai-review/` artifacts upload successfully.
 3. **Enable same-repo/same-project summary publishing.** Keep dry-run and publish jobs separate. Only the guarded publish job should use write permissions and `--publish-summary`.
-4. **Switch to Pi only in trusted jobs.** After summary-only dummy runs are stable, replace `--runtime dummy` with `--runtime pi` in a trusted job that can install Pi and access model credentials.
-5. **Inspect failure artifacts before rerunning.** For failed runtime/model/schema runs, inspect `.ai-review/runs/<runId>/run.json` and `trace.jsonl`. Runtime failures should persist `run.json.error` and end the trace with `review.failed`.
+4. **Optionally enable GitHub inline publishing in the guarded write-back job.** Only after summary publishing is stable, add `--publish-inline` for same-repository GitHub PRs. Keep the default dry-run job inline-free.
+5. **Switch to Pi only in trusted jobs.** After summary-only dummy runs are stable, replace `--runtime dummy` with `--runtime pi` in a trusted job that can install Pi and access model credentials.
+6. **Inspect failure artifacts before rerunning.** For failed runtime/model/schema runs, inspect `.ai-review/runs/<runId>/run.json` and `trace.jsonl`. Runtime failures should persist `run.json.error` and end the trace with `review.failed`.
 
 ## Minimal GitHub shape
 
@@ -49,10 +50,11 @@ Use the full template in `examples/ci/github-actions-ai-review.yml` for the sepa
 - **Packaged external install:** `bun run smoke:external-package` verifies isolated Bun global install plus installed `ai-code-review` execution; a live GitHub provider-backed variant has run successfully.
 - **Packaged Pi runtime:** `AI_REVIEW_LIVE_PI=1 bun run smoke:pi` has run successfully through the packed CLI and Pi JSON mode, producing `run.json`, `summary.json`, and `trace.jsonl` artifacts.
 - **Failure observability:** tests simulate runtime failure and assert persisted `run.json.error` plus a terminal `review.failed` trace event.
+- **GitHub inline publishing:** unit/adapter coverage verifies readiness gating, GitHub review comment creation, skipped reasons, and duplicate suppression. Live smoke status is tracked in `docs/inline-publishing.md` and `docs/workflow-smoke-test.md`.
 
 ## Not yet live-tested or intentionally deferred
 
-- **Inline comments/discussions:** deferred. `evaluateInlinePublishReadiness()` exists, but default write-back remains summary-only.
+- **GitLab inline discussions:** deferred. `evaluateInlinePublishReadiness()` exists, but GitLab diff discussion posting is not implemented yet.
 - **GitLab live publishing:** adapters and templates are covered by tests, but no live GitLab MR smoke has been recorded in this repository yet.
 - **Container image, GitHub Action wrapper, GitLab component wrapper:** deferred until the CLI/package interface and safety controls stabilize.
 - **Fork privileged write-back:** not enabled by default. Fork PRs/MRs should remain artifact/status-only unless a separate approved privileged reporter flow is designed.
@@ -67,4 +69,4 @@ Use the full template in `examples/ci/github-actions-ai-review.yml` for the sepa
 - [ ] Summary publishing updates an existing bot comment/note instead of duplicating it.
 - [ ] Pi/model credentials are only available in trusted jobs.
 - [ ] Runtime failures leave `run.json.error` and `trace.jsonl` ending in `review.failed`.
-- [ ] Inline publishing remains disabled unless a future milestone explicitly enables it behind readiness gates.
+- [ ] Inline publishing remains disabled by default; if enabled, it is GitHub-only, same-repo/trusted, and uses `--publish-inline` behind readiness gates.

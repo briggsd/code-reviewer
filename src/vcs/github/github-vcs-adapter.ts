@@ -6,6 +6,8 @@ import type {
   DiffSummary,
   Finding,
   PriorReviewState,
+  PublishInlineFindingsInput,
+  PublishInlineFindingsResult,
   PublishSummaryInput,
   PublishSummaryResult,
   VcsAdapter,
@@ -68,6 +70,12 @@ interface GitHubPullFileResponse {
 }
 
 interface GitHubIssueCommentResponse {
+  id: number;
+  body?: string;
+  html_url?: string;
+}
+
+interface GitHubPullReviewCommentResponse {
   id: number;
   body?: string;
   html_url?: string;
@@ -178,8 +186,68 @@ export class GitHubVcsAdapter implements VcsAdapter {
     };
   }
 
-  async publishInlineFindings(_change: ChangeMetadata, _findings: Finding[]): Promise<PublishSummaryResult> {
-    throw new Error("GitHub inline finding publishing is not implemented in the metadata/diff MVP adapter");
+  async publishInlineFindings(input: PublishInlineFindingsInput): Promise<PublishInlineFindingsResult> {
+    const outcomes: PublishInlineFindingsResult["findings"] = [];
+    const existingInlineComments = await this.findExistingInlineComments(input.change);
+
+    for (const finding of input.findings) {
+      const coordinate = githubInlineCoordinateForFinding(finding);
+      if (coordinate === undefined) {
+        outcomes.push({
+          ...(finding.id !== undefined ? { findingId: finding.id } : {}),
+          disposition: "skipped",
+          reason: "finding is missing GitHub inline comment coordinates",
+        });
+        continue;
+      }
+
+      const findingId = finding.id;
+      const duplicate = findingId === undefined ? undefined : existingInlineComments.get(inlineCommentKey(findingId, input.change.headSha));
+      if (duplicate !== undefined && findingId !== undefined) {
+        outcomes.push({
+          findingId,
+          disposition: "skipped",
+          reason: "duplicate_inline_comment",
+          providerCommentId: String(duplicate.id),
+          ...(duplicate.html_url !== undefined ? { url: duplicate.html_url } : {}),
+        });
+        continue;
+      }
+
+      try {
+        const response = await this.request<GitHubPullReviewCommentResponse>(this.pullCommentsPath(input.change), {
+          method: "POST",
+          body: {
+            body: formatInlineFindingComment(finding, input.change),
+            commit_id: input.change.headSha,
+            path: coordinate.path,
+            line: coordinate.line,
+            side: coordinate.side,
+          },
+        });
+        outcomes.push({
+          ...(finding.id !== undefined ? { findingId: finding.id } : {}),
+          disposition: "posted",
+          providerCommentId: String(response.id),
+          ...(response.html_url !== undefined ? { url: response.html_url } : {}),
+        });
+      } catch (error) {
+        outcomes.push({
+          ...(finding.id !== undefined ? { findingId: finding.id } : {}),
+          disposition: "failed",
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return {
+      provider: "github",
+      attemptedInlineCount: input.findings.length,
+      postedInlineCount: outcomes.filter((outcome) => outcome.disposition === "posted").length,
+      skippedInlineCount: outcomes.filter((outcome) => outcome.disposition === "skipped").length,
+      failedInlineCount: outcomes.filter((outcome) => outcome.disposition === "failed").length,
+      findings: outcomes,
+    };
   }
 
   private pullPath(ref: ChangeRef): string {
@@ -196,6 +264,13 @@ export class GitHubVcsAdapter implements VcsAdapter {
     return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${encodeURIComponent(ref.changeId)}/comments`;
   }
 
+  private pullCommentsPath(ref: ChangeRef | ChangeMetadata): string {
+    const owner = ref.repository.owner ?? ownerFromSlug(ref.repository.slug);
+    const repo = repoNameFromSlug(ref.repository.slug, ref.repository.name);
+
+    return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${encodeURIComponent(ref.changeId)}/comments`;
+  }
+
   private issueCommentPath(change: ChangeMetadata, commentId: number): string {
     const owner = change.repository.owner ?? ownerFromSlug(change.repository.slug);
     const repo = repoNameFromSlug(change.repository.slug, change.repository.name);
@@ -207,6 +282,20 @@ export class GitHubVcsAdapter implements VcsAdapter {
     const comments = await this.requestAllPages<GitHubIssueCommentResponse>(this.issueCommentsPath(change));
 
     return comments.findLast((comment) => comment.body?.includes("<!-- ai-code-review-factory") === true);
+  }
+
+  private async findExistingInlineComments(change: ChangeMetadata): Promise<Map<string, GitHubPullReviewCommentResponse>> {
+    const comments = await this.requestAllPages<GitHubPullReviewCommentResponse>(this.pullCommentsPath(change));
+    const byFindingAndHead = new Map<string, GitHubPullReviewCommentResponse>();
+
+    for (const comment of comments) {
+      const metadata = parseInlineCommentMetadata(comment.body);
+      if (metadata?.findingId !== undefined && metadata.headSha !== undefined) {
+        byFindingAndHead.set(inlineCommentKey(metadata.findingId, metadata.headSha), comment);
+      }
+    }
+
+    return byFindingAndHead;
   }
 
   private async request<T>(pathOrUrl: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
@@ -254,6 +343,73 @@ export class GitHubVcsAdapter implements VcsAdapter {
       ...(this.token !== undefined ? { Authorization: `Bearer ${this.token}` } : {}),
     };
   }
+}
+
+function githubInlineCoordinateForFinding(finding: Finding): { path: string; line: number; side: "LEFT" | "RIGHT" } | undefined {
+  const location = finding.location;
+  const line = location?.line ?? location?.startLine;
+  if (location === undefined || line === undefined || location.side === undefined) {
+    return undefined;
+  }
+
+  if (location.side !== "LEFT" && location.side !== "RIGHT") {
+    return undefined;
+  }
+
+  return {
+    path: location.path,
+    line,
+    side: location.side,
+  };
+}
+
+function formatInlineFindingComment(finding: Finding, change: ChangeMetadata): string {
+  const metadata = JSON.stringify({
+    schemaVersion: 1,
+    findingId: finding.id ?? null,
+    headSha: change.headSha,
+  });
+
+  return [
+    `### AI review: ${finding.title}`,
+    "",
+    `**Severity:** ${finding.severity}`,
+    `**Category:** ${finding.category}`,
+    `**Confidence:** ${finding.confidence}`,
+    "",
+    finding.body,
+    "",
+    `**Recommendation:** ${finding.recommendation}`,
+    "",
+    "<!-- ai-code-review-factory-inline",
+    metadata,
+    "-->",
+  ].join("\n");
+}
+
+function parseInlineCommentMetadata(body: string | undefined): { findingId?: string; headSha?: string } | undefined {
+  if (body === undefined) {
+    return undefined;
+  }
+
+  const match = /<!-- ai-code-review-factory-inline\s*\n([\s\S]*?)\n-->/m.exec(body);
+  if (match?.[1] === undefined) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(match[1]) as { findingId?: unknown; headSha?: unknown };
+    return {
+      ...(typeof parsed.findingId === "string" && parsed.findingId.length > 0 ? { findingId: parsed.findingId } : {}),
+      ...(typeof parsed.headSha === "string" && parsed.headSha.length > 0 ? { headSha: parsed.headSha } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function inlineCommentKey(findingId: string, headSha: string): string {
+  return `${headSha}:${findingId}`;
 }
 
 function normalizeChangedFile(file: GitHubPullFileResponse): ChangedFile {

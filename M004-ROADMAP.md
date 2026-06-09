@@ -15,19 +15,19 @@ Add safe, opt-in line-level publishing for findings without weakening the summar
 
 ## Slices
 
-- [ ] **S01: Inline publish contract and CLI flag** `risk:medium` `depends:[]`
+- [x] **S01: Inline publish contract and CLI flag** `risk:medium` `depends:[]`
   > After this: `--publish-inline` is parsed separately from `--publish-summary`, and provider publishing inputs/results can represent attempted/skipped/posted inline findings without changing default behavior.
 
-- [ ] **S02: GitHub inline comment adapter** `risk:high` `depends:[S01]`
+- [x] **S02: GitHub inline comment adapter** `risk:high` `depends:[S01]`
   > After this: the GitHub adapter can post one review comment for a ready finding on the current PR diff using provider line/side coordinates.
 
-- [ ] **S03: Readiness-gated inline orchestration** `risk:high` `depends:[S02]`
+- [x] **S03: Readiness-gated inline orchestration** `risk:high` `depends:[S02]`
   > After this: inline publishing evaluates every finding, publishes only ready findings, records skipped reasons, and keeps all findings in the summary.
 
-- [ ] **S04: Duplicate prevention for reruns** `risk:medium` `depends:[S03]`
+- [x] **S04: Duplicate prevention for reruns** `risk:medium` `depends:[S03]`
   > After this: rerunning on the same head/finding does not create obvious duplicate inline comments.
 
-- [ ] **S05: Inline publishing docs and live smoke** `risk:medium` `depends:[S04]`
+- [x] **S05: Inline publishing docs and live smoke** `risk:medium` `depends:[S04]`
   > After this: docs explain the opt-in GitHub-only inline path, deferred GitLab scope, safety gates, and a same-repo live smoke verifies no default inline publishing plus guarded inline behavior.
 
 ## Key Risks
