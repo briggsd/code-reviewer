@@ -6,6 +6,14 @@ export function classifyReReviewFindings(summary: ReviewSummary, priorState: Pri
   }
 
   const reReview = createReReviewSummary(summary, priorState);
+  const hasVisibleReReviewState =
+    reReview.newFindingIds.length > 0 ||
+    reReview.recurringFindingIds.length > 0 ||
+    reReview.fixedFindingIds.length > 0;
+
+  if (!hasVisibleReReviewState) {
+    return summary;
+  }
 
   return {
     ...summary,
