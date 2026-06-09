@@ -20,7 +20,7 @@ Prove the review factory can be adopted like a real tool, not just run from this
 - [x] **S02: External-style packaged install smoke** `risk:medium` `depends:[S01]`
   > After this: a fresh temp/adopter environment installs `ai-code-review` and runs a provider-backed dry-run without using repo-local `bun run src/cli.ts`.
 
-- [ ] **S03: Live Pi runtime smoke path** `risk:high` `depends:[S02]`
+- [x] **S03: Live Pi runtime smoke path** `risk:high` `depends:[S02]`
   > After this: one controlled PR can run `--runtime pi` with real model output and verify schema handling plus project-resource isolation.
 
 - [ ] **S04: Runtime failure observability** `risk:medium` `depends:[S03]`

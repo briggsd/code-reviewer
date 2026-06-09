@@ -2,7 +2,7 @@
 
 The normal test suite never calls Pi, a model provider, or the network. It uses fake process runners for the Pi adapter.
 
-Use the live smoke test only when you intentionally want to verify the local `pi` CLI, provider credentials, JSON-mode adapter, trace writing, and structured output prompts end-to-end.
+Use the live smoke test only when you intentionally want to verify the packaged `ai-code-review` CLI, local `pi` CLI, provider credentials, JSON-mode adapter, trace writing, and structured output prompts end-to-end.
 
 ## Run
 
@@ -34,19 +34,22 @@ Artifacts are written under:
 <output>/runs/<runId>/summary.json
 ```
 
+When enabled, the script packs the current trusted checkout with `npm pack`, installs the tarball into an isolated Bun global directory, creates an adopter-like temporary working directory, and invokes the installed `ai-code-review run --runtime pi` binary. The temporary adopter directory includes an `AGENTS.md` trap file; the Pi adapter's `--no-context-files --no-extensions --no-skills --no-prompt-templates --no-approve --no-session` flags are expected to keep project-local resources out of the model context.
+
 ## What it exercises
 
+- Packaged `ai-code-review` binary execution
 - `PiAgentRuntime`
 - `BunPiProcessRunner`
 - `pi --mode json`
 - default CI-hardening flags: `--no-session --no-approve --no-extensions --no-skills --no-prompt-templates --no-context-files`
-- read-only runtime tool policy
+- untrusted read-only runtime tool policy
 - reviewer structured output parsing
 - coordinator summary parsing/fallback
 - streaming JSONL event forwarding into the trace sink
 - JSONL trace and filesystem state artifacts
 
-The smoke fixture disables documentation and performance reviewers to keep the run small while still exercising multiple reviewer subprocesses plus the coordinator.
+The generated smoke fixture disables documentation and performance reviewers to keep the run small while still exercising multiple reviewer subprocesses plus the coordinator.
 
 ## GitHub Actions opt-in workflow
 
@@ -58,6 +61,7 @@ Safety properties:
 - The job is guarded to `refs/heads/main` so secrets are not exposed to arbitrary branch workflow edits.
 - The `run_live_pi` input defaults to `false`; the default run exercises the no-op safety path.
 - The workflow installs Pi with `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`.
+- The enabled path installs and runs the packed `ai-code-review` CLI rather than calling `bun run src/cli.ts`.
 - Provider secrets are only referenced by this manual workflow job.
 
 To run a real live smoke in GitHub Actions:
