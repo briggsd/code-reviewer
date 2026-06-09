@@ -6,7 +6,14 @@ The prototype distribution target is a Bun-backed npm tarball. The package expos
 ai-code-review
 ```
 
-The bin points at `src/cli.ts` and uses a Bun shebang, so runtime environments must install Bun before invoking the package.
+The bin points at `src/cli.ts` and uses a Bun shebang, so runtime environments must install Bun before invoking the package. CI templates install the package with:
+
+```bash
+bun add --global "$AI_REVIEW_PACKAGE"
+ai-code-review run ...
+```
+
+Until the package is published under its final name, set `AI_REVIEW_PACKAGE` to the version, tarball URL, registry URL, or Git ref that CI should install.
 
 ## Smoke test the package artifact
 

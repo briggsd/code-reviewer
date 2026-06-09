@@ -53,14 +53,17 @@ Added:
 - CI starter templates
   - `examples/ci/github-actions-ai-review.yml` provides read-only dry-run and guarded same-repo publish jobs.
   - `examples/ci/gitlab-ai-review.yml` provides MR dry-run and guarded same-project publish jobs.
-  - `docs/ci-templates.md` documents how to adapt the templates and the safety stance.
-  - `test/ci-templates.test.ts` checks the templates preserve read/write separation and provider command wiring.
-- M001 packageability roadmap and first package slice
-  - `M001-ROADMAP.md` captures the packageable MVP hardening slices.
+  - Templates now install the packaged CLI with `bun add --global "$AI_REVIEW_PACKAGE"` and run `ai-code-review run`, not `bun run src/cli.ts`.
+  - `docs/ci-templates.md` documents how to adapt the package source and the safety stance.
+  - `test/ci-templates.test.ts` checks the templates preserve read/write separation and provider command wiring while avoiding repo-local source commands/project dependency installs.
+- M001 packageability roadmap and first package slices
+  - `M001-ROADMAP.md` captures the packageable MVP hardening slices; S01, S02, and S03 are complete.
   - `package.json` now has an explicit `files` allowlist and `pack:smoke` script.
   - `scripts/package-smoke.ts` validates npm tarball contents, excludes repo-local internals, extracts the tarball, and runs the packaged CLI `schemas` command.
-  - `docs/packaging.md` documents the Bun-backed npm tarball stance.
+  - `docs/packaging.md` documents the Bun-backed npm tarball stance and CI package install shape.
   - `test/packaging.test.ts` locks package metadata and allowlist expectations.
+  - `docs/fork-safety.md` documents the public-repo fork default, permission matrix, token/model-secret boundaries, and `pull_request_target` caveat.
+  - `test/fork-safety-docs.test.ts` locks the fork-safety guidance links and key assertions.
 - Real GitHub workflow smoke test
   - Pushed repo to `https://github.com/briggsd/ai-code-review-factory`.
   - Added `.github/workflows/ai-review.yml` and opened PR #1 from `smoke/github-actions-ai-review`.
@@ -132,10 +135,9 @@ Continue S11 hardening.
 
 Concrete next steps:
 
-1. Continue M001 S02: update distribution-facing CI commands so templates use the package/CLI entrypoint shape instead of prototype-local `bun run src/cli.ts` commands.
-2. Then continue M001 S03: document the default public-repo fork strategy and secret/write-token boundaries.
-3. Consider inline comment/discussion publishing only after summary publishing proves safe and S04 readiness gates exist.
-4. Consider an opt-in Pi/model GitHub Actions smoke test after secrets/runtime setup is decided.
+1. Continue M001 S04: add explicit inline publishing readiness gates before implementing inline comments/discussions.
+2. Then continue M001 S05: add disabled-by-default live runtime CI smoke after secrets/runtime setup is decided.
+3. Finish with M001 S06: release readiness checklist.
 
 ## Why
 

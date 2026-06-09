@@ -17,10 +17,10 @@ Make the current AI Code Review Factory prototype repeatable outside this checko
 - [x] **S01: Package tarball smoke path** `risk:medium` `depends:[]`
   > After this: `bun run pack:smoke` creates an npm tarball, proves only intentional files are included, and runs the packaged CLI schema command.
 
-- [ ] **S02: Distribution-facing CI commands** `risk:medium` `depends:[S01]`
+- [x] **S02: Distribution-facing CI commands** `risk:medium` `depends:[S01]`
   > After this: GitHub/GitLab templates use the package/CLI entrypoint shape instead of prototype-local `bun run src/cli.ts` commands, while tests preserve read/write separation.
 
-- [ ] **S03: Public-repo fork strategy guide** `risk:high` `depends:[S02]`
+- [x] **S03: Public-repo fork strategy guide** `risk:high` `depends:[S02]`
   > After this: docs give a concrete recommended default for forks and show which jobs may use secrets/write tokens.
 
 - [ ] **S04: Inline publishing readiness gate** `risk:high` `depends:[S03]`
