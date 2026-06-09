@@ -332,10 +332,12 @@ Specialist reviewers run concurrently. Each reviewer is selected from a trusted 
 - shared mandatory rules,
 - what-to-flag list,
 - what-not-to-flag list,
-- severity rubric,
-- output expectations.
+- allowed severity values,
+- domain-specific severity rubric,
+- domain-specific output expectations,
+- per-definition content version.
 
-Each runtime adapter then combines that trusted definition with scoped context, structured output schema, and timeout settings native to the runtime.
+Each runtime adapter then combines that trusted definition with scoped context, structured output schema, and timeout settings native to the runtime. Severity guidance is domain-specific and enforced as policy, not only prompt text: for example, security can emit `critical` for exploitable auth, secret, or privileged-boundary failures, while documentation is limited to `warning`/`suggestion` unless the trusted operator later defines a docs-specific critical bar. If a runtime receives an out-of-policy severity from a reviewer, it clamps to the maximum allowed severity and traces the adjustment.
 
 MVP reviewers:
 

@@ -36,9 +36,9 @@ Improve review quality by moving from generic reviewer instructions to trusted, 
   > Implemented: `ReviewerDefinition` is now part of the runtime contract; reviewer selection uses only factory-owned trusted definitions, and reviewed-repo config can enable/disable known roles but cannot define new reviewer authority.
   > Note: this slice resolves the **near-term form of #16** — the contract *is* the plugin API, realized natively per runtime adapter; we do not build a Cloudflare-style plugin lifecycle here. Only the full-lifecycle escalation remains open in M012.
 
-- [ ] **S04: MVP per-domain reviewer modules** `risk:medium` `depends:[S03]` `issues:[#10]`
+- [x] **S04: MVP per-domain reviewer modules** `risk:medium` `depends:[S03]` `issues:[#10]`
   > After this: `security`, `code_quality`, and `documentation` reviewers use domain-specific flag/non-flag guidance and severity rubrics.
-  > S04 must differentiate severity calibration and output expectations per domain. In particular, `documentation` should either use a docs-specific critical bar or avoid exposing `critical` findings unless documentation errors can plausibly cause unsafe rollout, outage, or data loss.
+  > Implemented: trusted definitions now have domain-specific flag/non-flag lists, severity calibration, output expectations, allowed severities, and per-definition `*.m009-s04` versions. `documentation` is limited to `warning` and `suggestion`; Pi runtime clamps out-of-policy reviewer severities to the maximum allowed severity and emits trace metadata for the adjustment.
   > Preserve per-definition versioning when content diverges (for example, bump only `security.*` when tuning the security reviewer definition).
 
 - [ ] **S05: Coordinator judgment and deterministic dedup floor** `risk:medium` `depends:[S04]` `issues:[#13]`

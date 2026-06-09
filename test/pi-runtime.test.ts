@@ -147,6 +147,52 @@ class RecoverableSchemaPiProcessRunner implements PiProcessRunner {
   }
 }
 
+class CriticalDocumentationSeverityPiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    const documentationFinding: Finding = {
+      ...securityFinding(),
+      reviewer: "documentation",
+      severity: "critical",
+      category: "docs",
+      title: "Dangerous documentation guidance",
+      body: "The documentation tells operators to use the wrong safety mode.",
+      confidence: "high",
+      evidence: ["The docs snippet uses an unsafe mode."],
+      recommendation: "Update the snippet to use the safe default.",
+    };
+    const coordinatorSawCritical = input.prompt.includes('"severity": "critical"');
+    const output = input.role === "documentation"
+      ? { findings: [documentationFinding] }
+      : input.role === "coordinator"
+        ? {
+          decision: coordinatorSawCritical ? "significant_concerns" : "approved_with_comments",
+          outcome: coordinatorSawCritical ? "fail" : "pass",
+          title: "AI review found documentation findings",
+          body: "Coordinator used reviewer severities from the prompt.",
+          findings: [{
+            ...documentationFinding,
+            severity: coordinatorSawCritical ? "critical" : "warning",
+          }],
+          risk: {
+            tier: "lite",
+            reason: "Fake coordinator fallback risk.",
+            matchedRules: [],
+            sensitivePaths: [],
+            reviewedFileCount: 0,
+            ignoredFileCount: 0,
+          },
+        }
+        : { findings: [] };
+    const finalText = JSON.stringify(output);
+
+    return {
+      finalText,
+      events: [],
+      rawOutput: finalText,
+    };
+  }
+}
+
 class InvalidJsonPiProcessRunner implements PiProcessRunner {
   readonly calls: PiProcessRunInput[] = [];
 
@@ -298,6 +344,53 @@ describe("PiAgentRuntime", () => {
     expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("Trusted reviewer definition:");
     expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("source: trusted_operator");
     expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("What NOT to flag");
+    expect(runner.calls.find((call) => call.role === "documentation")?.prompt).toContain("Allowed severities:\n- warning\n- suggestion");
+  });
+
+  test("clamps reviewer findings to trusted allowed severities", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-severity-clamp-"));
+
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      fixture.config.mode = "blocking";
+      fixture.config.failOn = ["critical"];
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runtime = new PiAgentRuntime({
+        processRunner: new CriticalDocumentationSeverityPiProcessRunner(),
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      const documentationResult = result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "documentation");
+      expect(documentationResult?.findings[0]?.severity).toBe("warning");
+      expect(result.summary.findings[0]?.severity).toBe("warning");
+      expect(result.summary.decision).not.toBe("significant_concerns");
+      expect(result.summary.outcome).toBe("pass");
+
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const documentationOutput = events.find((event) => event.type === "agent.output" && event.role === "documentation");
+      expect(documentationOutput?.data?.severityAdjustmentCount).toBe(1);
+      expect(documentationOutput?.data?.severityAdjustments).toEqual([{
+        index: 0,
+        originalSeverity: "critical",
+        adjustedSeverity: "warning",
+        reason: "reviewer_severity_not_allowed",
+      }]);
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
   });
 
   test("sanitizes untrusted prompt-boundary content before Pi prompt assembly", async () => {

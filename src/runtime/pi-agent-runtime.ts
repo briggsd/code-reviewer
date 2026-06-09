@@ -9,6 +9,7 @@ import type {
   ReviewerRunInput,
   ReviewerRunResult,
   RuntimeEvent,
+  Severity,
   RuntimeEventSubscription,
   RuntimeToolPolicy,
   TokenUsage,
@@ -208,13 +209,21 @@ export class PiAgentRuntime implements AgentRuntime {
           this.forwardPiEvents(input.runId, agentRunId, input.role, processResult.events);
         }
 
-        const findings = parseReviewerOutput(processResult.finalText);
+        const parsedFindings = parseReviewerOutput(processResult.finalText);
+        const severityEnforcement = enforceReviewerAllowedSeverities(parsedFindings, input.reviewerDefinition.guidance.allowedSeverities);
+        const findings = severityEnforcement.findings;
         const retryCount = attempt - 1;
 
         this.emitAgentEvent("agent.output", input.runId, agentRunId, input.role, {
           findingCount: findings.length,
           attempt,
           retryCount,
+          ...(severityEnforcement.adjustments.length > 0
+            ? {
+              severityAdjustmentCount: severityEnforcement.adjustments.length,
+              severityAdjustments: severityEnforcement.adjustments,
+            }
+            : {}),
         });
         this.emitAgentEvent("agent.completed", input.runId, agentRunId, input.role, {
           findingCount: findings.length,
@@ -549,7 +558,7 @@ function buildReviewerPrompt(input: ReviewerRunInput): string {
     "Return ONLY valid JSON with this exact shape: {\"findings\": Finding[]}.",
     "Do not wrap the JSON in prose unless impossible.",
     "Finding fields: reviewer, severity, category, title, body, location, confidence, evidence, recommendation.",
-    "Allowed severity values: critical, warning, suggestion. Allowed confidence values: high, medium, low.",
+    "Allowed confidence values: high, medium, low.",
     "Return at most 5 findings; choose the highest-impact, highest-confidence issues.",
     "Omit low-confidence nitpicks.",
     "",
@@ -602,6 +611,62 @@ function parseReviewerOutput(text: string): Finding[] {
   }
 
   return findings.map((finding) => validateFinding(finding));
+}
+
+interface SeverityAdjustment {
+  index: number;
+  originalSeverity: Severity;
+  adjustedSeverity: Severity;
+  reason: "reviewer_severity_not_allowed";
+}
+
+function enforceReviewerAllowedSeverities(findings: Finding[], allowedSeverities: readonly Severity[]): {
+  findings: Finding[];
+  adjustments: SeverityAdjustment[];
+} {
+  const allowed = new Set(allowedSeverities);
+  const maximumAllowedSeverity = maxSeverity(allowedSeverities);
+  if (maximumAllowedSeverity === undefined) {
+    return { findings, adjustments: [] };
+  }
+
+  const adjustments: SeverityAdjustment[] = [];
+  const normalizedFindings = findings.map((finding, index) => {
+    if (allowed.has(finding.severity)) {
+      return finding;
+    }
+
+    adjustments.push({
+      index,
+      originalSeverity: finding.severity,
+      adjustedSeverity: maximumAllowedSeverity,
+      reason: "reviewer_severity_not_allowed",
+    });
+
+    return {
+      ...finding,
+      severity: maximumAllowedSeverity,
+    };
+  });
+
+  return { findings: normalizedFindings, adjustments };
+}
+
+function maxSeverity(severities: readonly Severity[]): Severity | undefined {
+  const order: Record<Severity, number> = {
+    critical: 3,
+    warning: 2,
+    suggestion: 1,
+  };
+
+  let maximum: Severity | undefined;
+  for (const severity of severities) {
+    if (maximum === undefined || order[severity] > order[maximum]) {
+      maximum = severity;
+    }
+  }
+
+  return maximum;
 }
 
 function parseCoordinatorOutput(text: string) {

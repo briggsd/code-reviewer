@@ -2,6 +2,7 @@ import type {
   AgentRole,
   JsonValue,
   ModelSelection,
+  Severity,
   TokenUsage,
   TraceEventType,
 } from "./common.ts";
@@ -37,6 +38,7 @@ export interface ReviewerDefinition {
     sharedMandatoryRules: string[];
     flag: string[];
     doNotFlag: string[];
+    allowedSeverities: Severity[];
     severityCalibration: string[];
     outputExpectations: string[];
   };
