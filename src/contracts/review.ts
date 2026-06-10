@@ -88,6 +88,15 @@ export interface ReviewConfig {
   extra: Record<string, JsonValue>;
 }
 
+export interface ReviewContextArtifacts {
+  changeContextPath: string;
+  patchDirectory: string;
+  patchFileCount: number;
+  changeContextBytes: number;
+  patchBytes: number;
+  totalBytes: number;
+}
+
 export interface ReviewContext {
   runId: string;
   safetyMode: SafetyMode;
@@ -97,6 +106,7 @@ export interface ReviewContext {
   diff: DiffSummary;
   risk: RiskAssessment;
   config: ReviewConfig;
+  contextArtifacts?: ReviewContextArtifacts;
   priorState?: PriorReviewState;
 }
 

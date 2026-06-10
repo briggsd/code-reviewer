@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -34,6 +34,97 @@ describe("fixture local runner", () => {
     expect(result.summary.outcome).toBe("fail");
     expect(result.summary.findings).toHaveLength(1);
     expect(result.summary.findings[0]?.title).toBe("Account lookup misses authorization");
+  });
+
+  test("writes shared context and per-file patch artifacts", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ai-review-context-"));
+    const contextDirectory = join(directory, "context");
+    const fixture = normalizeReviewFixture({
+      runId: "run/context-artifacts",
+      workingDirectory: directory,
+      contextDirectory,
+      metadata: {
+        provider: "local",
+        repository: {
+          provider: "local",
+          name: "demo",
+          slug: "demo",
+        },
+        changeId: "local",
+        headSha: "abc123",
+        title: "Update auth",
+        author: {
+          username: "dev",
+        },
+        labels: [],
+      },
+      diff: {
+        files: [
+          {
+            path: "src/auth.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 1,
+            isBinary: false,
+            patch: "@@ -1 +1 @@\n-old\n+new",
+          },
+          {
+            path: "../escape\nname.ts",
+            status: "added",
+            additions: 1,
+            deletions: 0,
+            isBinary: false,
+            patch: "@@ -0,0 +1 @@\n+safe",
+          },
+          {
+            path: "src/empty.ts",
+            status: "modified",
+            additions: 0,
+            deletions: 0,
+            isBinary: false,
+            patch: "",
+          },
+          {
+            path: "assets/logo.png",
+            status: "modified",
+            additions: 0,
+            deletions: 0,
+            isBinary: true,
+          },
+        ],
+        totalAdditions: 2,
+        totalDeletions: 1,
+        truncated: false,
+      },
+    });
+
+    const result = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    expect(result.context.contextArtifacts).toMatchObject({
+      changeContextPath: join(contextDirectory, "change-context.json"),
+      patchDirectory: join(contextDirectory, "patches"),
+      patchFileCount: 2,
+    });
+    const firstPatchPath = result.context.diff.files[0]?.patchPath;
+    const escapedPatchPath = result.context.diff.files[1]?.patchPath;
+    expect(firstPatchPath).toBeDefined();
+    expect(escapedPatchPath).toBeDefined();
+    expect(escapedPatchPath).not.toContain("..");
+    expect(escapedPatchPath).not.toContain("\n");
+    expect(result.context.diff.files[2]?.patchPath).toBeUndefined();
+    expect(result.context.diff.files[3]?.patchPath).toBeUndefined();
+    expect(await readFile(firstPatchPath!, "utf8")).toBe("@@ -1 +1 @@\n-old\n+new");
+    expect(await readFile(escapedPatchPath!, "utf8")).toBe("@@ -0,0 +1 @@\n+safe");
+
+    const sharedContext = JSON.parse(await readFile(result.context.contextArtifacts!.changeContextPath, "utf8")) as {
+      schemaVersion?: string;
+      diff?: { files?: Array<{ path?: string; patch?: string; patchPath?: string }> };
+    };
+    expect(sharedContext.schemaVersion).toBe("ai-review.context.v1");
+    expect(sharedContext.diff?.files?.map((file) => file.path)).toEqual(["src/auth.ts", "../escape\nname.ts", "src/empty.ts"]);
+    expect(sharedContext.diff?.files?.[0]?.patch).toBeUndefined();
+    expect(sharedContext.diff?.files?.[0]?.patchPath).toBe(firstPatchPath);
+    expect(result.context.contextArtifacts?.totalBytes).toBeGreaterThan(0);
   });
 
   test("approves a tiny fixture with no fake findings", async () => {

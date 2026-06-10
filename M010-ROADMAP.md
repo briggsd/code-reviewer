@@ -20,8 +20,9 @@ Stop embedding the full diff in every reviewer prompt. Write shared change conte
 
 ## Tentative Slices
 
-- [ ] **S01: Shared context writer** `risk:high` `depends:[]` `issues:[#11]`
+- [x] **S01: Shared context writer** `risk:high` `depends:[]` `issues:[#11]`
   > After this: the runner writes a shared change-context file plus per-file patch files under `contextDirectory` with safe paths and deterministic names.
+  > Implemented: `writeReviewContextArtifacts` writes `change-context.json` plus `patches/*.patch`, adds `patchPath` references to filtered changed files, strips patch bodies from the shared context JSON, and exposes artifact byte counts on `ReviewContext.contextArtifacts` plus `context.built` trace data.
 
 - [ ] **S02: Reviewer context assignment by reference** `risk:high` `depends:[S01]` `issues:[#11]`
   > After this: reviewer inputs carry selected context references instead of embedding the entire diff payload.

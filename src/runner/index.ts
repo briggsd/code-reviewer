@@ -1,4 +1,5 @@
 export * from "./config.ts";
+export * from "./context-artifacts.ts";
 export * from "./default-config.ts";
 export * from "./diff-filter.ts";
 export * from "./error-classifier.ts";

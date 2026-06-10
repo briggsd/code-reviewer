@@ -22,6 +22,7 @@ import type {
   TokenUsage,
   TraceSink,
 } from "../contracts/index.ts";
+import { writeReviewContextArtifacts } from "./context-artifacts.ts";
 import { filterDiff } from "./diff-filter.ts";
 import { classifyReviewError } from "./error-classifier.ts";
 import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
@@ -124,6 +125,10 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     ...(fixture.priorState !== undefined ? { priorState: fixture.priorState } : {}),
   };
 
+  const contextArtifacts = await writeReviewContextArtifacts({ context, generatedAt: clock().toISOString() });
+  context.diff = contextArtifacts.diff;
+  context.contextArtifacts = contextArtifacts.artifacts;
+
   const contextBuiltAt = clock();
   const contextBuildMs = elapsedMs(contextBuildStartedAt, contextBuiltAt);
   const riskAssessmentMs = elapsedMs(riskAssessmentStartedAt, riskAssessmentCompletedAt);
@@ -138,6 +143,14 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       totalAdditions: context.diff.totalAdditions,
       totalDeletions: context.diff.totalDeletions,
       priorFindingCount: context.priorState?.findings.length ?? 0,
+      contextArtifacts: {
+        changeContextPath: context.contextArtifacts.changeContextPath,
+        patchDirectory: context.contextArtifacts.patchDirectory,
+        patchFileCount: context.contextArtifacts.patchFileCount,
+        changeContextBytes: context.contextArtifacts.changeContextBytes,
+        patchBytes: context.contextArtifacts.patchBytes,
+        totalBytes: context.contextArtifacts.totalBytes,
+      },
       durationMs: contextBuildMs,
     },
   });
