@@ -17,7 +17,7 @@ import type {
 } from "../contracts/index.ts";
 import { classifyReviewError } from "../runner/error-classifier.ts";
 import { formatReviewerDefinitionForPrompt } from "../runner/reviewer-definitions.ts";
-import { summarizeReview } from "../runner/run-review.ts";
+import { getEffectiveTimeouts, scaleTimeoutForRiskTier, summarizeReview } from "../runner/run-review.ts";
 import { stringifyPromptData } from "./prompt-boundary.ts";
 
 export interface PiProcessRunInput {
@@ -353,13 +353,19 @@ export class PiAgentRuntime implements AgentRuntime {
           attemptCount: attempt,
           retryCount,
         });
+        const effectiveTimeouts = getEffectiveTimeouts(input.context);
         const willRetry = shouldRetryReviewerFailure({
           classification: failure.errorClassification,
           attempt,
           maxAttempts,
           elapsedMs: Date.now() - budgetStartedAt,
-          overallTimeoutMs: input.context.config.timeouts.overallMs,
-          minimumRemainingMs: this.reviewerRetryPolicy.minimumRemainingMs,
+          nextAttemptTimeoutMs: input.timeoutMs,
+          coordinatorTimeoutMs: effectiveTimeouts.coordinatorMs,
+          overallTimeoutMs: effectiveTimeouts.overallMs,
+          // Scale the reserve by the same risk tier as the reviewer/coordinator/overall
+          // budgets. Without this the unscaled floor would exceed the scaled overall
+          // budget on smaller tiers and silently suppress all retries (e.g. trivial).
+          minimumRemainingMs: scaleTimeoutForRiskTier(this.reviewerRetryPolicy.minimumRemainingMs, input.context.risk.tier),
         });
         this.emitAgentEvent("agent.failed", input.runId, agentRunId, input.role, {
           errorName: failure.errorName,
@@ -641,11 +647,25 @@ function normalizeRetryAttemptCount(value: number): number {
   return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1;
 }
 
+/**
+ * Decide whether a retryable reviewer failure may be retried within the remaining
+ * wall-clock budget. A retry is only permitted when the budget left in the overall
+ * (tier-scaled) ceiling can still cover another reviewer attempt, the coordinator
+ * synthesis, and a reserve buffer:
+ *
+ *   overallTimeoutMs - elapsedMs >= nextAttemptTimeoutMs + coordinatorTimeoutMs + minimumRemainingMs
+ *
+ * All four budget terms must be expressed in the same risk tier — callers pass
+ * tier-scaled values (including a tier-scaled `minimumRemainingMs`) so the reserve
+ * stays proportional to the shrunken lite/trivial ceilings rather than dominating them.
+ */
 function shouldRetryReviewerFailure(input: {
   classification: ReturnType<typeof classifyReviewError>;
   attempt: number;
   maxAttempts: number;
   elapsedMs: number;
+  nextAttemptTimeoutMs: number;
+  coordinatorTimeoutMs: number;
   overallTimeoutMs: number;
   minimumRemainingMs: number;
 }): boolean {
@@ -653,8 +673,11 @@ function shouldRetryReviewerFailure(input: {
     return false;
   }
 
-  return input.overallTimeoutMs - input.elapsedMs >= input.minimumRemainingMs;
+  const retryReserveMs = input.nextAttemptTimeoutMs + input.coordinatorTimeoutMs + input.minimumRemainingMs;
+  return input.overallTimeoutMs - input.elapsedMs >= retryReserveMs;
 }
+
+export { shouldRetryReviewerFailure };
 
 function annotateRetryMetadata(error: unknown, metadata: Required<RetryMetadata>): void {
   if (typeof error !== "object" || error === null) {

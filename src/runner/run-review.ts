@@ -740,18 +740,30 @@ export function getEffectiveTimeouts(context: ReviewContext): ReviewConfig["time
   return scaleTimeoutsForRiskTier(context.config.timeouts, context.risk.tier);
 }
 
+export function riskTierTimeoutScale(tier: RiskTier): number {
+  if (tier === "full") {
+    return 1;
+  }
+
+  return tier === "lite" ? 0.5 : 0.25;
+}
+
 export function scaleTimeoutsForRiskTier(timeouts: ReviewConfig["timeouts"], tier: RiskTier): ReviewConfig["timeouts"] {
   if (tier === "full") {
     return timeouts;
   }
 
-  const scale = tier === "lite" ? 0.5 : 0.25;
+  const scale = riskTierTimeoutScale(tier);
 
   return {
     reviewerMs: scaleTimeout(timeouts.reviewerMs, scale),
     coordinatorMs: scaleTimeout(timeouts.coordinatorMs, scale),
     overallMs: scaleTimeout(timeouts.overallMs, scale),
   };
+}
+
+export function scaleTimeoutForRiskTier(timeoutMs: number, tier: RiskTier): number {
+  return scaleTimeout(timeoutMs, riskTierTimeoutScale(tier));
 }
 
 function scaleTimeout(timeoutMs: number, scale: number): number {

@@ -30,7 +30,7 @@ export function createDefaultReviewConfig(): ReviewConfig {
     timeouts: {
       reviewerMs: 360_000,
       coordinatorMs: 240_000,
-      overallMs: 660_000,
+      overallMs: 900_000,
     },
     modelRouting: {
       default: {

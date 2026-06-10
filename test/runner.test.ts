@@ -9,6 +9,7 @@ import {
   loadReviewFixture,
   normalizeReviewFixture,
   runReview,
+  scaleTimeoutForRiskTier,
   scaleTimeoutsForRiskTier,
   summarizeReview,
   TRUSTED_REVIEWER_DEFINITIONS,
@@ -594,30 +595,38 @@ describe("fixture local runner", () => {
     expect(scaleTimeoutsForRiskTier({
       reviewerMs: 360_000,
       coordinatorMs: 240_000,
-      overallMs: 660_000,
+      overallMs: 900_000,
     }, "full")).toEqual({
       reviewerMs: 360_000,
       coordinatorMs: 240_000,
-      overallMs: 660_000,
+      overallMs: 900_000,
     });
     expect(scaleTimeoutsForRiskTier({
       reviewerMs: 360_000,
       coordinatorMs: 240_000,
-      overallMs: 660_000,
+      overallMs: 900_000,
     }, "lite")).toEqual({
       reviewerMs: 180_000,
       coordinatorMs: 120_000,
-      overallMs: 330_000,
+      overallMs: 450_000,
     });
     expect(scaleTimeoutsForRiskTier({
       reviewerMs: 360_000,
       coordinatorMs: 240_000,
-      overallMs: 660_000,
+      overallMs: 900_000,
     }, "trivial")).toEqual({
       reviewerMs: 90_000,
       coordinatorMs: 60_000,
-      overallMs: 165_000,
+      overallMs: 225_000,
     });
+  });
+
+  test("scales a single timeout value by the same risk tier factor as the budget bundle", () => {
+    // The retry reserve is scaled with this helper so it stays proportional to the
+    // shrunken lite/trivial ceilings instead of an unscaled floor suppressing all retries.
+    expect(scaleTimeoutForRiskTier(120_000, "full")).toBe(120_000);
+    expect(scaleTimeoutForRiskTier(120_000, "lite")).toBe(60_000);
+    expect(scaleTimeoutForRiskTier(120_000, "trivial")).toBe(30_000);
   });
 
   test("passes tier-scaled budgets and lite tool policy into runtime inputs", async () => {

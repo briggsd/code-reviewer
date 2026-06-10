@@ -10,6 +10,7 @@ import {
   loadReviewFixture,
   PiAgentRuntime,
   runReview,
+  shouldRetryReviewerFailure,
 } from "../src/index.ts";
 import type { Finding, PiProcessRunInput, PiProcessRunner, PiProcessRunResult, ReviewRunRecord, RuntimeEvent } from "../src/index.ts";
 
@@ -841,6 +842,68 @@ describe("PiAgentRuntime", () => {
     expect(runner.calls.filter((call) => call.role === "security")).toHaveLength(1);
     expect(result.coordinatorResult?.reviewerFailures?.[0]?.retryCount).toBe(0);
     expect(result.coordinatorResult?.reviewerFailures?.[0]?.attemptCount).toBe(1);
+  });
+
+  test("does not retry when a second attempt would consume coordinator headroom", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    fixture.config.timeouts = {
+      reviewerMs: 100,
+      coordinatorMs: 100,
+      overallMs: 150,
+    };
+    const runner = new OneReviewerFailsPiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      timestamp: "2026-06-09T00:00:00.000Z",
+      reviewerRetryPolicy: {
+        minimumRemainingMs: 1,
+      },
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    expect(runner.calls.filter((call) => call.role === "security")).toHaveLength(1);
+    expect(result.coordinatorResult?.reviewerFailures?.[0]?.retryCount).toBe(0);
+    expect(result.coordinatorResult?.reviewerFailures?.[0]?.attemptCount).toBe(1);
+  });
+
+  describe("shouldRetryReviewerFailure budget guard", () => {
+    const retryable = { category: "retryable_transient", retryable: true, reason: "transient" } as const;
+    const baseBudget = {
+      attempt: 1,
+      maxAttempts: 2,
+      nextAttemptTimeoutMs: 100,
+      coordinatorTimeoutMs: 100,
+      minimumRemainingMs: 100,
+      overallTimeoutMs: 1_000,
+    };
+
+    test("permits a retry while elapsed time leaves room for the reserve", () => {
+      // reserve = 100 + 100 + 100 = 300; 1000 - 0 >= 300
+      expect(shouldRetryReviewerFailure({ ...baseBudget, classification: retryable, elapsedMs: 0 })).toBe(true);
+    });
+
+    test("suppresses the retry once elapsed time erodes the reserve", () => {
+      // Same budget where overall (1000) exceeds the reserve (300) at t=0, but a grown
+      // elapsed of 800 leaves only 200 < 300. This isolates the `- elapsedMs` subtraction:
+      // if that term were dropped the guard would wrongly still permit the retry.
+      expect(shouldRetryReviewerFailure({ ...baseBudget, classification: retryable, elapsedMs: 800 })).toBe(false);
+    });
+
+    test("treats the reserve boundary as inclusive", () => {
+      // overall - elapsed == reserve (1000 - 700 == 300) is still allowed.
+      expect(shouldRetryReviewerFailure({ ...baseBudget, classification: retryable, elapsedMs: 700 })).toBe(true);
+      expect(shouldRetryReviewerFailure({ ...baseBudget, classification: retryable, elapsedMs: 701 })).toBe(false);
+    });
+
+    test("never retries a non-retryable classification regardless of budget", () => {
+      const terminal = { category: "auth", retryable: false, reason: "terminal" } as const;
+      expect(shouldRetryReviewerFailure({ ...baseBudget, classification: terminal, elapsedMs: 0 })).toBe(false);
+    });
   });
 
   test("forwards Pi JSON events into the existing trace stream", async () => {
