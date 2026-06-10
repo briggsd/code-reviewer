@@ -218,7 +218,8 @@ export class PiAgentRuntime implements AgentRuntime {
 
         assertNotTruncatedOutput(processResult.events, agentRunId);
         const parsedFindings = parseReviewerOutput(processResult.finalText);
-        const severityEnforcement = enforceReviewerAllowedSeverities(parsedFindings, input.reviewerDefinition.guidance.allowedSeverities);
+        const roleEnforcement = enforceReviewerRole(parsedFindings, input.role);
+        const severityEnforcement = enforceReviewerAllowedSeverities(roleEnforcement.findings, input.reviewerDefinition.guidance.allowedSeverities);
         const findings = severityEnforcement.findings;
         const retryCount = attempt - 1;
 
@@ -226,6 +227,12 @@ export class PiAgentRuntime implements AgentRuntime {
           findingCount: findings.length,
           attempt,
           retryCount,
+          ...(roleEnforcement.adjustments.length > 0
+            ? {
+              reviewerRoleAdjustmentCount: roleEnforcement.adjustments.length,
+              reviewerRoleAdjustments: roleEnforcement.adjustments,
+            }
+            : {}),
           ...(severityEnforcement.adjustments.length > 0
             ? {
               severityAdjustmentCount: severityEnforcement.adjustments.length,
@@ -782,6 +789,57 @@ interface SeverityAdjustment {
   reason: "reviewer_severity_not_allowed";
 }
 
+interface ReviewerRoleAdjustment {
+  index: number;
+  emittedReviewer: string;
+  dispatchedRole: string;
+  reason: "reviewer_role_mismatch";
+}
+
+// Trust boundary (issue #32): the `reviewer` label in a specialist finding is
+// model-authored and untrusted — a prompt-injected diff can make a reviewer
+// self-label as any role (e.g. "security"), and publisher/summary render it
+// verbatim. Reviewer-definitions are the only trusted prompt source, so the
+// emitted label must equal the role this slot was actually dispatched under.
+// Normalize any mismatch back to the dispatched role (rather than discarding,
+// to preserve a possibly-real finding) and record an adjustment so spoofing is
+// observable. (Model-emitted finding ids are dropped centrally in
+// validateFinding, so identity stays factory-owned for every path.) Only the
+// specialist boundary calls this; the coordinator path legitimately attributes
+// findings across roles and is left untouched.
+function enforceReviewerRole(findings: Finding[], dispatchedRole: string): {
+  findings: Finding[];
+  adjustments: ReviewerRoleAdjustment[];
+} {
+  const adjustments: ReviewerRoleAdjustment[] = [];
+  const normalizedFindings = findings.map((finding, index) => {
+    if (finding.reviewer === dispatchedRole) {
+      return finding;
+    }
+
+    adjustments.push({
+      index,
+      emittedReviewer: truncateTraceValue(String(finding.reviewer)),
+      dispatchedRole,
+      reason: "reviewer_role_mismatch",
+    });
+
+    return {
+      ...finding,
+      reviewer: dispatchedRole,
+    };
+  });
+
+  return { findings: normalizedFindings, adjustments };
+}
+
+// Adjustment traces echo model-authored content (a spoofed reviewer label);
+// bound it so an adversarial label can't bloat the trace/telemetry stream.
+function truncateTraceValue(value: string): string {
+  const limit = 120;
+  return value.length > limit ? `${value.slice(0, limit)}…` : value;
+}
+
 function enforceReviewerAllowedSeverities(findings: Finding[], allowedSeverities: readonly Severity[]): {
   findings: Finding[];
   adjustments: SeverityAdjustment[];
@@ -871,8 +929,13 @@ function validateFinding(value: unknown): Finding {
     throw new Error("Pi reviewer output contained an invalid finding");
   }
 
+  // A model-emitted `id` is never honored: Pi output is untrusted, and
+  // assignStableFindingIds resolves identity with `finding.id ?? hash`, so a
+  // passed-through id would win and could carry a value matching a *spoofed*
+  // reviewer's hash (re-opening the #31 corruption #32 closes). Dropping it here
+  // — the single chokepoint for all Pi findings — keeps the factory-computed
+  // stable id authoritative for both specialist and coordinator output.
   return {
-    ...(typeof finding.id === "string" ? { id: finding.id } : {}),
     reviewer: finding.reviewer,
     severity: finding.severity,
     category: finding.category,

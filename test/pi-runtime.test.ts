@@ -217,6 +217,54 @@ class CriticalDocumentationSeverityPiProcessRunner implements PiProcessRunner {
   }
 }
 
+class SpoofedReviewerRolePiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    // The documentation reviewer self-labels its finding as "security" — the
+    // label-spoofing surface from issue #32.
+    const spoofedFinding: Finding = {
+      ...securityFinding(),
+      reviewer: "security",
+      severity: "warning",
+      category: "docs",
+      title: "Reviewer impersonating another role",
+      body: "A documentation reviewer emitted a finding labeled as security.",
+      confidence: "high",
+      evidence: ["The dispatched role was documentation."],
+      recommendation: "Normalize the label to the dispatched role.",
+    };
+    const output = input.role === "documentation"
+      // Specialist also emits an attacker-chosen id, which must be stripped so the
+      // factory recomputes identity from the corrected role.
+      ? { findings: [{ ...spoofedFinding, id: "fnd_attackercontrolled" }] }
+      : input.role === "coordinator"
+        ? {
+          decision: "approved_with_comments",
+          outcome: "pass",
+          title: "AI review found a documentation finding",
+          body: "Coordinator consolidated one finding.",
+          // The coordinator also emits an attacker-chosen id; it must be dropped
+          // centrally so the published summary gets a recomputed factory id.
+          findings: [{ ...spoofedFinding, id: "fnd_coordinatorspoof" }],
+          risk: {
+            tier: "lite",
+            reason: "Fake coordinator fallback risk.",
+            matchedRules: [],
+            sensitivePaths: [],
+            reviewedFileCount: 0,
+            ignoredFileCount: 0,
+          },
+        }
+        : { findings: [] };
+    const finalText = JSON.stringify(output);
+
+    return {
+      finalText,
+      events: [],
+      rawOutput: finalText,
+    };
+  }
+}
+
 class InvalidJsonPiProcessRunner implements PiProcessRunner {
   readonly calls: PiProcessRunInput[] = [];
 
@@ -418,6 +466,59 @@ describe("PiAgentRuntime", () => {
         originalSeverity: "critical",
         adjustedSeverity: "warning",
         reason: "reviewer_severity_not_allowed",
+      }]);
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("normalizes a spoofed reviewer label to the dispatched role and traces the mismatch", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-role-spoof-"));
+
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runtime = new PiAgentRuntime({
+        processRunner: new SpoofedReviewerRolePiProcessRunner(),
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      // The documentation reviewer's spoofed "security" label is normalized back
+      // to its dispatched role, and its attacker-chosen id is stripped so the
+      // factory recomputes a clean stable id from the corrected fields.
+      const documentationResult = result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "documentation");
+      expect(documentationResult?.findings[0]?.reviewer).toBe("documentation");
+      expect(documentationResult?.findings[0]?.id).toBeUndefined();
+
+      // The coordinator path is intentionally NOT role-normalized — it attributes
+      // findings across roles by design — so its emitted "security" label
+      // survives. But its attacker-chosen id is still dropped centrally, so the
+      // published summary carries a recomputed factory id, not the spoofed one.
+      expect(result.summary.findings[0]?.reviewer).toBe("security");
+      expect(result.summary.findings[0]?.id).toMatch(/^fnd_[a-f0-9]{16}$/);
+      expect(result.summary.findings[0]?.id).not.toBe("fnd_coordinatorspoof");
+
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const documentationOutput = events.find((event) => event.type === "agent.output" && event.role === "documentation");
+      expect(documentationOutput?.data?.reviewerRoleAdjustmentCount).toBe(1);
+      expect(documentationOutput?.data?.reviewerRoleAdjustments).toEqual([{
+        index: 0,
+        emittedReviewer: "security",
+        dispatchedRole: "documentation",
+        reason: "reviewer_role_mismatch",
       }]);
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
