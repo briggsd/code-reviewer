@@ -30,8 +30,9 @@ Make this repository legible and verifiable for the AI coding agents that work i
 
 ## Tentative Slices
 
-- [ ] **S01: Root CLAUDE.md onboarding map** `risk:low` `depends:[]` `issues:[#25]`
+- [x] **S01: Root CLAUDE.md onboarding map** `risk:low` `depends:[]` `issues:[#25]`
   > After this: a ≤250-line `CLAUDE.md` exists at repo root — stack/run commands, the real `src/` map, the 7 design principles, trust boundaries, the M0xx + `continue.md` workflow, and known gotchas — pointing to `/docs` rather than duplicating it. Draft already attached to #25.
+  > Shipped: `CLAUDE.md` at repo root (verified against the actual `src/` tree, `tsconfig.json` strict flags, and the 7 principles in `docs/architecture.md`); flags the #21 risk-classifier and #27 boundary-lint gaps inline.
 
 - [ ] **S02: Boundary lint with remediation messages** `risk:medium` `depends:[]` `issues:[#27]`
   > After this: `bun run check` fails when runner/contract code imports a concrete adapter, or when prompt assembly bypasses `prompt-boundary.ts`, each with a remediation message naming the fix. References the boundary rules documented in S01's CLAUDE.md. Adapter-direction rule first (highest value).
