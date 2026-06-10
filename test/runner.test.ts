@@ -4,10 +4,12 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   createRuntimeToolPolicy,
+  decideCiOutcome,
   loadProjectReviewConfig,
   loadReviewFixture,
   normalizeReviewFixture,
   runReview,
+  scaleTimeoutsForRiskTier,
   summarizeReview,
   TRUSTED_REVIEWER_DEFINITIONS,
 } from "../src/index.ts";
@@ -516,8 +518,157 @@ describe("fixture local runner", () => {
     const runtime = new SlowRuntime({ rejectCancel: true });
 
     await expect(runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") }))
-      .rejects.toThrow("Review run timed out after overall timeout 5ms for local__script_");
+      .rejects.toThrow("Review run timed out after overall timeout 1ms for local__script_");
     expect(runtime.cancelledRunId).toBe("local/<script>");
+  });
+
+  test("returns completed reviewer findings as a marked partial summary on overall timeout", async () => {
+    const fixture = normalizeReviewFixture({
+      runId: "partial-timeout",
+      metadata: {
+        provider: "local",
+        repository: {
+          provider: "local",
+          name: "demo",
+          slug: "demo",
+        },
+        changeId: "local",
+        headSha: "abc123",
+        title: "Update code",
+        author: {
+          username: "dev",
+        },
+        labels: [],
+      },
+      diff: {
+        files: [
+          {
+            path: "src/example.ts",
+            status: "modified",
+            additions: 30,
+            deletions: 0,
+            isBinary: false,
+          },
+        ],
+        totalAdditions: 30,
+        totalDeletions: 0,
+        truncated: false,
+      },
+      config: {
+        mode: "blocking",
+        failOn: ["critical"],
+        timeouts: {
+          reviewerMs: 5_000,
+          coordinatorMs: 5_000,
+          overallMs: 10,
+        },
+      },
+    });
+    const finding = reviewFinding({ severity: "warning", title: "Completed reviewer finding" });
+    const runtime = new PartialTimeoutRuntime(finding);
+    const traceSink = new RecordingTraceSink();
+
+    const result = await runReview({ fixture, runtime, traceSink, now: new Date("2026-06-09T00:00:00.000Z") });
+    const ciDecision = decideCiOutcome(result.summary, result.context.config);
+
+    expect(runtime.cancelledRunId).toBe("partial-timeout");
+    expect(result.summary.decision).toBe("review_failed");
+    expect(result.summary.outcome).toBe("fail");
+    expect(ciDecision).toMatchObject({
+      outcome: "fail",
+      exitCode: 1,
+      reason: "Review failed and policy is fail-closed.",
+    });
+    expect(result.summary.title).toStartWith("Partial ");
+    expect(result.summary.body).toContain("Partial review due to overall timeout.");
+    expect(result.summary.findings.map((item) => item.title)).toEqual(["Completed reviewer finding"]);
+    expect(traceSink.events.find((event) => event.type === "review.timeout")?.data).toMatchObject({
+      partial: true,
+      reason: "overall_timeout",
+      completedReviewerCount: 1,
+    });
+    expect(result.coordinatorResult?.rawOutput).toContain("\"partial\":true");
+  });
+
+  test("scales reviewer, coordinator, and overall timeouts by risk tier", async () => {
+    expect(scaleTimeoutsForRiskTier({
+      reviewerMs: 360_000,
+      coordinatorMs: 240_000,
+      overallMs: 660_000,
+    }, "full")).toEqual({
+      reviewerMs: 360_000,
+      coordinatorMs: 240_000,
+      overallMs: 660_000,
+    });
+    expect(scaleTimeoutsForRiskTier({
+      reviewerMs: 360_000,
+      coordinatorMs: 240_000,
+      overallMs: 660_000,
+    }, "lite")).toEqual({
+      reviewerMs: 180_000,
+      coordinatorMs: 120_000,
+      overallMs: 330_000,
+    });
+    expect(scaleTimeoutsForRiskTier({
+      reviewerMs: 360_000,
+      coordinatorMs: 240_000,
+      overallMs: 660_000,
+    }, "trivial")).toEqual({
+      reviewerMs: 90_000,
+      coordinatorMs: 60_000,
+      overallMs: 165_000,
+    });
+  });
+
+  test("passes tier-scaled budgets and lite tool policy into runtime inputs", async () => {
+    const fixture = normalizeReviewFixture({
+      metadata: {
+        provider: "local",
+        repository: {
+          provider: "local",
+          name: "demo",
+          slug: "demo",
+        },
+        changeId: "local",
+        headSha: "abc123",
+        title: "Update code",
+        author: {
+          username: "dev",
+        },
+        labels: [],
+      },
+      diff: {
+        files: [
+          {
+            path: "src/example.ts",
+            status: "modified",
+            additions: 30,
+            deletions: 0,
+            isBinary: false,
+          },
+        ],
+        totalAdditions: 30,
+        totalDeletions: 0,
+        truncated: false,
+      },
+      config: {
+        timeouts: {
+          reviewerMs: 360_000,
+          coordinatorMs: 240_000,
+          overallMs: 660_000,
+        },
+      },
+    });
+    const runtime = new RecordingRuntime();
+
+    const result = await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    expect(result.context.risk.tier).toBe("lite");
+    expect(runtime.coordinatorInput?.timeoutMs).toBe(120_000);
+    expect(runtime.coordinatorInput?.toolPolicy.allowRead).toBe(false);
+    expect(runtime.coordinatorInput?.toolPolicy.deniedTools).toContain("grep");
+    expect(runtime.coordinatorInput?.selectedReviewers.every((reviewer) => reviewer.timeoutMs === 180_000)).toBe(true);
+    expect(runtime.coordinatorInput?.selectedReviewers.every((reviewer) => reviewer.toolPolicy.allowRead === false)).toBe(true);
   });
 
   test("carries prior review state into review context", async () => {
@@ -597,6 +748,20 @@ describe("fixture local runner", () => {
       deniedTools: ["bash", "write", "edit"],
     });
     expect(createRuntimeToolPolicy("privileged_metadata_only")).toEqual({
+      allowRead: false,
+      allowWrite: false,
+      allowShell: false,
+      allowedTools: [],
+      deniedTools: ["read", "grep", "find", "ls", "bash", "write", "edit"],
+    });
+    expect(createRuntimeToolPolicy("trusted", "lite")).toEqual({
+      allowRead: false,
+      allowWrite: false,
+      allowShell: false,
+      allowedTools: [],
+      deniedTools: ["read", "grep", "find", "ls", "bash", "write", "edit"],
+    });
+    expect(createRuntimeToolPolicy("trusted", "trivial")).toEqual({
       allowRead: false,
       allowWrite: false,
       allowShell: false,
@@ -694,6 +859,73 @@ class SlowRuntime implements AgentRuntime {
   }
 }
 
+class PartialTimeoutRuntime implements AgentRuntime {
+  readonly name = "partial-timeout";
+
+  cancelledRunId: string | undefined;
+  private coordinatorInput: CoordinatorRunInput | undefined;
+
+  constructor(private readonly finding: Finding) {}
+
+  async runCoordinator(input: CoordinatorRunInput): Promise<CoordinatorRunResult> {
+    this.coordinatorInput = input;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    throw new Error("Partial timeout runtime should have returned a snapshot first");
+  }
+
+  async runReviewer(input: ReviewerRunInput): Promise<ReviewerRunResult> {
+    return {
+      runId: input.runId,
+      agentRunId: `${input.runId}:${input.role}`,
+      role: input.role,
+      findings: [this.finding],
+      rawOutput: JSON.stringify({ findings: [this.finding] }),
+    };
+  }
+
+  getPartialCoordinatorResult(runId: string): CoordinatorRunResult | undefined {
+    if (this.coordinatorInput === undefined) {
+      return undefined;
+    }
+
+    const reviewerResults: ReviewerRunResult[] = [{
+      runId,
+      agentRunId: `${runId}:security`,
+      role: "security",
+      findings: [this.finding],
+      rawOutput: JSON.stringify({ findings: [this.finding] }),
+    }];
+    const summary = summarizeReview(this.coordinatorInput.context, [this.finding]);
+
+    return {
+      runId,
+      agentRunId: `${runId}:coordinator`,
+      summary: {
+        ...summary,
+        decision: "review_failed",
+        outcome: "fail",
+        title: `Partial ${summary.title.charAt(0).toLowerCase()}${summary.title.slice(1)}`,
+        body: `Partial review due to overall timeout.\n\n${summary.body}`,
+      },
+      reviewerResults,
+      partial: {
+        reason: "overall_timeout",
+      },
+      rawOutput: "{\"partial\":true}",
+    };
+  }
+
+  streamEvents(_runId: string, _onEvent: (event: RuntimeEvent) => void): RuntimeEventSubscription {
+    return {
+      unsubscribe: () => {},
+    };
+  }
+
+  async cancel(runId: string): Promise<void> {
+    this.cancelledRunId = runId;
+  }
+}
+
 class RecordingTraceSink implements TraceSink {
   readonly events: RuntimeEvent[] = [];
 
@@ -738,4 +970,3 @@ class RecordingRuntime implements AgentRuntime {
 
   async cancel(_runId: string): Promise<void> {}
 }
-

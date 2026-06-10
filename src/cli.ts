@@ -27,6 +27,7 @@ import {
   runReviewFromChange,
 } from "./index.ts";
 import { parseRunPublishOptions } from "./cli/run-options.ts";
+import { finalizeCiExit } from "./cli/ci-exit.ts";
 import type { ChangeRef, DiffSummary, Finding, GitRunner, PriorReviewState, ReviewConfig, ReviewFixture, ChangeMetadata, VcsAdapter } from "./index.ts";
 
 const gitRunner: GitRunner = async (args) => {
@@ -113,6 +114,7 @@ async function runCommand(args: string[]): Promise<void> {
           : {}),
       })
       : undefined;
+  let ciExitCode: number | undefined;
 
   try {
     const result = source.kind === "fixture"
@@ -181,12 +183,16 @@ async function runCommand(args: string[]): Promise<void> {
     if (ciExit) {
       const decision = decideCiOutcome(result.summary, source.config);
       await new LocalCiAdapter().emitDecision(decision);
-      process.exitCode = decision.exitCode;
+      ciExitCode = decision.exitCode;
     }
   } finally {
     await telemetrySink?.close();
     await traceSink?.close();
   }
+
+  // Force the OS exit code after sinks flush. Deferred `process.exitCode` is
+  // unreliable when an outstanding handle survives shutdown (see finalizeCiExit).
+  finalizeCiExit(ciExitCode);
 }
 
 async function loadReviewSource(args: string[]): Promise<ReviewSource> {

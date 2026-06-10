@@ -7,6 +7,10 @@ export interface RiskClassificationInput {
   ignoredFileCount: number;
 }
 
+// NOTE: These default thresholds diverge from the Cloudflare primary source
+// (trivial: lines<=10 && files<=20; full: files>50). Ours is stricter on trivial
+// (files<=2) and likely over-spends lite-tier compute on small PRs. Recalibration
+// is a deliberate open decision tracked in GitHub #21; thresholds are config-overridable.
 export function classifyRisk(input: RiskClassificationInput): RiskAssessment {
   const sensitivePaths = input.diff.files
     .map((file) => file.path)

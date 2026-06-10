@@ -41,7 +41,7 @@ src/
   runner/                      # deterministic orchestration — run-review.ts is the spine
     run-review.ts              #   top-level lifecycle
     config.ts, default-config.ts
-    risk-classifier.ts         #   trivial/lite/full tiering  (see #21 — do not commit lightly)
+    risk-classifier.ts         #   trivial/lite/full tiering  (see #21)
     diff-filter.ts, context-artifacts.ts, stable-finding-id.ts, path-match.ts
     error-classifier.ts        #   retryable vs terminal failures
     re-review.ts               #   new/recurring/fixed finding classification
@@ -111,8 +111,6 @@ Details + diagram: **docs/architecture.md**.
 - TypeScript strict everywhere (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
   `verbatimModuleSyntax`). No `any`. There is **no linter/formatter** yet — strict tsc is
   the only static gate (mechanizing boundary rules is tracked in #27).
-- `src/runner/risk-classifier.ts` carries an uncommitted #21 threshold note — **do not
-  commit it unless explicitly taking on #21.**
 - `validateFinding` currently accepts any `reviewer` string; model self-mislabeling is a
   known backlog item, not a guarantee.
 - Context/token-savings metrics use a `bytes/4` approximation pending real provider telemetry.

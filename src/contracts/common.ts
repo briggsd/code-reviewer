@@ -49,6 +49,7 @@ export type TraceEventType =
   | "agent.completed"
   | "coordinator.completed"
   | "publisher.completed"
+  | "review.timeout"
   | "review.failed"
   | "review.completed";
 

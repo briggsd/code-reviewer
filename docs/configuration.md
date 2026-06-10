@@ -75,6 +75,7 @@ bun run schema:config
 - `timeouts`: reviewer/coordinator/overall budgets in milliseconds.
   - Reviewer agents run in parallel; the coordinator runs after all reviewers complete.
   - `overallMs` is an enforced wall-clock ceiling for the whole runtime phase and should be at least `reviewerMs + coordinatorMs` plus headroom.
+  - The configured values are full-review ceilings. Effective limits are scaled by risk tier: full uses 100%, lite uses 50%, and trivial uses 25%.
   - Defaults were raised after PR #9 live Pi smoke exposed model-backed review latency. Lower them for tighter CI budgets or raise them for slower self-hosted/model paths.
 - `modelRouting.default`: fallback model for roles without an override.
 - `modelRouting.roles`: role-specific model selections.
@@ -83,4 +84,4 @@ bun run schema:config
 
 ## Safety note
 
-Project config is not a permission boundary. Runtime tool policy is derived from the runner's safety mode, not from untrusted PR/MR content. The Pi adapter still disables project-local Pi resources by default in CI-oriented invocation.
+Project config is not a permission boundary. Runtime tool policy is derived from the runner's safety mode and then tightened by risk tier, not from untrusted PR/MR content. Lite and trivial reviews run from supplied diff/context artifacts and deny repo-crawling read tools (`read`, `grep`, `find`, `ls`) plus shell/write tools (`bash`, `write`, `edit`), including when `manual_privileged` would otherwise allow shell access. The `privileged_metadata_only` safety mode already denies all tools and is unaffected by tier. Full reviews may receive read/grep/find/ls access when the safety mode allows it. The Pi adapter still disables project-local Pi resources by default in CI-oriented invocation.

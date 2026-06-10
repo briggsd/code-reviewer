@@ -183,6 +183,10 @@ Initial tiers:
 
 Security-sensitive paths always escalate to full review. Examples: authentication, authorization, crypto, secrets, policy, billing, migrations, deployment, CI, and permission boundaries.
 
+Risk tier also bounds runtime effort. The configured timeout values are full-review ceilings; lite reviews use half of those reviewer/coordinator/overall budgets, and trivial reviews use one quarter. Tool policy is tightened by tier as well: lite and trivial reviewers rely on supplied diff/context artifacts and deny repo-crawling read tools (`read`, `grep`, `find`, `ls`) plus shell/write tools (`bash`, `write`, `edit`), while full reviews may use read/grep/find/ls when the selected safety mode allows them.
+
+If the overall runtime timeout fires after one or more reviewers have completed, the runner may publish a clearly marked partial summary from those completed reviewer findings instead of discarding them. The partial result always carries `decision: "review_failed"` and `outcome: "fail"` regardless of completed-reviewer findings, so existing fail-open/fail-closed CI policy applies unchanged. A run with no completed reviewer output still fails normally.
+
 The MVP should make thresholds configurable. Cloudflare’s published thresholds are useful defaults, not universal constants.
 
 ### Agent runtime adapter

@@ -13,6 +13,7 @@ import type {
   ReviewErrorClassification,
   ReviewContextArtifacts,
   ReviewDecision,
+  RiskTier,
   ReviewerContextReferences,
   ReviewerRunInput,
   ReviewRunMetrics,
@@ -52,6 +53,10 @@ export interface RunReviewResult {
   context: ReviewContext;
   summary: ReviewSummary;
   coordinatorResult?: CoordinatorRunResult;
+}
+
+interface PartialCoordinatorResultRuntime {
+  getPartialCoordinatorResult(runId: string): CoordinatorRunResult | undefined;
 }
 
 export interface RunReviewFromChangeOptions extends Omit<RunReviewOptions, "fixture"> {
@@ -386,10 +391,30 @@ async function runAgents(input: {
   try {
     const coordinatorResult = await withOverallTimeout(
       input.runtime.runCoordinator(createCoordinatorRunInput(input.context)),
-      input.context.config.timeouts.overallMs,
+      getEffectiveTimeouts(input.context).overallMs,
       input.context.runId,
-      () => input.runtime?.cancel(input.context.runId) ?? Promise.resolve(),
+      async () => {
+        const partial = getPartialCoordinatorResult(input.runtime, input.context.runId);
+        await input.runtime?.cancel(input.context.runId);
+        return partial;
+      },
     );
+    if (coordinatorResult.partial?.reason === "overall_timeout") {
+      await emitTrace(input.traceSink, {
+        type: "review.timeout",
+        runId: input.context.runId,
+        role: "coordinator",
+        timestamp: new Date().toISOString(),
+        message: "Review run reached the overall timeout; returning completed reviewer findings as a partial summary.",
+        data: {
+          phase: "agent_runtime",
+          partial: true,
+          reason: "overall_timeout",
+          completedReviewerCount: coordinatorResult.reviewerResults.length,
+          failedReviewerCount: coordinatorResult.reviewerFailures?.length ?? 0,
+        },
+      });
+    }
     await Promise.all(runtimeTraceWrites);
 
     return {
@@ -401,11 +426,23 @@ async function runAgents(input: {
   }
 }
 
+function getPartialCoordinatorResult(runtime: AgentRuntime | undefined, runId: string): CoordinatorRunResult | undefined {
+  if (!hasPartialCoordinatorResult(runtime)) {
+    return undefined;
+  }
+
+  return runtime.getPartialCoordinatorResult(runId);
+}
+
+function hasPartialCoordinatorResult(runtime: AgentRuntime | undefined): runtime is AgentRuntime & PartialCoordinatorResultRuntime {
+  return typeof (runtime as { getPartialCoordinatorResult?: unknown } | undefined)?.getPartialCoordinatorResult === "function";
+}
+
 async function withOverallTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
   runId: string,
-  onTimeout: () => Promise<void>,
+  onTimeout: () => Promise<T | undefined>,
 ): Promise<T> {
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -421,7 +458,10 @@ async function withOverallTimeout<T>(
   } catch (error) {
     if (timedOut) {
       promise.catch(() => undefined);
-      await onTimeout().catch(() => undefined);
+      const partial = await onTimeout().catch(() => undefined);
+      if (partial !== undefined) {
+        return partial;
+      }
     }
     throw error;
   } finally {
@@ -645,14 +685,16 @@ function createCoordinatorRunInput(context: ReviewContext): CoordinatorRunInput 
     prompt: "Coordinate deterministic code review reviewers and consolidate their findings.",
     context,
     model: selectModel(context, "coordinator"),
-    toolPolicy: createRuntimeToolPolicy(context.safetyMode),
-    timeoutMs: context.config.timeouts.coordinatorMs,
+    toolPolicy: createRuntimeToolPolicy(context.safetyMode, context.risk.tier),
+    timeoutMs: getEffectiveTimeouts(context).coordinatorMs,
     outputSchemaName: "coordinator",
     selectedReviewers: createReviewerRunInputs(context),
   };
 }
 
 function createReviewerRunInputs(context: ReviewContext): ReviewerRunInput[] {
+  const timeouts = getEffectiveTimeouts(context);
+
   return selectTrustedReviewerDefinitions({ config: context.config, risk: context.risk })
     .map((reviewerDefinition) => {
       const assignedFiles = context.diff.files.map((file) => file.path);
@@ -663,8 +705,8 @@ function createReviewerRunInputs(context: ReviewContext): ReviewerRunInput[] {
         prompt: `Review the change as the ${reviewerDefinition.role} reviewer.`,
         context,
         model: selectModel(context, reviewerDefinition.role),
-        toolPolicy: createRuntimeToolPolicy(context.safetyMode),
-        timeoutMs: context.config.timeouts.reviewerMs,
+        toolPolicy: createRuntimeToolPolicy(context.safetyMode, context.risk.tier),
+        timeoutMs: timeouts.reviewerMs,
         outputSchemaName: "reviewer",
         assignedFiles,
         contextReferences: createReviewerContextReferences(context, assignedFiles),
@@ -692,6 +734,28 @@ function createReviewerContextReferences(context: ReviewContext, assignedFiles: 
 
 export function selectModel(context: ReviewContext, role: string): ModelSelection {
   return context.config.modelRouting.roles[role] ?? context.config.modelRouting.default;
+}
+
+export function getEffectiveTimeouts(context: ReviewContext): ReviewConfig["timeouts"] {
+  return scaleTimeoutsForRiskTier(context.config.timeouts, context.risk.tier);
+}
+
+export function scaleTimeoutsForRiskTier(timeouts: ReviewConfig["timeouts"], tier: RiskTier): ReviewConfig["timeouts"] {
+  if (tier === "full") {
+    return timeouts;
+  }
+
+  const scale = tier === "lite" ? 0.5 : 0.25;
+
+  return {
+    reviewerMs: scaleTimeout(timeouts.reviewerMs, scale),
+    coordinatorMs: scaleTimeout(timeouts.coordinatorMs, scale),
+    overallMs: scaleTimeout(timeouts.overallMs, scale),
+  };
+}
+
+function scaleTimeout(timeoutMs: number, scale: number): number {
+  return Math.max(1, Math.floor(timeoutMs * scale));
 }
 
 function deduplicateFindings(findings: Finding[]): Finding[] {
@@ -736,8 +800,18 @@ function compareSeverity(left: Severity, right: Severity): number {
   return order[left] - order[right];
 }
 
-export function createRuntimeToolPolicy(safetyMode: SafetyMode): RuntimeToolPolicy {
+export function createRuntimeToolPolicy(safetyMode: SafetyMode, tier: RiskTier = "full"): RuntimeToolPolicy {
   if (safetyMode === "privileged_metadata_only") {
+    return {
+      allowRead: false,
+      allowWrite: false,
+      allowShell: false,
+      allowedTools: [],
+      deniedTools: ["read", "grep", "find", "ls", "bash", "write", "edit"],
+    };
+  }
+
+  if (tier === "trivial" || tier === "lite") {
     return {
       allowRead: false,
       allowWrite: false,

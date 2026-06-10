@@ -67,6 +67,13 @@ export interface PiAgentRuntimeOptions {
   reviewerRetryPolicy?: PiReviewerRetryPolicy;
 }
 
+interface PartialCoordinatorSnapshot {
+  input: CoordinatorRunInput;
+  agentRunId: string;
+  reviewerResults: ReviewerRunResult[];
+  reviewerFailures: ReviewerRunFailure[];
+}
+
 export class PiAgentRuntime implements AgentRuntime {
   readonly name = "pi";
 
@@ -76,6 +83,7 @@ export class PiAgentRuntime implements AgentRuntime {
   private readonly reviewerRetryPolicy: Required<PiReviewerRetryPolicy>;
   private readonly reviewerBudgetStarts = new WeakMap<ReviewerRunInput, number>();
   private readonly listenersByRunId = new Map<string, Set<(event: RuntimeEvent) => void>>();
+  private readonly partialCoordinatorSnapshots = new Map<string, PartialCoordinatorSnapshot>();
 
   constructor(options: PiAgentRuntimeOptions = {}) {
     this.processRunner = options.processRunner ?? new BunPiProcessRunner({
@@ -92,101 +100,158 @@ export class PiAgentRuntime implements AgentRuntime {
 
   async runCoordinator(input: CoordinatorRunInput): Promise<CoordinatorRunResult> {
     const agentRunId = `${input.runId}:pi:coordinator`;
+    const snapshot: PartialCoordinatorSnapshot = {
+      input,
+      agentRunId,
+      reviewerResults: [],
+      reviewerFailures: [],
+    };
+    this.partialCoordinatorSnapshots.set(input.runId, snapshot);
     this.emitAgentEvent("agent.started", input.runId, agentRunId, "coordinator", {
       reviewerCount: input.selectedReviewers.length,
       runtime: this.name,
     });
 
-    const reviewerBudgetStartedAt = Date.now();
-    const reviewerSettled = await Promise.allSettled(input.selectedReviewers.map(async (reviewer) => {
-      this.reviewerBudgetStarts.set(reviewer, reviewerBudgetStartedAt);
-      try {
-        return {
-          reviewer,
-          result: await this.runReviewer(reviewer),
-        };
-      } finally {
-        this.reviewerBudgetStarts.delete(reviewer);
-      }
-    }));
-    const reviewerResults = reviewerSettled.flatMap((settled) => settled.status === "fulfilled" ? [settled.value.result] : []);
-    const reviewerFailures = reviewerSettled.flatMap((settled, index): ReviewerRunFailure[] => {
-      if (settled.status === "fulfilled") {
-        return [];
-      }
-
-      const reviewer = input.selectedReviewers[index];
-      if (reviewer === undefined) {
-        return [];
-      }
-
-      return [createReviewerFailure(input.runId, `${input.runId}:pi:${reviewer.role}`, reviewer.role, settled.reason)];
-    });
-
-    if (reviewerResults.length === 0 && input.selectedReviewers.length > 0) {
-      const firstFailure = reviewerSettled.find((settled) => settled.status === "rejected");
-      if (firstFailure?.status === "rejected") {
-        throw firstFailure.reason;
-      }
-
-      throw new Error("All selected reviewers failed before coordinator synthesis");
-    }
-
-    const coordinatorPrompt = buildCoordinatorPrompt(input, reviewerResults, reviewerFailures);
-    let streamedEventCount = 0;
-    const processResult = await this.processRunner.run({
-      runId: input.runId,
-      agentRunId,
-      role: "coordinator",
-      prompt: coordinatorPrompt,
-      cwd: input.context.workingDirectory,
-      timeoutMs: input.timeoutMs,
-      heartbeatIntervalMs: defaultHeartbeatIntervalMs(input.timeoutMs),
-      toolPolicy: input.toolPolicy,
-      onEvent: (event) => {
-        streamedEventCount += 1;
-        this.forwardPiEvent(input.runId, agentRunId, "coordinator", event);
-      },
-      ...this.modelArgs(input.model),
-    });
-    if (streamedEventCount === 0) {
-      this.forwardPiEvents(input.runId, agentRunId, "coordinator", processResult.events);
-    }
-
-    assertNotTruncatedOutput(processResult.events, agentRunId);
-    const parsed = parseCoordinatorOutput(
-      processResult.finalText,
-      ["coordinator", ...input.selectedReviewers.map((reviewer) => reviewer.role)],
-    );
-    const summary = parsed?.summary ?? summarizeReview(input.context, reviewerResults.flatMap((result) => result.findings));
-
-    this.emitAgentEvent("agent.output", input.runId, agentRunId, "coordinator", {
-      decision: summary.decision,
-      outcome: summary.outcome,
-      findingCount: summary.findings.length,
-      structuredOutput: parsed !== undefined,
-      failedReviewerCount: reviewerFailures.length,
-      ...(parsed !== undefined && parsed.reviewerRoleAdjustments.length > 0
-        ? {
-          reviewerRoleAdjustmentCount: parsed.reviewerRoleAdjustments.length,
-          reviewerRoleAdjustments: parsed.reviewerRoleAdjustments,
+    try {
+      const reviewerBudgetStartedAt = Date.now();
+      const reviewerSettled = await Promise.allSettled(input.selectedReviewers.map(async (reviewer) => {
+        this.reviewerBudgetStarts.set(reviewer, reviewerBudgetStartedAt);
+        try {
+          const result = await this.runReviewer(reviewer);
+          snapshot.reviewerResults.push(result);
+          return {
+            reviewer,
+            result,
+          };
+        } catch (error) {
+          snapshot.reviewerFailures.push(createReviewerFailure(
+            input.runId,
+            `${input.runId}:pi:${reviewer.role}`,
+            reviewer.role,
+            error,
+          ));
+          throw error;
+        } finally {
+          this.reviewerBudgetStarts.delete(reviewer);
         }
-        : {}),
-    });
-    this.emitAgentEvent("agent.completed", input.runId, agentRunId, "coordinator", {
-      reviewerCount: reviewerResults.length,
-      failedReviewerCount: reviewerFailures.length,
-      ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
-    });
+      }));
+      const reviewerResults = reviewerSettled.flatMap((settled) => settled.status === "fulfilled" ? [settled.value.result] : []);
+      const reviewerFailures = reviewerSettled.flatMap((settled, index): ReviewerRunFailure[] => {
+        if (settled.status === "fulfilled") {
+          return [];
+        }
+
+        const reviewer = input.selectedReviewers[index];
+        if (reviewer === undefined) {
+          return [];
+        }
+
+        return [createReviewerFailure(input.runId, `${input.runId}:pi:${reviewer.role}`, reviewer.role, settled.reason)];
+      });
+      snapshot.reviewerResults = reviewerResults;
+      snapshot.reviewerFailures = reviewerFailures;
+
+      if (reviewerResults.length === 0 && input.selectedReviewers.length > 0) {
+        const firstFailure = reviewerSettled.find((settled) => settled.status === "rejected");
+        if (firstFailure?.status === "rejected") {
+          throw firstFailure.reason;
+        }
+
+        throw new Error("All selected reviewers failed before coordinator synthesis");
+      }
+
+      const coordinatorPrompt = buildCoordinatorPrompt(input, reviewerResults, reviewerFailures);
+      let streamedEventCount = 0;
+      const processResult = await this.processRunner.run({
+        runId: input.runId,
+        agentRunId,
+        role: "coordinator",
+        prompt: coordinatorPrompt,
+        cwd: input.context.workingDirectory,
+        timeoutMs: input.timeoutMs,
+        heartbeatIntervalMs: defaultHeartbeatIntervalMs(input.timeoutMs),
+        toolPolicy: input.toolPolicy,
+        onEvent: (event) => {
+          streamedEventCount += 1;
+          this.forwardPiEvent(input.runId, agentRunId, "coordinator", event);
+        },
+        ...this.modelArgs(input.model),
+      });
+      if (streamedEventCount === 0) {
+        this.forwardPiEvents(input.runId, agentRunId, "coordinator", processResult.events);
+      }
+
+      assertNotTruncatedOutput(processResult.events, agentRunId);
+      const parsed = parseCoordinatorOutput(
+        processResult.finalText,
+        ["coordinator", ...input.selectedReviewers.map((reviewer) => reviewer.role)],
+      );
+      const summary = parsed?.summary ?? summarizeReview(input.context, reviewerResults.flatMap((result) => result.findings));
+
+      this.emitAgentEvent("agent.output", input.runId, agentRunId, "coordinator", {
+        decision: summary.decision,
+        outcome: summary.outcome,
+        findingCount: summary.findings.length,
+        structuredOutput: parsed !== undefined,
+        failedReviewerCount: reviewerFailures.length,
+        ...(parsed !== undefined && parsed.reviewerRoleAdjustments.length > 0
+          ? {
+            reviewerRoleAdjustmentCount: parsed.reviewerRoleAdjustments.length,
+            reviewerRoleAdjustments: parsed.reviewerRoleAdjustments,
+          }
+          : {}),
+      });
+      this.emitAgentEvent("agent.completed", input.runId, agentRunId, "coordinator", {
+        reviewerCount: reviewerResults.length,
+        failedReviewerCount: reviewerFailures.length,
+        ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
+      });
+
+      return {
+        runId: input.runId,
+        agentRunId,
+        summary,
+        reviewerResults,
+        ...(reviewerFailures.length > 0 ? { reviewerFailures } : {}),
+        rawOutput: processResult.finalText,
+        ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
+      };
+    } finally {
+      if (this.partialCoordinatorSnapshots.get(input.runId) === snapshot) {
+        this.partialCoordinatorSnapshots.delete(input.runId);
+      }
+    }
+  }
+
+  getPartialCoordinatorResult(runId: string): CoordinatorRunResult | undefined {
+    const snapshot = this.partialCoordinatorSnapshots.get(runId);
+    if (snapshot === undefined || snapshot.reviewerResults.length === 0) {
+      return undefined;
+    }
+
+    const reviewerResults = snapshot.reviewerResults.slice();
+    const reviewerFailures = snapshot.reviewerFailures.slice();
+    const summary = summarizeReview(
+      snapshot.input.context,
+      reviewerResults.flatMap((result) => result.findings),
+    );
 
     return {
-      runId: input.runId,
-      agentRunId,
-      summary,
+      runId,
+      agentRunId: snapshot.agentRunId,
+      summary: {
+        ...summary,
+        decision: "review_failed",
+        outcome: "fail",
+        title: `Partial ${summary.title.charAt(0).toLowerCase()}${summary.title.slice(1)}`,
+        body: `Partial review due to overall timeout. Completed reviewer findings are included; unfinished reviewers and coordinator synthesis were not completed.\n\n${summary.body}`,
+      },
       reviewerResults,
       ...(reviewerFailures.length > 0 ? { reviewerFailures } : {}),
-      rawOutput: processResult.finalText,
-      ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
+      partial: {
+        reason: "overall_timeout",
+      },
+      rawOutput: "{\"partial\":true,\"reason\":\"overall_timeout\"}",
     };
   }
 

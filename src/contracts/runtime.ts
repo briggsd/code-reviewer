@@ -108,6 +108,9 @@ export interface CoordinatorRunResult {
   summary: ReviewSummary;
   reviewerResults: ReviewerRunResult[];
   reviewerFailures?: ReviewerRunFailure[];
+  partial?: {
+    reason: "overall_timeout";
+  };
   rawOutput?: string;
   usage?: TokenUsage;
   tracePath?: string;
