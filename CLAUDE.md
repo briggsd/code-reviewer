@@ -92,9 +92,15 @@ Details + diagram: **docs/architecture.md**.
 
 ## How work is planned here (spec-driven)
 
-- Milestones are `M0xx-ROADMAP.md` (vision, source issues, success criteria, named slices
-  S01.. with `risk:`/`depends:`/`issues:` tags, definition of done) and close out as
-  `M0xx-SUMMARY.md`. GitHub milestones mirror the in-flight M-series.
+- **Plan and status are kept in separate systems — do not duplicate.** `M0xx-ROADMAP.md`
+  holds the *plan and reasoning*: vision, success criteria, sequencing, cross-milestone
+  boundaries, and named slices `S01..` (each with `risk:`/`depends:` plan metadata and a
+  `→ #NN` link to its GitHub issue). **Status lives in GitHub** — the milestone progress
+  bar and each issue's open/closed state. Roadmaps carry **no `[x]`/`[ ]` checkboxes** and
+  are never hand-updated when an issue closes; that mirroring is what drifts. Each
+  actionable slice = one GitHub issue in the matching milestone. Completed milestones get
+  an `M0xx-SUMMARY.md` design/decision record (history GitHub doesn't capture well).
+  `M013-ROADMAP.md` is the reference example of this format.
 - **`continue.md`** is the session-to-session handoff: last action, next action,
   open threads, and an explicit **Do not** list. Read it first; update it before you stop.
 

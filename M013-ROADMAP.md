@@ -14,6 +14,8 @@ Make this repository legible and verifiable for the AI coding agents that work i
 - GitHub #28 — Holdout scenario eval set (behavioral, satisfaction-scored, separate from impl tests)
 - GitHub #29 — Doc-gardening / knowledge-flywheel loop: keep agent-facing context fresh
 
+These five issues are this milestone's work items; **live status is the GitHub milestone "M013 — Agent-ready codebase,"** not this file. The slices below are the plan and rationale behind those issues.
+
 ## Tentative Success Criteria
 
 - A fresh agent can onboard from one ≤250-line `CLAUDE.md` that maps to the canonical `/docs`, the M0xx workflow, and the trust boundaries — without reconstructing the mental model from a dozen files.
@@ -28,23 +30,26 @@ Make this repository legible and verifiable for the AI coding agents that work i
 - **#29 vs M012 "AGENTS.md freshness reviewer."** M013 S05 is the lightweight, in-repo, mechanical freshness check — a standalone `docs:check` script (dead-reference linter + staleness heuristics) that is also wired into `bun run check`. The M012 candidate workstream is the heavier agentic reviewer escalation (a full reviewer detecting instruction rot across package manager / test framework / build tooling). Ship the mechanical floor here; promote the agentic version under M012 only on a concrete trigger.
 - **#26 comprehension gate** reuses, and pressure-tests, the portable reviewer/coordinator contract from M009 S03 and the CI decision policy from M008. It is the same "deterministic orchestration, agentic judgment" seam, pointed inward at our own diffs.
 
-## Tentative Slices
+## Slices
 
-- [x] **S01: Root CLAUDE.md onboarding map** `risk:low` `depends:[]` `issues:[#25]`
-  > After this: a ≤250-line `CLAUDE.md` exists at repo root — stack/run commands, the real `src/` map, the 7 design principles, trust boundaries, the M0xx + `continue.md` workflow, and known gotchas — pointing to `/docs` rather than duplicating it. Draft already attached to #25.
-  > Shipped: `CLAUDE.md` at repo root (verified against the actual `src/` tree, `tsconfig.json` strict flags, and the 7 principles in `docs/architecture.md`); flags the #21 risk-classifier and #27 boundary-lint gaps inline.
+> **Status lives in GitHub** — milestone [M013 — Agent-ready codebase] (progress bar) plus each issue's open/closed state. This section is the **plan and rationale**, not a tracker: it is *not* hand-updated when an issue closes, and carries no `[x]`/`[ ]` checkboxes. Each slice maps 1:1 to a Source Issue above; `risk:`/`depends:` are plan metadata (`depends:` references other slices, not a hard data dependency unless stated).
 
-- [ ] **S02: Boundary lint with remediation messages** `risk:medium` `depends:[]` `issues:[#27]`
-  > After this: `bun run check` fails when runner/contract code imports a concrete adapter, or when prompt assembly bypasses `prompt-boundary.ts`, each with a remediation message naming the fix. References the boundary rules documented in S01's CLAUDE.md. Adapter-direction rule first (highest value).
+- **S01 — Root CLAUDE.md onboarding map** → #25 · `risk:low` · `depends:[]`
+  > A ≤250-line `CLAUDE.md` at repo root — stack/run commands, the real `src/` map, the 7 design principles, trust boundaries, the M0xx + `continue.md` workflow, and known gotchas — pointing to `/docs` rather than duplicating it.
 
-- [ ] **S03: Comprehension gate reviewer + decision policy** `risk:high` `depends:[S02]` `issues:[#26]`
-  > After this: a trusted `comprehension` reviewer definition answers the standardized rubric (dependency choices, failure modes, security implications, separation of concerns, downstream breakage, comprehensibility) and emits `allow`/`warn`/`block`; the CI decision policy maps the decision (advisory by default), and the Q&A is rendered into the summary. Runs deterministically on a fixture via the dummy runtime. (`depends:[S02]` encodes the sequencing preference — S03 exercises the boundaries S02 protects mechanically — rather than a hard data dependency.)
+- **S02 — Boundary lint with remediation messages** → #27 · `risk:medium` · `depends:[]`
+  > `bun run check` fails when runner/contract code imports a concrete adapter, or when prompt assembly bypasses `prompt-boundary.ts`, each with a remediation message naming the fix. Adapter-direction rule first (highest value).
 
-- [ ] **S04: Holdout scenario eval set** `risk:medium` `depends:[]` `issues:[#28]`
-  > After this: an opt-in `bun run evals` runs ≥5 behavioral scenarios (including a clean diff that must not be over-flagged) through the CLI, scores findings against declared criteria with statistical (K-run) satisfaction, and stores scenarios under `evals/` separate from `examples/fixtures/` to preserve holdout hygiene.
+- **S03 — Comprehension gate reviewer + decision policy** → #26 · `risk:high` · `depends:[S02]`
+  > A trusted `comprehension` reviewer definition answers the standardized rubric (dependency choices, failure modes, security implications, separation of concerns, downstream breakage, comprehensibility) and emits `allow`/`warn`/`block`; the CI decision policy maps the decision (advisory by default); the Q&A renders into the summary. Runs deterministically on a fixture via the dummy runtime. (`depends:[S02]` encodes the sequencing preference — S03 exercises the boundaries S02 protects mechanically — not a hard data dependency.)
 
-- [ ] **S05: Doc-gardening / knowledge-flywheel loop** `risk:low` `depends:[S01]` `issues:[#29]`
-  > After this: a standalone `docs:check` script (also invoked from `bun run check`) fails on dead path/script/env-var references across `*.md`, warns on oversized/likely-stale docs and run-instruction drift, and a written gardening playbook defines the recurring pass. Reference-load tracking is deferred to telemetry/M011.
+- **S04 — Holdout scenario eval set** → #28 · `risk:medium` · `depends:[]`
+  > An opt-in `bun run evals` runs ≥5 behavioral scenarios (including a clean diff that must not be over-flagged) through the CLI, scores findings against declared criteria with statistical (K-run) satisfaction, and stores scenarios under `evals/` separate from `examples/fixtures/` to preserve holdout hygiene.
+
+- **S05 — Doc-gardening / knowledge-flywheel loop** → #29 · `risk:low` · `depends:[S01]`
+  > A standalone `docs:check` script (also invoked from `bun run check`) fails on dead path/script/env-var references across `*.md`, warns on oversized/likely-stale docs and run-instruction drift, and a written gardening playbook defines the recurring pass. Reference-load tracking is deferred to telemetry/M011.
+
+[M013 — Agent-ready codebase]: https://github.com/briggsd/ai-code-review-factory/milestones
 
 ## Sequencing
 
