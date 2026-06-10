@@ -1,65 +1,54 @@
-# Continue — AI Code Review Factory / M010 S04
+# Continue — AI Code Review Factory / after M010
 
 ## Last action
 
-Committed M010 slices:
+Completed and committed **M010: Shared context files and token economics** through S05.
 
-- `d7e71f5` — Add shared review context artifacts (S01)
-- `3c7c232` — Add reviewer context references (S02)
-- `bced1b2` — Render reviewer prompts with context references (S03)
+M010 commits:
 
-Then implemented **M010 S04: Token/cost measurement for context savings**.
+- `d7e71f5` — Add shared review context artifacts
+- `3c7c232` — Add reviewer context references
+- `bced1b2` — Render reviewer prompts with context references
+- `f139708` — Add context token savings metrics
+- Verify packaged context artifacts
 
-Key S04 changes:
-
-- Added `AgentPromptMetrics` / `AgentPromptContextMode` contract fields.
-- `ReviewerRunResult` can carry `promptMetrics`.
-- Run metrics now include context artifact byte counts:
-  - total artifact bytes
-  - change-context bytes
-  - patch bytes
-  - patch file count
-- Agent run metrics can persist reviewer prompt metrics.
-- Pi reviewer runs now compute and emit/return:
-  - `contextMode` (`path_references` or `inline_fallback`)
-  - `promptBytes`
-  - `contextPayloadBytes`
-  - `inlineDiffBytes`
-  - `estimatedInputTokensSaved`
-- Added tests for context byte metrics in state and Pi reviewer prompt savings metrics.
-- Marked M010 S04 complete in `M010-ROADMAP.md`.
+Summary artifact: `M010-SUMMARY.md`.
 
 Verification:
 
 ```bash
 bun run check
-# 125 pass, 0 fail, 814 expect() calls
+# 125 pass, 0 fail, 819 expect() calls
+
+bun run smoke:external-package
+# external package smoke passed: ai-code-review-factory-0.1.0.tgz; provider dry-run skipped
+
+bun run pack:smoke
+# package smoke passed: ai-code-review-factory-0.1.0.tgz (78 files)
 ```
 
 ## Next action
 
-Commit S04, then implement **M010 S05: Package/docs verification sweep**.
+Decide whether to push accumulated local commits or start the next milestone.
 
 Suggested starting points:
 
 ```bash
 git status --short
-read M010-ROADMAP.md
-read docs/architecture.md
-read docs/configuration.md
-read docs/packaging.md
-read scripts/package-smoke.ts
-rg "contextDirectory|context artifact|patchPath|promptMetrics|AgentPromptMetrics" README.md docs scripts test src -n
+git log --oneline --decorate -10
+read M011-ROADMAP.md
+read M012-ROADMAP.md
 ```
 
-S05 should document context artifact behavior and add/adjust package smoke coverage proving artifacts are present and consumable from an adopter-like install.
+M011 appears to be the likely next milestone for product analytics/telemetry after M008/M010 metrics; M012 covers advanced resilience/plugin lifecycle work.
 
 ## Open threads
 
-- M010 S04 is implemented and verified but not committed yet.
+- `main` is ahead of `origin/main` by the accumulated M009/M010 commits.
 - Pre-existing uncommitted note remains in `src/runner/risk-classifier.ts` for #21 risk-tier recalibration; do not stage it unless explicitly asked.
 - `M009-SUMMARY.md` remains untracked from the prior M009 wrap-up.
 - Backlog: `validateFinding` accepts any string `reviewer`; consider normalizing/rejecting model outputs that mislabel their own reviewer role.
+- S04 estimated input-token savings use a byte/4 approximation; future provider telemetry can replace or calibrate the estimate.
 
 ## Do not
 

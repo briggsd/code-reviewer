@@ -70,7 +70,7 @@ The `pack:smoke` script:
 4. extracts the tarball, and
 5. runs the packaged CLI's `schemas` command with Bun.
 
-The `smoke:external-package` script simulates an adopter environment by packing the current project, installing the tarball into an isolated Bun global directory, and invoking the installed `ai-code-review` binary from a temporary working directory. It always runs `schemas` plus a fixture-backed dry-run through the installed CLI.
+The `smoke:external-package` script simulates an adopter environment by packing the current project, installing the tarball into an isolated Bun global directory, and invoking the installed `ai-code-review` binary from a temporary working directory. It always runs `schemas` plus a fixture-backed dry-run through the installed CLI. The fixture dry-run also verifies the installed package writes `.ai-review/context/change-context.json`, writes per-file patch artifacts, records `patchPath` references without inline patch bodies, and persists context artifact byte metrics in run state.
 
 To add a live provider-backed dry-run, set:
 

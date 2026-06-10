@@ -1,6 +1,6 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 
 const tempDirectory = await mkdtemp(join(tmpdir(), "ai-review-external-package-"));
@@ -41,6 +41,7 @@ try {
 
   const fixturePath = join(adopterDirectory, "adopter-fixture.json");
   await writeFile(fixturePath, JSON.stringify(createAdopterFixture(), null, 2));
+  const fixtureOutputDirectory = join(adopterDirectory, ".ai-review-fixture");
   const fixtureRun = await run([
     installedCli,
     "run",
@@ -49,9 +50,14 @@ try {
     "--runtime",
     "dummy",
     "--output-dir",
-    join(adopterDirectory, ".ai-review-fixture"),
+    fixtureOutputDirectory,
   ], { cwd: adopterDirectory });
   assertSummary(JSON.parse(fixtureRun.stdout) as unknown, "fixture");
+  await assertContextArtifacts({
+    adopterDirectory,
+    outputDirectory: fixtureOutputDirectory,
+    runId: "adopter-smoke",
+  });
 
   const provider = process.env.AI_REVIEW_EXTERNAL_SMOKE_PROVIDER;
   if (provider === undefined || provider.length === 0) {
@@ -101,6 +107,7 @@ async function runProviderSmoke(provider: string): Promise<void> {
 
 function createAdopterFixture(): unknown {
   return {
+    runId: "adopter-smoke",
     metadata: {
       provider: "github",
       repository: {
@@ -141,6 +148,41 @@ function createAdopterFixture(): unknown {
       failOn: ["critical"],
     },
   };
+}
+
+async function assertContextArtifacts(input: {
+  adopterDirectory: string;
+  outputDirectory: string;
+  runId: string;
+}): Promise<void> {
+  const sharedContextPath = join(input.adopterDirectory, ".ai-review", "context", "change-context.json");
+  if (!existsSync(sharedContextPath)) {
+    throw new Error(`fixture run did not write shared context: ${sharedContextPath}`);
+  }
+
+  const sharedContext = JSON.parse(await readFile(sharedContextPath, "utf8")) as {
+    diff?: { files?: Array<{ path?: string; patch?: string; patchPath?: string }> };
+  };
+  const file = sharedContext.diff?.files?.[0];
+  if (file?.path !== "README.md" || file.patch !== undefined || file.patchPath === undefined) {
+    throw new Error("shared context did not contain patchPath-only README.md metadata");
+  }
+
+  const patchPath = isAbsolute(file.patchPath) ? file.patchPath : join(input.adopterDirectory, file.patchPath);
+  if (!existsSync(patchPath)) {
+    throw new Error(`fixture run did not write patch artifact: ${patchPath}`);
+  }
+  const patch = await readFile(patchPath, "utf8");
+  if (!patch.includes("Smoke line")) {
+    throw new Error("patch artifact did not contain fixture patch contents");
+  }
+
+  const runRecord = JSON.parse(
+    await readFile(join(input.outputDirectory, "runs", input.runId, "run.json"), "utf8"),
+  ) as { metrics?: { context?: { patchFileCount?: number; artifactBytes?: number } } };
+  if (runRecord.metrics?.context?.patchFileCount !== 1 || (runRecord.metrics.context.artifactBytes ?? 0) <= 0) {
+    throw new Error("run metrics did not record context artifact bytes");
+  }
 }
 
 function assertSummary(value: unknown, label: string): void {

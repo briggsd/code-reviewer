@@ -142,6 +142,19 @@ Rules:
 - Mark title, body, comments, and diff content as untrusted data.
 - Preserve enough context for reviewers to inspect relevant files.
 
+Current artifact layout:
+
+```text
+.ai-review/context/
+  change-context.json
+  patches/
+    0001-<safe-path-hint>-<hash>.patch
+```
+
+`change-context.json` contains run metadata, risk, prior state, and changed-file metadata with `patchPath` references. It intentionally omits inline patch bodies. Patch files are written once under `patches/` using deterministic safe names. Reviewer inputs carry `contextReferences` pointing at the shared context and assigned patch files; Pi reviewer prompts prefer those references and only fall back to inline diff payloads when read tools are unavailable.
+
+The runner records context artifact byte counts in run metrics. Pi reviewer results also include prompt metrics for path-reference mode versus inline fallback estimates, so operators can measure whether shared context is reducing prompt payload size.
+
 ### Diff filter
 
 The diff filter removes files that usually add cost without review value:

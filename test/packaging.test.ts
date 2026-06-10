@@ -68,9 +68,14 @@ describe("package distribution metadata", () => {
 
     expect(packaging).toContain("isolated Bun global directory");
     expect(packaging).toContain("AI_REVIEW_EXTERNAL_SMOKE_PROVIDER");
+    expect(packaging).toContain(".ai-review/context/change-context.json");
+    expect(packaging).toContain("records `patchPath` references without inline patch bodies");
     expect(script).toContain('"bun", "add"');
     expect(script).toContain("--global");
     expect(script).toContain("installedCli");
+    expect(script).toContain("assertContextArtifacts");
+    expect(script).toContain("change-context.json");
+    expect(script).toContain("patchPath");
     expect(script).toContain("AI_REVIEW_EXTERNAL_SMOKE_REPO");
   });
 

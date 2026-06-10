@@ -36,8 +36,9 @@ Stop embedding the full diff in every reviewer prompt. Write shared change conte
   > After this: traces expose context bytes and per-reviewer token usage before/after path-based context.
   > Implemented: run metrics now include context artifact byte counts, reviewer results/agent metrics can carry prompt metrics, and Pi reviewer runs report prompt bytes, context payload bytes, inline-diff bytes, context mode, and estimated input tokens saved by path references.
 
-- [ ] **S05: Package/docs verification sweep** `risk:medium` `depends:[S01,S03,S04]` `issues:[#11]`
+- [x] **S05: Package/docs verification sweep** `risk:medium` `depends:[S01,S03,S04]` `issues:[#11]`
   > After this: docs explain context artifact behavior and package smoke verifies the files are present and consumable.
+  > Implemented: architecture and packaging docs explain shared context artifacts, path-reference prompts, and context metrics. External package smoke now verifies an adopter-like installed CLI writes `change-context.json`, patch artifacts, `patchPath` metadata without inline patch bodies, and context artifact byte metrics.
 
 ## Open Design Questions
 
