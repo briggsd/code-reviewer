@@ -28,8 +28,9 @@ Stop embedding the full diff in every reviewer prompt. Write shared change conte
   > After this: reviewer inputs carry selected context references instead of embedding the entire diff payload.
   > Implemented: `ReviewerRunInput.contextReferences` now carries the shared context path, patch directory, and assigned file metadata without inline patch bodies. The runner builds references from assigned files and existing `patchPath`s while keeping full `ReviewContext` available as the fallback compatibility channel until S03 changes prompt rendering.
 
-- [ ] **S03: Runtime prompt rendering for path-based context** `risk:high` `depends:[S02]` `issues:[#11]`
+- [x] **S03: Runtime prompt rendering for path-based context** `risk:high` `depends:[S02]` `issues:[#11]`
   > After this: Pi prompts instruct reviewers to read trusted context files by path while reviewed-repo Pi resources remain disabled.
+  > Implemented: Pi reviewer prompts now prefer `contextReferences` and instruct reviewers to read only the trusted shared context/patch paths while treating file contents as untrusted reviewed-repo data. When read tools are unavailable, prompts fall back to inline context data for compatibility.
 
 - [ ] **S04: Token/cost measurement for context savings** `risk:medium` `depends:[S03]` `issues:[#11]`
   > After this: traces expose context bytes and per-reviewer token usage before/after path-based context.
