@@ -329,7 +329,12 @@ describe("PiAgentRuntime", () => {
       "documentation",
       "performance",
     ]);
-    expect(result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "security")?.findings).toHaveLength(1);
+    const securityResult = result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "security");
+    expect(securityResult?.findings).toHaveLength(1);
+    expect(securityResult?.promptMetrics?.contextMode).toBe("path_references");
+    expect(securityResult?.promptMetrics?.promptBytes).toBeGreaterThan(0);
+    expect(securityResult?.promptMetrics?.inlineDiffBytes).toBeGreaterThan(securityResult?.promptMetrics?.contextPayloadBytes ?? 0);
+    expect(securityResult?.promptMetrics?.estimatedInputTokensSaved).toBeGreaterThan(0);
     expect(result.summary.decision).toBe("significant_concerns");
     expect(result.summary.outcome).toBe("fail");
     expect(runner.calls.map((call) => call.role)).toEqual([

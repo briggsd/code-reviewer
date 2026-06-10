@@ -32,8 +32,9 @@ Stop embedding the full diff in every reviewer prompt. Write shared change conte
   > After this: Pi prompts instruct reviewers to read trusted context files by path while reviewed-repo Pi resources remain disabled.
   > Implemented: Pi reviewer prompts now prefer `contextReferences` and instruct reviewers to read only the trusted shared context/patch paths while treating file contents as untrusted reviewed-repo data. When read tools are unavailable, prompts fall back to inline context data for compatibility.
 
-- [ ] **S04: Token/cost measurement for context savings** `risk:medium` `depends:[S03]` `issues:[#11]`
+- [x] **S04: Token/cost measurement for context savings** `risk:medium` `depends:[S03]` `issues:[#11]`
   > After this: traces expose context bytes and per-reviewer token usage before/after path-based context.
+  > Implemented: run metrics now include context artifact byte counts, reviewer results/agent metrics can carry prompt metrics, and Pi reviewer runs report prompt bytes, context payload bytes, inline-diff bytes, context mode, and estimated input tokens saved by path references.
 
 - [ ] **S05: Package/docs verification sweep** `risk:medium` `depends:[S01,S03,S04]` `issues:[#11]`
   > After this: docs explain context artifact behavior and package smoke verifies the files are present and consumable.

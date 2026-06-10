@@ -1,5 +1,6 @@
 import type {
   ActorRef,
+  AgentPromptMetrics,
   AgentRole,
   CiOutcome,
   Confidence,
@@ -188,6 +189,7 @@ export interface ReviewRunAgentMetrics {
   role: AgentRole | string;
   kind: "reviewer" | "coordinator";
   usage: TokenUsage;
+  prompt?: AgentPromptMetrics;
   attemptCount?: number;
   retryCount?: number;
 }
@@ -207,8 +209,16 @@ export interface ReviewRunAgentFailureMetrics {
   retryCount?: number;
 }
 
+export interface ReviewRunContextMetrics {
+  artifactBytes: number;
+  changeContextBytes: number;
+  patchBytes: number;
+  patchFileCount: number;
+}
+
 export interface ReviewRunMetrics {
   durationsMs: ReviewRunDurations;
+  context?: ReviewRunContextMetrics;
   tokens?: ReviewRunTokenMetrics;
   agents?: ReviewRunAgentMetrics[];
   failures?: ReviewRunAgentFailureMetrics[];

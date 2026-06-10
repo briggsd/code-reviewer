@@ -95,6 +95,10 @@ describe("JSONL trace and filesystem state", () => {
       expect(runRecord.completedAt).toBe(events[4]?.timestamp);
       expect(runRecord.metrics?.durationsMs.overallMs).toBeGreaterThan(0);
       expect(runRecord.metrics?.durationsMs.contextBuildMs).toBeGreaterThan(0);
+      expect(runRecord.metrics?.context?.patchFileCount).toBe(1);
+      expect(runRecord.metrics?.context?.artifactBytes).toBeGreaterThan(0);
+      expect(runRecord.metrics?.context?.changeContextBytes).toBeGreaterThan(0);
+      expect(runRecord.metrics?.context?.patchBytes).toBeGreaterThan(0);
       expect(runRecord.metrics?.durationsMs.riskAssessmentMs).toBeGreaterThan(0);
       expect(runRecord.metrics?.durationsMs.coordinatorMs).toBeGreaterThan(0);
       expect(runRecord.summary?.decision).toBe("significant_concerns");

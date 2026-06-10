@@ -9,6 +9,7 @@ import type {
   PriorReviewState,
   ReviewConfig,
   ReviewContext,
+  ReviewContextArtifacts,
   ReviewDecision,
   ReviewerContextReferences,
   ReviewerRunInput,
@@ -227,6 +228,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         riskAssessmentMs,
         coordinatorMs,
       },
+      ...(context.contextArtifacts !== undefined ? { contextArtifacts: context.contextArtifacts } : {}),
       ...(runtimeResult.coordinatorResult !== undefined ? { coordinatorResult: runtimeResult.coordinatorResult } : {}),
     });
     await options.stateStore?.saveRun({
@@ -301,6 +303,11 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
           contextBuildMs,
           riskAssessmentMs,
         },
+        ...(context.contextArtifacts !== undefined
+          ? {
+            context: createContextMetrics(context.contextArtifacts),
+          }
+          : {}),
       },
       error: serializedError.message,
       errorClassification,
@@ -407,6 +414,7 @@ function elapsedMs(startedAt: Date, completedAt: Date): number {
 
 function createRunMetrics(input: {
   durationsMs: ReviewRunMetrics["durationsMs"];
+  contextArtifacts?: ReviewContextArtifacts;
   coordinatorResult?: CoordinatorRunResult;
 }): ReviewRunMetrics {
   const agentMetrics = input.coordinatorResult === undefined ? [] : [
@@ -415,6 +423,7 @@ function createRunMetrics(input: {
       role: result.role,
       kind: "reviewer" as const,
       usage: result.usage,
+      ...(result.promptMetrics !== undefined ? { prompt: result.promptMetrics } : {}),
       ...(result.attemptCount !== undefined ? { attemptCount: result.attemptCount } : {}),
       ...(result.retryCount !== undefined ? { retryCount: result.retryCount } : {}),
     }]),
@@ -439,6 +448,11 @@ function createRunMetrics(input: {
 
   return {
     durationsMs: input.durationsMs,
+    ...(input.contextArtifacts !== undefined
+      ? {
+        context: createContextMetrics(input.contextArtifacts),
+      }
+      : {}),
     ...(agentMetrics.length > 0
       ? {
         agents: agentMetrics,
@@ -446,6 +460,15 @@ function createRunMetrics(input: {
       }
       : {}),
     ...(failureMetrics.length > 0 ? { failures: failureMetrics } : {}),
+  };
+}
+
+function createContextMetrics(artifacts: ReviewContextArtifacts): NonNullable<ReviewRunMetrics["context"]> {
+  return {
+    artifactBytes: artifacts.totalBytes,
+    changeContextBytes: artifacts.changeContextBytes,
+    patchBytes: artifacts.patchBytes,
+    patchFileCount: artifacts.patchFileCount,
   };
 }
 

@@ -84,6 +84,16 @@ export interface TokenUsage {
   estimatedCostUsd?: number;
 }
 
+export type AgentPromptContextMode = "path_references" | "inline_fallback";
+
+export interface AgentPromptMetrics {
+  contextMode: AgentPromptContextMode;
+  promptBytes: number;
+  contextPayloadBytes: number;
+  inlineDiffBytes: number;
+  estimatedInputTokensSaved: number;
+}
+
 export type ReviewErrorCategory =
   | "retryable_transient"
   | "rate_limited"

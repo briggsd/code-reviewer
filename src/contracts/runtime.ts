@@ -1,4 +1,5 @@
 import type {
+  AgentPromptMetrics,
   AgentRole,
   JsonValue,
   ModelSelection,
@@ -83,6 +84,7 @@ export interface ReviewerRunResult {
   findings: Finding[];
   rawOutput?: string;
   usage?: TokenUsage;
+  promptMetrics?: AgentPromptMetrics;
   attemptCount?: number;
   retryCount?: number;
   tracePath?: string;

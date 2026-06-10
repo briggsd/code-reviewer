@@ -1,4 +1,5 @@
 import type {
+  AgentPromptMetrics,
   AgentRuntime,
   AgentRole,
   CoordinatorRunInput,
@@ -191,11 +192,13 @@ export class PiAgentRuntime implements AgentRuntime {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         let streamedEventCount = 0;
+        const prompt = buildReviewerPrompt(input);
+        const promptMetrics = createReviewerPromptMetrics(input, prompt);
         const processResult = await this.processRunner.run({
           runId: input.runId,
           agentRunId,
           role: input.role,
-          prompt: buildReviewerPrompt(input),
+          prompt,
           cwd: input.context.workingDirectory,
           timeoutMs: input.timeoutMs,
           toolPolicy: input.toolPolicy,
@@ -229,6 +232,7 @@ export class PiAgentRuntime implements AgentRuntime {
           findingCount: findings.length,
           attemptCount: attempt,
           retryCount,
+          promptMetrics,
           ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
         });
 
@@ -239,6 +243,7 @@ export class PiAgentRuntime implements AgentRuntime {
           findings,
           rawOutput: processResult.finalText,
           ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
+          promptMetrics,
           attemptCount: attempt,
           retryCount,
         };
@@ -566,6 +571,40 @@ function buildReviewerPrompt(input: ReviewerRunInput): string {
   ].join("\n");
 }
 
+function createReviewerPromptMetrics(input: ReviewerRunInput, prompt: string): AgentPromptMetrics {
+  const inlineContextPayload = stringifyPromptData({
+    runId: input.runId,
+    role: input.role,
+    metadata: input.context.metadata,
+    risk: input.context.risk,
+    files: input.context.diff.files,
+    assignedFiles: input.assignedFiles ?? [],
+    priorState: input.context.priorState,
+  });
+  const referenceContextPayload = stringifyPromptData({
+    runId: input.runId,
+    role: input.role,
+    contextReferences: input.contextReferences,
+    assignedFiles: input.assignedFiles ?? [],
+  });
+  const contextMode = input.toolPolicy.allowRead && input.contextReferences.changeContextPath !== undefined
+    ? "path_references"
+    : "inline_fallback";
+  const contextPayloadBytes = byteLength(contextMode === "path_references" ? referenceContextPayload : inlineContextPayload);
+  const inlineDiffBytes = byteLength(inlineContextPayload);
+  const estimatedInputTokensSaved = contextMode === "path_references"
+    ? Math.max(0, Math.round((inlineDiffBytes - contextPayloadBytes) / 4))
+    : 0;
+
+  return {
+    contextMode,
+    promptBytes: byteLength(prompt),
+    contextPayloadBytes,
+    inlineDiffBytes,
+    estimatedInputTokensSaved,
+  };
+}
+
 function formatReviewerContextPrompt(input: ReviewerRunInput): string[] {
   if (input.toolPolicy.allowRead && input.contextReferences.changeContextPath !== undefined) {
     return [
@@ -595,6 +634,10 @@ function formatReviewerContextPrompt(input: ReviewerRunInput): string[] {
       priorState: input.context.priorState,
     }),
   ];
+}
+
+function byteLength(value: string): number {
+  return Buffer.byteLength(value, "utf8");
 }
 
 function buildCoordinatorPrompt(
