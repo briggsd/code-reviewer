@@ -921,6 +921,142 @@ describe("PiAgentRuntime", () => {
     }
   });
 
+  test("BunPiProcessRunner surfaces provider error envelopes before reviewer JSON parsing", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-provider-error-"));
+
+    try {
+      const scriptPath = join(outputDirectory, "provider-error-pi.ts");
+      await writeFile(scriptPath, [
+        "console.log(JSON.stringify({",
+        "  type: \"error\",",
+        "  error: {",
+        "    type: \"invalid_request_error\",",
+        "    message: \"You're out of extra usage. Add more at claude.ai/settings/usage and keep going.\"",
+        "  }",
+        "}));",
+        "process.exit(1);",
+      ].join("\n"));
+      const runner = new BunPiProcessRunner({
+        command: "bun",
+        baseArgs: ["run", scriptPath],
+      });
+
+      await expect(runner.run({
+        runId: "provider-error-run",
+        agentRunId: "provider-error-run:pi:security",
+        role: "security",
+        prompt: "Return findings JSON.",
+        cwd: process.cwd(),
+        timeoutMs: 5_000,
+        toolPolicy: {
+          allowRead: false,
+          allowWrite: false,
+          allowShell: false,
+          allowedTools: [],
+          deniedTools: [],
+        },
+      })).rejects.toThrow("Provider error (invalid_request_error): You're out of extra usage.");
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("BunPiProcessRunner surfaces raw provider error envelopes with status prefixes", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-provider-error-status-"));
+
+    try {
+      const scriptPath = join(outputDirectory, "provider-error-status-pi.ts");
+      await writeFile(scriptPath, [
+        "console.log('400 ' + JSON.stringify({",
+        "  type: \"error\",",
+        "  error: {",
+        "    type: \"invalid_request_error\",",
+        "    message: \"The requested model does not exist.\"",
+        "  }",
+        "}));",
+        "process.exit(1);",
+      ].join("\n"));
+      const runner = new BunPiProcessRunner({
+        command: "bun",
+        baseArgs: ["run", scriptPath],
+      });
+
+      await expect(runner.run({
+        runId: "provider-error-status-run",
+        agentRunId: "provider-error-status-run:pi:security",
+        role: "security",
+        prompt: "Return findings JSON.",
+        cwd: process.cwd(),
+        timeoutMs: 5_000,
+        toolPolicy: {
+          allowRead: false,
+          allowWrite: false,
+          allowShell: false,
+          allowedTools: [],
+          deniedTools: [],
+        },
+      })).rejects.toMatchObject({
+        name: "ProviderRuntimeError",
+        status: 400,
+      });
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("classifies provider error envelopes in agent and review failure traces", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-provider-error-trace-"));
+
+    try {
+      const scriptPath = join(outputDirectory, "provider-error-trace-pi.ts");
+      await writeFile(scriptPath, [
+        "console.log(JSON.stringify({",
+        "  type: \"error\",",
+        "  error: {",
+        "    type: \"invalid_request_error\",",
+        "    message: \"You're out of extra usage. Add more at claude.ai/settings/usage and keep going.\"",
+        "  }",
+        "}));",
+        "process.exit(1);",
+      ].join("\n"));
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runtime = new PiAgentRuntime({
+        processRunner: new BunPiProcessRunner({
+          command: "bun",
+          baseArgs: ["run", scriptPath],
+        }),
+        reviewerRetryPolicy: {
+          maxAttempts: 1,
+        },
+      });
+
+      await expect(runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      })).rejects.toThrow("Provider error (invalid_request_error): You're out of extra usage.");
+      await traceSink.close();
+
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const failedAgent = events.find((event) => event.type === "agent.failed");
+      const failedReview = events.find((event) => event.type === "review.failed");
+
+      expect(failedAgent?.data?.errorCategory).toBe("provider_error");
+      expect(failedAgent?.data?.errorMessage).toContain("You're out of extra usage.");
+      expect(failedReview?.data?.errorCategory).toBe("provider_error");
+      expect(failedReview?.message).toContain("You're out of extra usage.");
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
   test("BunPiProcessRunner emits slow-run heartbeat events without waiting for model output", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-heartbeat-"));
 

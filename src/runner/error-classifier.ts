@@ -8,6 +8,26 @@ export function classifyReviewError(error: unknown): ReviewErrorClassification {
     return nonRetryable("unsafe_fork", "privileged credentials were blocked for an untrusted change context");
   }
 
+  // Terminal provider rejections (bad request, quota/billing exhaustion, unknown
+  // model) are not retryable and must be classified before the 429 rate-limit and
+  // transient "try again" branches below: an OpenAI insufficient_quota is itself a
+  // 429, and an out-of-usage message can read "...keep going" / "try again".
+  // Retrying these only burns budget. Generic/unknown provider envelopes (handled
+  // lower) stay below the transient branch so an overloaded_error still retries.
+  if (matchesAny(text, [
+    "invalid_request_error",
+    "out of extra usage",
+    "out of usage",
+    "insufficient_quota",
+    "quota exceeded",
+    "billing",
+    "credit",
+    "model not found",
+    "invalid model",
+  ])) {
+    return nonRetryable("provider_error", "provider rejected the request");
+  }
+
   if (status === 429 || matchesAny(text, ["rate limit", "rate_limit", "too many requests", "http 429", "status 429"])) {
     return retryable("rate_limited", "provider or runtime rate limit");
   }
@@ -49,6 +69,27 @@ export function classifyReviewError(error: unknown): ReviewErrorClassification {
     return nonRetryable("context_overflow", "prompt or context exceeded the model limit");
   }
 
+  if (
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    matchesAny(text, [
+      "service unavailable",
+      "bad gateway",
+      "gateway timeout",
+      "overloaded",
+      "temporarily unavailable",
+      "try again",
+      "econnreset",
+      "etimedout",
+      "eai_again",
+      "socket hang up",
+      "network error",
+    ])
+  ) {
+    return retryable("retryable_transient", "transient provider/runtime failure");
+  }
+
   if (status === 401 || status === 403 || matchesAny(text, [
     "unauthorized",
     "forbidden",
@@ -62,6 +103,16 @@ export function classifyReviewError(error: unknown): ReviewErrorClassification {
     return nonRetryable("auth", "authentication or authorization failed");
   }
 
+  // Generic provider error envelopes whose type wasn't matched above. Kept below
+  // the transient branch so a retryable envelope (e.g. overloaded_error) is not
+  // swept up here.
+  if (matchesAny(text, [
+    "providerruntimeerror",
+    "provider error",
+  ])) {
+    return nonRetryable("provider_error", "provider returned an error envelope");
+  }
+
   if (matchesAny(text, [
     "schema",
     "valid json",
@@ -73,26 +124,6 @@ export function classifyReviewError(error: unknown): ReviewErrorClassification {
     "structured output",
   ])) {
     return nonRetryable("schema_invalid", "model output failed the structured response contract");
-  }
-
-  if (
-    status === 502 ||
-    status === 503 ||
-    status === 504 ||
-    matchesAny(text, [
-      "service unavailable",
-      "bad gateway",
-      "gateway timeout",
-      "temporarily unavailable",
-      "try again",
-      "econnreset",
-      "etimedout",
-      "eai_again",
-      "socket hang up",
-      "network error",
-    ])
-  ) {
-    return retryable("retryable_transient", "transient provider/runtime failure");
   }
 
   return nonRetryable("unknown", "unclassified runtime failure");

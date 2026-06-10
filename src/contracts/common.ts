@@ -101,6 +101,7 @@ export type ReviewErrorCategory =
   | "auth"
   | "context_overflow"
   | "schema_invalid"
+  | "provider_error"
   | "timeout"
   | "truncated"
   | "unsafe_fork"

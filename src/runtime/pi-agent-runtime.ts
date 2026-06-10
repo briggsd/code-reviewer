@@ -55,6 +55,20 @@ export interface PiReviewerRetryPolicy {
   minimumRemainingMs?: number;
 }
 
+class ProviderRuntimeError extends Error {
+  readonly providerErrorType: string;
+  readonly status?: number;
+
+  constructor(input: { providerErrorType: string; message: string; status?: number }) {
+    super(`Provider error (${input.providerErrorType}): ${input.message}`);
+    this.name = "ProviderRuntimeError";
+    this.providerErrorType = input.providerErrorType;
+    if (input.status !== undefined) {
+      this.status = input.status;
+    }
+  }
+}
+
 export interface PiAgentRuntimeOptions {
   processRunner?: PiProcessRunner;
   command?: string;
@@ -551,6 +565,11 @@ export class BunPiProcessRunner implements PiProcessRunner {
         throw new Error(`Pi process timed out after ${input.timeoutMs}ms for ${input.agentRunId}`);
       }
 
+      const providerError = extractProviderRuntimeError(stdout.events) ?? extractProviderRuntimeError(rawError);
+      if (providerError !== undefined) {
+        throw providerError;
+      }
+
       if (exitCode !== 0) {
         throw new Error(`Pi process exited ${exitCode} for ${input.agentRunId}: ${rawError.trim()}`);
       }
@@ -563,6 +582,9 @@ export class BunPiProcessRunner implements PiProcessRunner {
         rawOutput: stdout.rawOutput,
         ...(rawError.length > 0 ? { rawError } : {}),
       };
+    } catch (error) {
+      process.kill();
+      throw error;
     } finally {
       clearTimeout(timer);
       if (inactivityTimer !== undefined) {
@@ -668,6 +690,73 @@ function serializeRuntimeError(error: unknown): { name: string; message: string 
     name: "Error",
     message: String(error),
   };
+}
+
+function extractProviderRuntimeError(input: unknown): ProviderRuntimeError | undefined {
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const error = extractProviderRuntimeError(item);
+      if (error !== undefined) {
+        return error;
+      }
+    }
+
+    return undefined;
+  }
+
+  if (typeof input === "string") {
+    return extractProviderRuntimeErrorFromText(input);
+  }
+
+  if (typeof input !== "object" || input === null) {
+    return undefined;
+  }
+
+  const record = input as Record<string, unknown>;
+  if (record.type !== "error" || typeof record.error !== "object" || record.error === null) {
+    return undefined;
+  }
+
+  const errorRecord = record.error as Record<string, unknown>;
+  const providerErrorType = typeof errorRecord.type === "string" ? errorRecord.type : "provider_error";
+  const message = typeof errorRecord.message === "string" ? errorRecord.message : "Provider returned an error envelope.";
+  const status = typeof record.status === "number" ? record.status : undefined;
+
+  return new ProviderRuntimeError({
+    providerErrorType,
+    message,
+    ...(status !== undefined ? { status } : {}),
+  });
+}
+
+function extractProviderRuntimeErrorFromText(text: string): ProviderRuntimeError | undefined {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  const jsonStart = trimmed.indexOf("{");
+  if (jsonStart === -1) {
+    return undefined;
+  }
+
+  const prefix = trimmed.slice(0, jsonStart).trim();
+  const status = /^\d{3}$/.test(prefix) ? Number(prefix) : undefined;
+
+  try {
+    const error = extractProviderRuntimeError(JSON.parse(trimmed.slice(jsonStart)));
+    if (error === undefined || error.status !== undefined || status === undefined) {
+      return error;
+    }
+
+    return new ProviderRuntimeError({
+      providerErrorType: error.providerErrorType,
+      message: error.message.replace(/^Provider error \([^)]+\): /, ""),
+      status,
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 function buildReviewerPrompt(input: ReviewerRunInput): string {
@@ -1262,7 +1351,25 @@ async function readJsonlStream(
       return;
     }
 
-    const event = JSON.parse(normalized) as unknown;
+    let event: unknown;
+    try {
+      // Common path: a well-formed JSONL event line parses once here.
+      event = JSON.parse(normalized) as unknown;
+    } catch (parseError) {
+      // Not pure JSON — may be a status-prefixed provider envelope ("400 {...}").
+      const providerError = extractProviderRuntimeErrorFromText(normalized);
+      if (providerError !== undefined) {
+        throw providerError;
+      }
+      throw parseError;
+    }
+
+    // A well-formed `{"type":"error",...}` envelope is a provider error, not an event.
+    const providerError = extractProviderRuntimeError(event);
+    if (providerError !== undefined) {
+      throw providerError;
+    }
+
     events.push(event);
     onEvent?.(event);
   };

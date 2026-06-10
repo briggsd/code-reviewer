@@ -31,6 +31,10 @@ describe("review error classification", () => {
       category: "retryable_transient",
       retryable: true,
     });
+    expect(classifyReviewError(new Error("ProviderRuntimeError Provider error (invalid_request_error): You're out of extra usage."))).toMatchObject({
+      category: "provider_error",
+      retryable: false,
+    });
     expect(classifyReviewError(new Error("unsafe fork attempted privileged write-back"))).toMatchObject({
       category: "unsafe_fork",
       retryable: false,
@@ -50,9 +54,35 @@ describe("review error classification", () => {
       category: "retryable_transient",
       retryable: true,
     });
+    expect(classifyReviewError({ status: 429, message: "provider rate_limit_error" })).toMatchObject({
+      category: "rate_limited",
+      retryable: true,
+    });
+    expect(classifyReviewError({ status: 400, message: "Provider error (invalid_request_error): model not found" })).toMatchObject({
+      category: "provider_error",
+      retryable: false,
+    });
     expect(classifyReviewError({ statusCode: 403, message: "forbidden" })).toMatchObject({
       category: "auth",
       retryable: false,
+    });
+  });
+
+  test("terminal quota/billing rejections win over rate-limit and transient branches", () => {
+    // OpenAI insufficient_quota is itself a 429 — must be terminal, not rate_limited.
+    expect(classifyReviewError({ status: 429, message: "Provider error (insufficient_quota): You exceeded your current quota" })).toMatchObject({
+      category: "provider_error",
+      retryable: false,
+    });
+    // An out-of-usage message can contain transient-sounding words ("try again").
+    expect(classifyReviewError(new Error("Provider error (invalid_request_error): out of usage, add more and try again"))).toMatchObject({
+      category: "provider_error",
+      retryable: false,
+    });
+    // A genuinely transient overloaded envelope must still retry.
+    expect(classifyReviewError(new Error("Provider error (overloaded_error): the model is overloaded"))).toMatchObject({
+      category: "retryable_transient",
+      retryable: true,
     });
   });
 });
