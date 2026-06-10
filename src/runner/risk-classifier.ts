@@ -7,10 +7,6 @@ export interface RiskClassificationInput {
   ignoredFileCount: number;
 }
 
-// NOTE: These default thresholds diverge from the Cloudflare primary source
-// (trivial: lines<=10 && files<=20; full: files>50). Ours is stricter on trivial
-// (files<=2) and likely over-spends lite-tier compute on small PRs. Recalibration
-// is a deliberate open decision tracked in GitHub #21; thresholds are config-overridable.
 export function classifyRisk(input: RiskClassificationInput): RiskAssessment {
   const sensitivePaths = input.diff.files
     .map((file) => file.path)
@@ -29,7 +25,7 @@ export function classifyRisk(input: RiskClassificationInput): RiskAssessment {
     };
   }
 
-  if (reviewedFileCount > 20 || totalChangedLines > 500) {
+  if (reviewedFileCount > 50 || totalChangedLines > 500) {
     return {
       tier: "full",
       reason: "Large change exceeds full-review thresholds.",
@@ -40,7 +36,7 @@ export function classifyRisk(input: RiskClassificationInput): RiskAssessment {
     };
   }
 
-  if (reviewedFileCount <= 2 && totalChangedLines <= 20) {
+  if (reviewedFileCount <= 5 && totalChangedLines <= 25) {
     return {
       tier: "trivial",
       reason: "Small change with no configured sensitive paths.",

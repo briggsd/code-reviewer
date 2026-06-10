@@ -56,6 +56,82 @@ describe("diff filtering and risk classification", () => {
     expect(risk.ignoredFileCount).toBe(3);
   });
 
+  test("classifies ordinary 3-file small changes as trivial", () => {
+    const config = createDefaultReviewConfig();
+    const risk = classifyRisk({
+      diff: {
+        files: [
+          { path: "src/a.ts", status: "modified", additions: 5, deletions: 0, isBinary: false },
+          { path: "src/b.ts", status: "modified", additions: 5, deletions: 0, isBinary: false },
+          { path: "docs/c.md", status: "modified", additions: 5, deletions: 0, isBinary: false },
+        ],
+        totalAdditions: 15,
+        totalDeletions: 0,
+        truncated: false,
+      },
+      config,
+      ignoredFileCount: 0,
+    });
+
+    expect(risk.tier).toBe("trivial");
+    expect(risk.matchedRules).toEqual(["small_change"]);
+  });
+
+  test("keeps 50-file ordinary changes lite and escalates 51-file changes to full", () => {
+    const config = createDefaultReviewConfig();
+    const files = Array.from({ length: 50 }, (_, index) => ({
+      path: `src/file-${index}.ts`,
+      status: "modified" as const,
+      additions: 1,
+      deletions: 0,
+      isBinary: false,
+    }));
+
+    expect(classifyRisk({
+      diff: {
+        files,
+        totalAdditions: 50,
+        totalDeletions: 0,
+        truncated: false,
+      },
+      config,
+      ignoredFileCount: 0,
+    }).tier).toBe("lite");
+
+    expect(classifyRisk({
+      diff: {
+        files: [
+          ...files,
+          { path: "src/file-50.ts", status: "modified", additions: 1, deletions: 0, isBinary: false },
+        ],
+        totalAdditions: 51,
+        totalDeletions: 0,
+        truncated: false,
+      },
+      config,
+      ignoredFileCount: 0,
+    }).tier).toBe("full");
+  });
+
+  test("still escalates sensitive paths even when the change is otherwise trivial", () => {
+    const config = createDefaultReviewConfig();
+    const risk = classifyRisk({
+      diff: {
+        files: [
+          { path: ".github/workflows/release.yml", status: "modified", additions: 1, deletions: 0, isBinary: false },
+        ],
+        totalAdditions: 1,
+        totalDeletions: 0,
+        truncated: false,
+      },
+      config,
+      ignoredFileCount: 0,
+    });
+
+    expect(risk.tier).toBe("full");
+    expect(risk.matchedRules).toEqual(["sensitive_paths"]);
+  });
+
   test("runner context uses filtered diff", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/mixed-diff.json");
     const result = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });

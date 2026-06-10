@@ -177,9 +177,9 @@ Initial tiers:
 
 | Tier | Typical trigger | Agents | Default behavior |
 |---|---|---:|---|
-| Trivial | very small changes, no sensitive paths | 2 | coordinator + general reviewer |
+| Trivial | ordinary small changes of up to 5 files and 25 changed lines, no sensitive paths | 2 | coordinator + general reviewer |
 | Lite | modest changes in ordinary files | 3–4 | coordinator + code quality + docs + optional domain reviewer |
-| Full | large changes, many files, or sensitive paths | 6+ | all relevant specialists |
+| Full | more than 50 files, more than 500 changed lines, or sensitive paths | 6+ | all relevant specialists |
 
 Security-sensitive paths always escalate to full review. Examples: authentication, authorization, crypto, secrets, policy, billing, migrations, deployment, CI, and permission boundaries.
 
@@ -187,7 +187,7 @@ Risk tier also bounds runtime effort. The configured timeout values are full-rev
 
 If the overall runtime timeout fires after one or more reviewers have completed, the runner may publish a clearly marked partial summary from those completed reviewer findings instead of discarding them. The partial result always carries `decision: "review_failed"` and `outcome: "fail"` regardless of completed-reviewer findings, so existing fail-open/fail-closed CI policy applies unchanged. A run with no completed reviewer output still fails normally.
 
-The MVP should make thresholds configurable. Cloudflare’s published thresholds are useful defaults, not universal constants.
+The implemented defaults deliberately widen trivial from the original 2-file cap to 5 files / 25 changed lines so ordinary small PRs do not over-spend lite-tier compute. The full file threshold is 50 files, matching the Cloudflare source's file-count trigger while keeping our 500-line guard. The MVP should still make thresholds configurable; today these defaults are hardcoded in the classifier.
 
 ### Agent runtime adapter
 
@@ -669,11 +669,11 @@ fail_on:
   - production_safety_risk
 risk:
   trivial:
-    max_lines: 10
-    max_files: 20
+    max_lines: 25
+    max_files: 5
   lite:
-    max_lines: 100
-    max_files: 20
+    max_lines: 500
+    max_files: 50
 sensitive_paths:
   - auth/**
   - crypto/**
@@ -794,7 +794,7 @@ Concrete values from the primary source that the vault synthesis abstracted. Rec
 
 - **Coordinator decision rubric.** only suggestions → `approved_with_comments`; *single* warning with no production risk → `approved_with_comments`; *multiple* warnings suggesting a risk pattern → `minor_issues` (unapprove); critical / production-safety → `significant_concerns` (block). Implemented in M009 S05 for coordinator prompting and deterministic fallback summaries (#13).
 - **Prompt-injection.** Cloudflare strips a fixed XML tag set (`mr_input`, `mr_body`, `mr_comments`, `changed_files`, `existing_inline_findings`, `previous_review`, `custom_review_instructions`, `agents_md_template_instructions`) via `/<\/?(?:tag)[^>]*>/gi`. Ours embeds via JSON, so the vector is JSON-structure breakout; `repairUnescapedStringQuotes` is in scope as an attack surface. M009 S02 (#14).
-- **Risk tiers (theirs).** `files > 50 || hasSecurityFiles → full`; `lines ≤ 10 && files ≤ 20 → trivial`; `lines ≤ 100 && files ≤ 20 → lite`; else full. Ours is stricter on trivial (`files ≤ 2 && lines ≤ 20`) and on full (`files > 20 || lines > 500`). Recalibration decision: #21.
+- **Risk tiers.** Cloudflare uses `files > 50 || hasSecurityFiles → full`; `lines ≤ 10 && files ≤ 20 → trivial`; `lines ≤ 100 && files ≤ 20 → lite`; else full. Our defaults deliberately use `files ≤ 5 && lines ≤ 25 → trivial`, `files > 50 || lines > 500 || sensitivePaths → full`, else lite. This keeps a tighter trivial file cap than Cloudflare while covering ordinary 3–5 file small PRs that previously over-spent lite-tier compute (#21).
 - **Resilience constants.** per-task 5 min (10 for code quality); overall 25 min; retry skipped if < 2 min remain; **inactivity kill at 60s no-output**; circuit-breaker 2-min cooldown + exactly one probe; failback within model family via a flat map (`{"opus-4-7":"opus-4-6","opus-4-6":null}`); coordinator hot-swaps its model on retryable failure. Inactivity watchdog → M008 S04; advanced resilience → M012.
 - **Observability signals.** token usage from `step_finish`; truncation = `step_finish` with `reason:"length"` → *retryable*; heartbeat every 30s (`"Model is thinking... (Ns since last output)"`); JSONL flushed every 100 lines / 50ms. M008 S03 + M011 S03.
 - **Diff filtering.** content-marker generated detection (`// @generated`, `/* eslint-disable */`) in addition to path globs; **migrations exempt** from generated-filtering. Our build covers migrations via `sensitivePaths` short-circuit; content-marker detection is an unbuilt minor enrichment.
