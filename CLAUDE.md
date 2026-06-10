@@ -1,0 +1,112 @@
+# CLAUDE.md
+
+Agent onboarding for the **AI Code Review Factory** — a reusable, CI-native AI code
+review system for GitHub and GitLab. This file is a map, not the manual: it points to
+the canonical docs. Keep it under ~250 lines.
+
+## What this is
+
+A shared review runner installed across many repos, triggered by PR/MR CI, configured
+per-project via a small `.ai-review.json` (the core is **never forked** per project).
+Deterministic code owns orchestration, state, policy, and CI integration; LLM agents own
+judgment-heavy review. GitHub, GitLab, model providers, and agent runtimes are adapters.
+
+Full design: **docs/architecture.md**. Project purpose & status: **README.md**.
+
+## Stack & how to run
+
+- **Runtime:** Bun `>=1.3.0`, TypeScript (ESNext, `type: module`). Bun runs `.ts`
+  directly — there is **no build step** in the prototype.
+- **Entry point:** `src/cli.ts` (installed as the `ai-code-review` bin).
+
+```bash
+bun run check          # tsc --noEmit && bun test  ← THE verification gate. Run before any PR.
+bun test               # bun:test suite (tests live in test/)
+bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --runtime dummy
+bun run src/cli.ts schemas        # emit config + structured-output JSON schemas
+bun run schema:config             # regenerate .ai-review.schema.json
+```
+
+Smoke scripts (opt-in, network/model-gated — default tests are fake/no-network):
+`pack:smoke`, `smoke:external-package`, `smoke:pi` (needs `AI_REVIEW_LIVE_PI=1`),
+`smoke:gitlab` (`AI_REVIEW_LIVE_GITLAB=1`), `smoke:action-wrapper`.
+
+## Repo map
+
+```
+src/
+  cli.ts, cli/run-options.ts   # CLI entry + arg parsing
+  contracts/                   # all adapter interfaces: adapters, review, runtime, telemetry, common
+  runner/                      # deterministic orchestration — run-review.ts is the spine
+    run-review.ts              #   top-level lifecycle
+    config.ts, default-config.ts
+    risk-classifier.ts         #   trivial/lite/full tiering  (see #21 — do not commit lightly)
+    diff-filter.ts, context-artifacts.ts, stable-finding-id.ts, path-match.ts
+    error-classifier.ts        #   retryable vs terminal failures
+    re-review.ts               #   new/recurring/fixed finding classification
+    reviewer-definitions.ts    #   TRUSTED, factory-owned reviewer prompts/modules
+    fixture.ts                 #   fixture loading for local/dummy runs
+  runtime/                     # agent runtimes behind AgentRuntime
+    dummy-agent-runtime.ts     #   deterministic, for tests / no-network runs
+    pi-agent-runtime.ts        #   real Pi subprocess (JSON mode, project resources disabled)
+    prompt-boundary.ts         #   prompt-injection sanitization of untrusted content
+  vcs/github, vcs/gitlab       # VCS adapters (metadata + diff + publish)
+  publisher/                   # summary + experimental inline write-back (+ inline-readiness gates)
+  ci/                          # CI env detection + decision-policy (fail-open/closed)
+  state/                       # filesystem state, jsonl trace sink, non-blocking telemetry sink/transport
+  schemas/                     # review-config + review-output JSON schemas
+test/                          # bun:test specs (~32)   examples/fixtures/ # PR/MR fixtures
+docs/                          # canonical design docs (see README "Documents" index)
+M0xx-ROADMAP.md / -SUMMARY.md  # sequential milestone roadmaps + completion notes
+```
+
+## Lifecycle (one sentence per stage)
+
+`PR/MR event → CI job → VCS adapter fetches metadata+diff+prior state → diff filter →
+risk classifier → shared context builder → coordinator agent → specialist reviewer
+fan-out → coordinator fusion → publisher write-back → CI status → traces/state persisted.`
+
+Details + diagram: **docs/architecture.md**.
+
+## Design principles (load-bearing — violate only deliberately)
+
+1. **CI status is the canonical merge gate.** Comments/reviews are UX only.
+2. **Adapters at the edges.** VCS, runtimes, model providers, state, telemetry.
+3. **Deterministic orchestration, agentic judgment.** Code does fetch/filter/fan-out/
+   timeout/retry/state/publish; agents judge inside bounded contracts.
+4. **Specialize by risk & domain.** Cheap review for small diffs; more agents + stronger
+   models for risky ones.
+5. **Share context deliberately** — never duplicate full PR context into every prompt.
+6. **All PR/MR content is untrusted** (titles, descriptions, comments, diffs, repo files
+   may carry prompt injection or malicious code).
+7. **Fail behavior is policy** — projects choose fail-open vs fail-closed; the choice is explicit.
+
+## Trust & safety boundaries (do not weaken)
+
+- User-controlled metadata is sanitized centrally in `src/runtime/prompt-boundary.ts`
+  before prompt assembly. Reviewer-definitions are the only trusted prompt source.
+- Reviewed-repo Pi/project-local resources are **disabled** in CI; only factory-owned
+  reviewer definitions run. See **docs/fork-safety.md**.
+- Never execute untrusted fork code in a privileged CI context.
+- Never expose provider secrets or disable the real-Pi review workflow's default-off gate.
+
+## How work is planned here (spec-driven)
+
+- Milestones are `M0xx-ROADMAP.md` (vision, source issues, success criteria, named slices
+  S01.. with `risk:`/`depends:`/`issues:` tags, definition of done) and close out as
+  `M0xx-SUMMARY.md`. GitHub milestones mirror the in-flight M-series.
+- **`continue.md`** is the session-to-session handoff: last action, next action, why,
+  open threads, and an explicit **Do not** list. Read it first; update it before you stop.
+
+## Conventions & known gotchas
+
+- TypeScript strict everywhere (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
+  `verbatimModuleSyntax`). No `any`. There is **no linter/formatter** yet — strict tsc is
+  the only static gate (mechanizing boundary rules is tracked in #27).
+- `src/runner/risk-classifier.ts` carries an uncommitted #21 threshold note — **do not
+  commit it unless explicitly taking on #21.**
+- `validateFinding` currently accepts any `reviewer` string; model self-mislabeling is a
+  known backlog item, not a guarantee.
+- Context/token-savings metrics use a `bytes/4` approximation pending real provider telemetry.
+- Config is JSON-first: `.ai-review.json` / `ai-review.json` / `--config`. Regenerate the
+  published schema with `bun run schema:config`.
