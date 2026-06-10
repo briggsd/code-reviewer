@@ -13,8 +13,10 @@ Make this repository legible and verifiable for the AI coding agents that work i
 - GitHub #26 — Comprehension gate (fresh-agent pre-PR review w/ allow/warn/block) — dogfood our own runner
 - GitHub #28 — Holdout scenario eval set (behavioral, satisfaction-scored, separate from impl tests)
 - GitHub #29 — Doc-gardening / knowledge-flywheel loop: keep agent-facing context fresh
+- GitHub #32 — `validateFinding` asserts reviewer label matches dispatched role (dogfood-surfaced)
+- GitHub #33 — Restructure review summary: group by reviewer, severity badges, progressive disclosure (dogfood-surfaced)
 
-These five issues are this milestone's work items; **live status is the GitHub milestone "M013 — Agent-ready codebase,"** not this file. The slices below are the plan and rationale behind those issues.
+These issues are this milestone's work items; **live status is the GitHub milestone "M013 — Agent-ready codebase,"** not this file. The slices below are the plan and rationale behind those issues.
 
 ## Tentative Success Criteria
 
@@ -49,11 +51,24 @@ These five issues are this milestone's work items; **live status is the GitHub m
 - **S05 — Doc-gardening / knowledge-flywheel loop** → #29 · `risk:low` · `depends:[S01]`
   > A standalone `docs:check` script (also invoked from `bun run check`) fails on dead path/script/env-var references across `*.md`, warns on oversized/likely-stale docs and run-instruction drift, and a written gardening playbook defines the recurring pass. Reference-load tracking is deferred to telemetry/M011.
 
+- **S06 — Reviewer-label assertion** → #32 · `risk:low` · `depends:[]`
+  > `validateFinding` asserts `finding.reviewer === reviewerDefinition.role` at the specialist boundary (normalize or reject on mismatch); coordinator multi-role path untouched. Closes label-spoofing and stabilizes the finding identity. Surfaced by the PR #30 dogfood; lands before S03 (which adds a third label-emitting reviewer).
+
+- **S07 — Review summary layout** → #33 · `risk:medium` · `depends:[]`
+  > Restructure `summary-markdown.ts`: group findings by reviewer with severity-count badges, a top synthesis line, one-line findings, and progressive disclosure (`<details>` collapses the Why/Evidence prose). Directly fixes the output verbosity #28 measures.
+
 [M013 — Agent-ready codebase]: https://github.com/briggsd/ai-code-review-factory/milestones
 
 ## Sequencing
 
-S01 first — it is the cheapest, highest-leverage change and gives every later agent (and the boundary rules in S02) a map. S02 next — cheap mechanical protection for the boundaries the rest of this milestone builds on. S03/S04 are the verification layer and can proceed in parallel. S05 last, once there is enough corpus to be worth gardening.
+S01 (CLAUDE.md, #25) shipped first and gives every later slice a map. The rest fall into four waves — within a wave, slices are independent and can run in parallel:
+
+- **Wave 1 — foundation (cheap, unblocks the rest):** S02 boundary lint (#27) · S06 reviewer-label assertion (#32). Both are small, mechanical, and protect work the later waves build on; S06 also stabilizes finding identity (compounds M011 #31) and must precede S03's new reviewer.
+- **Wave 2 — output quality:** S07 summary layout (#33) → then S04 holdout evals (#28), so the eval asserts the restructured layout. S04 is also best done after M011 **#31** (re-review recurrence) so its re-review scenario is meaningful.
+- **Wave 3 — the big feature:** S03 comprehension gate (#26, `risk:high`) — after Wave 1 (needs S02's boundaries in place and S06's label guard, since it adds a third label-emitting reviewer).
+- **Wave 4 — finish:** S05 doc-gardening (#29), once there is enough corpus to be worth gardening.
+
+Shortest path to value: **#27 + #32 → #33 → #26**, with #28 and #29 trailing.
 
 ## Deferred From This Stub
 
