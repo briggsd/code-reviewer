@@ -48,4 +48,5 @@ After PR #30 merges, the M013 slices can branch off `main` independently.
 - Do not commit `src/runner/risk-classifier.ts` unless explicitly taking on #21.
 - Do not include `M009-SUMMARY.md` unless explicitly deciding to keep that prior summary artifact.
 - Do not reopen or rework the closed issues #10/#11/#12/#13/#14/#17/#18 unless new regressions appear.
+- Do not reopen PR #9 or work on the deleted branch `real-review-smoke-pr`.
 - Do not expose provider secrets or disable the real Pi review workflow by default.

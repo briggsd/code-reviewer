@@ -20,7 +20,7 @@ Full design: **docs/architecture.md**. Project purpose & status: **README.md**.
 - **Entry point:** `src/cli.ts` (installed as the `ai-code-review` bin).
 
 ```bash
-bun run check          # tsc --noEmit && bun test  ← THE verification gate. Run before any PR.
+bun run check          # bunx tsc --noEmit && bun test  ← THE verification gate. Run before any PR.
 bun test               # bun:test suite (tests live in test/)
 bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --runtime dummy
 bun run src/cli.ts schemas        # emit config + structured-output JSON schemas

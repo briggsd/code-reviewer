@@ -25,7 +25,7 @@ Make this repository legible and verifiable for the AI coding agents that work i
 
 ## Cross-Milestone Boundary
 
-- **#29 vs M012 "AGENTS.md freshness reviewer."** M013 S05 is the lightweight, in-repo, mechanical freshness check (dead-reference linter + staleness heuristics in `bun run check`). The M012 candidate workstream is the heavier agentic reviewer escalation (a full reviewer detecting instruction rot across package manager / test framework / build tooling). Ship the mechanical floor here; promote the agentic version under M012 only on a concrete trigger.
+- **#29 vs M012 "AGENTS.md freshness reviewer."** M013 S05 is the lightweight, in-repo, mechanical freshness check — a standalone `docs:check` script (dead-reference linter + staleness heuristics) that is also wired into `bun run check`. The M012 candidate workstream is the heavier agentic reviewer escalation (a full reviewer detecting instruction rot across package manager / test framework / build tooling). Ship the mechanical floor here; promote the agentic version under M012 only on a concrete trigger.
 - **#26 comprehension gate** reuses, and pressure-tests, the portable reviewer/coordinator contract from M009 S03 and the CI decision policy from M008. It is the same "deterministic orchestration, agentic judgment" seam, pointed inward at our own diffs.
 
 ## Tentative Slices
@@ -38,13 +38,13 @@ Make this repository legible and verifiable for the AI coding agents that work i
   > After this: `bun run check` fails when runner/contract code imports a concrete adapter, or when prompt assembly bypasses `prompt-boundary.ts`, each with a remediation message naming the fix. References the boundary rules documented in S01's CLAUDE.md. Adapter-direction rule first (highest value).
 
 - [ ] **S03: Comprehension gate reviewer + decision policy** `risk:high` `depends:[]` `issues:[#26]`
-  > After this: a trusted `comprehension` reviewer definition answers the standardized rubric (dependency choices, failure modes, security implications, separation of concerns, downstream breakage, comprehensibility) and emits `allow`/`warn`/`block`; the CI decision policy maps the decision (advisory by default), and the Q&A is rendered into the summary. Runs deterministically on a fixture via the dummy runtime.
+  > After this: a trusted `comprehension` reviewer definition answers the standardized rubric (dependency choices, failure modes, security implications, separation of concerns, downstream breakage, comprehensibility) and emits `allow`/`warn`/`block`; the CI decision policy maps the decision (advisory by default), and the Q&A is rendered into the summary. Runs deterministically on a fixture via the dummy runtime. `depends:[]` is literal — no hard data dependency on S02 — but the Sequencing section still recommends landing S02 first, since S03 exercises the boundaries S02 protects.
 
 - [ ] **S04: Holdout scenario eval set** `risk:medium` `depends:[]` `issues:[#28]`
   > After this: an opt-in `bun run evals` runs ≥5 behavioral scenarios (including a clean diff that must not be over-flagged) through the CLI, scores findings against declared criteria with statistical (K-run) satisfaction, and stores scenarios under `evals/` separate from `examples/fixtures/` to preserve holdout hygiene.
 
 - [ ] **S05: Doc-gardening / knowledge-flywheel loop** `risk:low` `depends:[S01]` `issues:[#29]`
-  > After this: a `docs:check` script fails on dead path/script/env-var references across `*.md`, warns on oversized/likely-stale docs and run-instruction drift, and a written gardening playbook defines the recurring pass. Reference-load tracking is deferred to telemetry/M011.
+  > After this: a standalone `docs:check` script (also invoked from `bun run check`) fails on dead path/script/env-var references across `*.md`, warns on oversized/likely-stale docs and run-instruction drift, and a written gardening playbook defines the recurring pass. Reference-load tracking is deferred to telemetry/M011.
 
 ## Sequencing
 
