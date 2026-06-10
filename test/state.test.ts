@@ -5,8 +5,10 @@ import { describe, expect, test } from "bun:test";
 import {
   DummyAgentRuntime,
   FileSystemReviewStateStore,
+  createTelemetryFailureTraceLogger,
   JsonlTraceSink,
   loadReviewFixture,
+  NonBlockingTelemetrySink,
   runReview,
 } from "../src/index.ts";
 import type {
@@ -20,6 +22,9 @@ import type {
   ReviewSummary,
   RuntimeEvent,
   RuntimeEventSubscription,
+  TelemetryDeliveryFailure,
+  TelemetryEvent,
+  TelemetryTransport,
 } from "../src/index.ts";
 
 class FailingRuntime implements AgentRuntime {
@@ -41,6 +46,143 @@ class FailingRuntime implements AgentRuntime {
 
   async cancel(_runId: string): Promise<void> {}
 }
+
+describe("non-blocking telemetry sink", () => {
+  test("delivers events asynchronously without making emit await transport completion", async () => {
+    const transport = new DeferredTelemetryTransport();
+    const failures: TelemetryDeliveryFailure[] = [];
+    const sink = new NonBlockingTelemetrySink({
+      transport,
+      deliveryTimeoutMs: 1_000,
+      onFailure: (failure) => failures.push(failure),
+    });
+
+    sink.emit(telemetryEvent("review.started"));
+
+    expect(transport.startedCount).toBe(1);
+    expect(failures).toHaveLength(0);
+
+    transport.resolveNext();
+    const result = await sink.flush();
+
+    expect(result).toEqual({
+      deliveredCount: 1,
+      failedCount: 0,
+      droppedCount: 0,
+      pendingCount: 0,
+    });
+  });
+
+  test("records delivery failures without rejecting flush", async () => {
+    const failures: TelemetryDeliveryFailure[] = [];
+    const sink = new NonBlockingTelemetrySink({
+      transport: {
+        async send(_event: TelemetryEvent): Promise<void> {
+          throw new Error("telemetry backend unavailable");
+        },
+      },
+      now: () => new Date("2026-06-09T01:00:00.000Z"),
+      onFailure: (failure) => failures.push(failure),
+    });
+
+    sink.emit(telemetryEvent("review.completed"));
+    const result = await sink.flush();
+
+    expect(result.failedCount).toBe(1);
+    expect(result.deliveredCount).toBe(0);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.reason).toBe("transport_error");
+    expect(failures[0]?.error?.message).toBe("telemetry backend unavailable");
+    expect(failures[0]?.timestamp).toBe("2026-06-09T01:00:00.000Z");
+  });
+
+  test("bounds queued telemetry and reports dropped events", async () => {
+    const transport = new DeferredTelemetryTransport();
+    const failures: TelemetryDeliveryFailure[] = [];
+    const sink = new NonBlockingTelemetrySink({
+      transport,
+      capacity: 1,
+      deliveryTimeoutMs: 1_000,
+      onFailure: (failure) => failures.push(failure),
+    });
+
+    sink.emit(telemetryEvent("event.in_flight"));
+    sink.emit(telemetryEvent("event.queued"));
+    sink.emit(telemetryEvent("event.dropped"));
+
+    expect(failures[0]?.reason).toBe("queue_full");
+    expect(failures[0]?.event?.type).toBe("event.dropped");
+
+    transport.resolveNext();
+    await waitForTelemetryStarts(transport, 2);
+    transport.resolveNext();
+    const result = await sink.flush();
+
+    expect(result).toEqual({
+      deliveredCount: 2,
+      failedCount: 0,
+      droppedCount: 1,
+      pendingCount: 0,
+    });
+  });
+
+  test("can log telemetry delivery failures into the existing trace stream", async () => {
+    const traceSink = new RecordingTraceSink();
+    const sink = new NonBlockingTelemetrySink({
+      transport: {
+        async send(_event: TelemetryEvent): Promise<void> {
+          throw new Error("telemetry backend unavailable");
+        },
+      },
+      now: () => new Date("2026-06-09T01:00:00.000Z"),
+      onFailure: createTelemetryFailureTraceLogger({ traceSink, runId: "run-1" }),
+    });
+
+    sink.emit(telemetryEvent("review.completed"));
+    await sink.flush();
+
+    expect(traceSink.events).toHaveLength(1);
+    expect(traceSink.events[0]).toMatchObject({
+      type: "runtime.event",
+      runId: "run-1",
+      timestamp: "2026-06-09T01:00:00.000Z",
+      message: "Telemetry delivery transport_error",
+      data: {
+        event: "telemetry.delivery_failed",
+        reason: "transport_error",
+        telemetryEventType: "review.completed",
+        errorMessage: "telemetry backend unavailable",
+      },
+    });
+  });
+
+  test("times out slow telemetry delivery without blocking later events", async () => {
+    const failures: TelemetryDeliveryFailure[] = [];
+    const delivered: string[] = [];
+    const sink = new NonBlockingTelemetrySink({
+      transport: {
+        async send(event: TelemetryEvent): Promise<void> {
+          if (event.type === "event.slow") {
+            await new Promise(() => {});
+            return;
+          }
+          delivered.push(event.type);
+        },
+      },
+      deliveryTimeoutMs: 1,
+      onFailure: (failure) => failures.push(failure),
+    });
+
+    sink.emit(telemetryEvent("event.slow"));
+    sink.emit(telemetryEvent("event.fast"));
+    const result = await sink.flush();
+
+    expect(failures[0]?.reason).toBe("delivery_timeout");
+    expect(delivered).toEqual(["event.fast"]);
+    expect(result.failedCount).toBe(1);
+    expect(result.deliveredCount).toBe(1);
+  });
+});
 
 describe("JSONL trace and filesystem state", () => {
   test("runner writes trace, run, summary, and latest change state artifacts", async () => {
@@ -197,6 +339,56 @@ describe("JSONL trace and filesystem state", () => {
     }
   });
 });
+
+function telemetryEvent(type: string): TelemetryEvent {
+  return {
+    type,
+    runId: "run-1",
+    timestamp: "2026-06-09T00:00:00.000Z",
+  };
+}
+
+async function waitForTelemetryStarts(transport: DeferredTelemetryTransport, expectedCount: number): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (transport.startedCount >= expectedCount) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+
+  throw new Error(`Telemetry transport started ${transport.startedCount} events, expected ${expectedCount}`);
+}
+
+class RecordingTraceSink {
+  readonly events: RuntimeEvent[] = [];
+
+  async write(event: RuntimeEvent): Promise<void> {
+    this.events.push(event);
+  }
+
+  async close(): Promise<void> {}
+}
+
+class DeferredTelemetryTransport implements TelemetryTransport {
+  readonly events: TelemetryEvent[] = [];
+  private readonly resolvers: Array<() => void> = [];
+
+  get startedCount(): number {
+    return this.events.length;
+  }
+
+  async send(event: TelemetryEvent): Promise<void> {
+    this.events.push(event);
+    await new Promise<void>((resolve) => this.resolvers.push(resolve));
+  }
+
+  resolveNext(): void {
+    const resolve = this.resolvers.shift();
+    if (resolve !== undefined) {
+      resolve();
+    }
+  }
+}
 
 function createIncrementingClock(startIso: string): () => Date {
   const startMs = Date.parse(startIso);

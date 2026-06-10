@@ -27,8 +27,9 @@ The acceptance signal (`fixed`/`recurring`/won't-fix) is inherently longitudinal
 
 ## Tentative Slices
 
-- [ ] **S01: Non-blocking TelemetrySink contract** `risk:high` `depends:[]` `issues:[#19]`
+- [x] **S01: Non-blocking TelemetrySink contract** `risk:high` `depends:[]` `issues:[#19]`
   > After this: telemetry has a bounded queue/timeout/fire-and-forget delivery model whose failures are logged but never fail the review.
+  > Shipped: `TelemetrySink`/`TelemetryTransport` contracts, `NonBlockingTelemetrySink`, bounded queue/drop accounting, per-event delivery timeout, trace-stream failure logger, and tests covering transport errors, timeouts, and queue overflow.
 
 - [ ] **S02: Metrics record routing** `risk:medium` `depends:[S01]` `issues:[#19]`
   > After this: run-level metrics from M008 are routed to the telemetry sink with stable schema/versioning.
