@@ -35,8 +35,9 @@ The acceptance signal (`fixed`/`recurring`/won't-fix) is inherently longitudinal
   > After this: run-level metrics from M008 are routed to the telemetry sink with stable schema/versioning.
   > Shipped: runner emits `ai_review.run_metrics` telemetry with `ai-review.run_metrics.v1`, CLI output-dir writes `telemetry.jsonl`, failed telemetry emits are traced without failing review jobs, and tests cover versioned metrics routing plus JSONL transport.
 
-- [ ] **S03: Truncation detection and heartbeat** `risk:medium` `depends:[S01]` `issues:[#19]`
+- [x] **S03: Truncation detection and heartbeat** `risk:medium` `depends:[S01]` `issues:[#19]`
   > After this: length-limit termination is classified separately, and slow model runs emit periodic heartbeat events.
+  > Shipped: Pi runtime detects model `finish_reason`/`stop_reason` length-limit termination before JSON parsing so it classifies as `truncated`, and `BunPiProcessRunner` emits sparse heartbeat events during long quiet model runs.
 
 - [ ] **S04: Minimum viable product analytics events** `risk:medium` `depends:[S02]` `issues:[#20]`
   > After this: run start, task completion, and mid-run/cross-push correction events are persisted with run IDs.

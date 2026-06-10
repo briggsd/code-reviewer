@@ -91,6 +91,30 @@ class OneReviewerFailsPiProcessRunner extends FakePiProcessRunner {
   }
 }
 
+class TruncatedSecurityPiProcessRunner extends FakePiProcessRunner {
+  override async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "security") {
+      this.calls.push(input);
+      return {
+        finalText: "{\"findings\":[",
+        events: [
+          {
+            type: "message_end",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "{\"findings\":[" }],
+              finish_reason: "length",
+            },
+          },
+        ],
+        rawOutput: "",
+      };
+    }
+
+    return super.run(input);
+  }
+}
+
 class FlakySecurityPiProcessRunner extends FakePiProcessRunner {
   private securityFailuresRemaining = 1;
 
@@ -525,6 +549,43 @@ describe("PiAgentRuntime", () => {
     }
   });
 
+  test("classifies model length-limit termination as truncated", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-truncated-"));
+
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runner = new TruncatedSecurityPiProcessRunner();
+      const runtime = new PiAgentRuntime({
+        processRunner: runner,
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const failedSecurity = events.find((event) => event.type === "agent.failed" && event.role === "security");
+
+      expect(runner.calls.filter((call) => call.role === "security")).toHaveLength(2);
+      expect(result.coordinatorResult?.reviewerFailures?.[0]?.errorClassification.category).toBe("truncated");
+      expect(failedSecurity?.data?.errorCategory).toBe("truncated");
+      expect(failedSecurity?.data?.retryable).toBe(true);
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
   test("retries retryable reviewer failures once within the overall run budget", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-retry-"));
 
@@ -671,6 +732,62 @@ describe("PiAgentRuntime", () => {
           deniedTools: [],
         },
       })).rejects.toThrow("Pi process produced no output for 20ms for silent-run:pi:security");
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("BunPiProcessRunner emits slow-run heartbeat events without waiting for model output", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-heartbeat-"));
+
+    try {
+      const scriptPath = join(outputDirectory, "slow-pi.ts");
+      await writeFile(scriptPath, [
+        "await new Promise((resolve) => setTimeout(resolve, 40));",
+        "console.log(JSON.stringify({ type: \"message_end\", message: { role: \"assistant\", content: [{ type: \"text\", text: \"{\\\"findings\\\":[]}\" }] } }));",
+      ].join("\n"));
+      const runner = new BunPiProcessRunner({
+        command: "bun",
+        baseArgs: ["run", scriptPath],
+      });
+      const streamedEvents: unknown[] = [];
+      let completed = false;
+
+      const resultPromise = runner.run({
+        runId: "heartbeat-run",
+        agentRunId: "heartbeat-run:pi:security",
+        role: "security",
+        prompt: "Return findings JSON.",
+        cwd: process.cwd(),
+        timeoutMs: 5_000,
+        heartbeatIntervalMs: 5,
+        toolPolicy: {
+          allowRead: false,
+          allowWrite: false,
+          allowShell: false,
+          allowedTools: [],
+          deniedTools: [],
+        },
+        onEvent: (event) => streamedEvents.push(event),
+      }).then((result) => {
+        completed = true;
+        return result;
+      });
+
+      await waitUntil(() => streamedEvents.some((event) => (event as { type?: string }).type === "heartbeat"));
+      expect(completed).toBe(false);
+
+      const result = await resultPromise;
+      const heartbeat = streamedEvents.find((event) => (event as { type?: string }).type === "heartbeat") as {
+        agentRunId?: string;
+        elapsedMs?: number;
+        silenceMs?: number;
+      } | undefined;
+
+      expect(heartbeat?.agentRunId).toBe("heartbeat-run:pi:security");
+      expect(heartbeat?.elapsedMs).toBeGreaterThan(0);
+      expect(heartbeat?.silenceMs).toBeGreaterThan(0);
+      expect(result.finalText).toBe("{\"findings\":[]}");
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
     }

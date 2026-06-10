@@ -28,6 +28,7 @@ export interface PiProcessRunInput {
   cwd: string;
   timeoutMs: number;
   inactivityTimeoutMs?: number;
+  heartbeatIntervalMs?: number;
   toolPolicy: RuntimeToolPolicy;
   model?: {
     provider: string;
@@ -140,6 +141,7 @@ export class PiAgentRuntime implements AgentRuntime {
       prompt: coordinatorPrompt,
       cwd: input.context.workingDirectory,
       timeoutMs: input.timeoutMs,
+      heartbeatIntervalMs: defaultHeartbeatIntervalMs(input.timeoutMs),
       toolPolicy: input.toolPolicy,
       onEvent: (event) => {
         streamedEventCount += 1;
@@ -151,6 +153,7 @@ export class PiAgentRuntime implements AgentRuntime {
       this.forwardPiEvents(input.runId, agentRunId, "coordinator", processResult.events);
     }
 
+    assertNotTruncatedOutput(processResult.events, agentRunId);
     const parsed = parseCoordinatorOutput(processResult.finalText);
     const summary = parsed ?? summarizeReview(input.context, reviewerResults.flatMap((result) => result.findings));
 
@@ -201,6 +204,7 @@ export class PiAgentRuntime implements AgentRuntime {
           prompt,
           cwd: input.context.workingDirectory,
           timeoutMs: input.timeoutMs,
+          heartbeatIntervalMs: defaultHeartbeatIntervalMs(input.timeoutMs),
           toolPolicy: input.toolPolicy,
           onEvent: (event) => {
             streamedEventCount += 1;
@@ -212,6 +216,7 @@ export class PiAgentRuntime implements AgentRuntime {
           this.forwardPiEvents(input.runId, agentRunId, input.role, processResult.events);
         }
 
+        assertNotTruncatedOutput(processResult.events, agentRunId);
         const parsedFindings = parseReviewerOutput(processResult.finalText);
         const severityEnforcement = enforceReviewerAllowedSeverities(parsedFindings, input.reviewerDefinition.guidance.allowedSeverities);
         const findings = severityEnforcement.findings;
@@ -413,7 +418,10 @@ export class BunPiProcessRunner implements PiProcessRunner {
 
     let timedOut = false;
     let inactivityTimedOut = false;
+    const startedAt = Date.now();
+    let lastOutputAt = startedAt;
     const inactivityTimeoutMs = input.inactivityTimeoutMs ?? Math.min(60_000, input.timeoutMs);
+    const heartbeatIntervalMs = input.heartbeatIntervalMs ?? defaultHeartbeatIntervalMs(input.timeoutMs);
     const timer = setTimeout(() => {
       timedOut = true;
       process.kill();
@@ -429,10 +437,24 @@ export class BunPiProcessRunner implements PiProcessRunner {
       }, inactivityTimeoutMs);
     };
     resetInactivityTimer();
+    const heartbeatTimer = heartbeatIntervalMs > 0
+      ? setInterval(() => {
+        input.onEvent?.({
+          type: "heartbeat",
+          runId: input.runId,
+          agentRunId: input.agentRunId,
+          role: input.role,
+          elapsedMs: Date.now() - startedAt,
+          silenceMs: Date.now() - lastOutputAt,
+          timeoutMs: input.timeoutMs,
+        });
+      }, heartbeatIntervalMs)
+      : undefined;
 
     try {
       const [stdout, rawError, exitCode] = await Promise.all([
         readJsonlStream(process.stdout, (event) => {
+          lastOutputAt = Date.now();
           resetInactivityTimer();
           input.onEvent?.(event);
         }),
@@ -464,6 +486,9 @@ export class BunPiProcessRunner implements PiProcessRunner {
       clearTimeout(timer);
       if (inactivityTimer !== undefined) {
         clearTimeout(inactivityTimer);
+      }
+      if (heartbeatTimer !== undefined) {
+        clearInterval(heartbeatTimer);
       }
       this.processesByRunId.delete(input.runId);
     }
@@ -499,6 +524,14 @@ function createReviewerFailure(
 interface RetryMetadata {
   attemptCount?: number;
   retryCount?: number;
+}
+
+function defaultHeartbeatIntervalMs(timeoutMs: number): number {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return 60_000;
+  }
+
+  return Math.min(60_000, Math.max(5_000, Math.floor(timeoutMs / 4)));
 }
 
 function normalizeRetryAttemptCount(value: number): number {
@@ -669,6 +702,67 @@ function buildCoordinatorPrompt(
       reviewerFailures,
     }),
   ].join("\n");
+}
+
+function assertNotTruncatedOutput(events: unknown[], agentRunId: string): void {
+  const finishReason = findLengthLimitFinishReason(events);
+  if (finishReason !== undefined) {
+    throw new Error(`Pi model output truncated by length limit (${finishReason}) for ${agentRunId}`);
+  }
+}
+
+function findLengthLimitFinishReason(events: unknown[]): string | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const reason = collectFinishReason(events[index]);
+    if (reason !== undefined && isLengthLimitFinishReason(reason)) {
+      return reason;
+    }
+  }
+
+  return undefined;
+}
+
+function collectFinishReason(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const directReason = readFinishReason(record);
+  if (directReason !== undefined) {
+    return directReason;
+  }
+
+  for (const field of ["message", "response", "result", "data"]) {
+    const nested = record[field];
+    if (typeof nested === "object" && nested !== null) {
+      const nestedReason = readFinishReason(nested as Record<string, unknown>);
+      if (nestedReason !== undefined) {
+        return nestedReason;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function readFinishReason(record: Record<string, unknown>): string | undefined {
+  for (const field of ["finish_reason", "finishReason", "stop_reason", "stopReason", "reason"]) {
+    const value = record[field];
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function isLengthLimitFinishReason(reason: string): boolean {
+  const normalized = reason.toLowerCase().replaceAll(/[-\s]/g, "_");
+  return normalized === "length" ||
+    normalized === "max_tokens" ||
+    normalized === "max_output_tokens" ||
+    normalized === "output_token_limit";
 }
 
 function parseReviewerOutput(text: string): Finding[] {
