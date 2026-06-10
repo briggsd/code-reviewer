@@ -31,8 +31,9 @@ The acceptance signal (`fixed`/`recurring`/won't-fix) is inherently longitudinal
   > After this: telemetry has a bounded queue/timeout/fire-and-forget delivery model whose failures are logged but never fail the review.
   > Shipped: `TelemetrySink`/`TelemetryTransport` contracts, `NonBlockingTelemetrySink`, bounded queue/drop accounting, per-event delivery timeout, trace-stream failure logger, and tests covering transport errors, timeouts, and queue overflow.
 
-- [ ] **S02: Metrics record routing** `risk:medium` `depends:[S01]` `issues:[#19]`
+- [x] **S02: Metrics record routing** `risk:medium` `depends:[S01]` `issues:[#19]`
   > After this: run-level metrics from M008 are routed to the telemetry sink with stable schema/versioning.
+  > Shipped: runner emits `ai_review.run_metrics` telemetry with `ai-review.run_metrics.v1`, CLI output-dir writes `telemetry.jsonl`, failed telemetry emits are traced without failing review jobs, and tests cover versioned metrics routing plus JSONL transport.
 
 - [ ] **S03: Truncation detection and heartbeat** `risk:medium` `depends:[S01]` `issues:[#19]`
   > After this: length-limit termination is classified separately, and slow model runs emit periodic heartbeat events.

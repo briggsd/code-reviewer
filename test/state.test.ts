@@ -6,6 +6,7 @@ import {
   DummyAgentRuntime,
   FileSystemReviewStateStore,
   createTelemetryFailureTraceLogger,
+  JsonlTelemetryTransport,
   JsonlTraceSink,
   loadReviewFixture,
   NonBlockingTelemetrySink,
@@ -24,6 +25,8 @@ import type {
   RuntimeEventSubscription,
   TelemetryDeliveryFailure,
   TelemetryEvent,
+  TelemetryFlushResult,
+  TelemetrySink,
   TelemetryTransport,
 } from "../src/index.ts";
 
@@ -156,6 +159,27 @@ describe("non-blocking telemetry sink", () => {
     });
   });
 
+  test("writes telemetry events as JSONL", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-telemetry-"));
+
+    try {
+      const telemetryPath = join(outputDirectory, "telemetry.jsonl");
+      const transport = new JsonlTelemetryTransport(telemetryPath);
+      await transport.send(telemetryEvent("review.completed"));
+      await transport.close();
+
+      const events = (await readFile(telemetryPath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as TelemetryEvent);
+
+      expect(events.map((event) => event.type)).toEqual(["review.completed"]);
+      expect(events[0]?.runId).toBe("run-1");
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
   test("times out slow telemetry delivery without blocking later events", async () => {
     const failures: TelemetryDeliveryFailure[] = [];
     const delivered: string[] = [];
@@ -250,6 +274,71 @@ describe("JSONL trace and filesystem state", () => {
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
     }
+  });
+
+  test("runner routes versioned run metrics to telemetry", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new DummyAgentRuntime({
+      defaultFindings: fixture.fakeFindings ?? [],
+    });
+    const telemetrySink = new RecordingTelemetrySink();
+
+    await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+      runtime,
+      telemetrySink,
+    });
+
+    expect(telemetrySink.events).toHaveLength(1);
+    expect(telemetrySink.events[0]).toMatchObject({
+      type: "ai_review.run_metrics",
+      runId: "fixture-auth-pr",
+      data: {
+        schemaVersion: "ai-review.run_metrics.v1",
+        status: "completed",
+        provider: "github",
+        repository: "example/payments-api",
+        changeId: "17",
+        riskTier: "full",
+        decision: "significant_concerns",
+        outcome: "fail",
+        findingCount: 1,
+        findingsBySeverity: {
+          critical: 1,
+        },
+        tokens: {
+          agentCount: 5,
+          inputTokens: 0,
+          outputTokens: 0,
+          estimatedCostUsd: 0,
+        },
+      },
+    });
+  });
+
+  test("runner logs telemetry emit failures without failing review", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const traceSink = new RecordingTraceSink();
+
+    const result = await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+      traceSink,
+      telemetrySink: new ThrowingTelemetrySink(),
+    });
+
+    expect(result.summary.decision).toBe("significant_concerns");
+    expect(traceSink.events.find((event) => event.data?.event === "telemetry.emit_failed")).toMatchObject({
+      type: "runtime.event",
+      runId: "fixture-auth-pr",
+      message: "Telemetry emit failed",
+      data: {
+        event: "telemetry.emit_failed",
+        telemetryEventType: "ai_review.run_metrics",
+        errorMessage: "telemetry sink exploded",
+      },
+    });
   });
 
   test("runner aggregates per-agent token and cost metrics into run state", async () => {
@@ -357,6 +446,46 @@ async function waitForTelemetryStarts(transport: DeferredTelemetryTransport, exp
   }
 
   throw new Error(`Telemetry transport started ${transport.startedCount} events, expected ${expectedCount}`);
+}
+
+class RecordingTelemetrySink implements TelemetrySink {
+  readonly events: TelemetryEvent[] = [];
+
+  emit(event: TelemetryEvent): void {
+    this.events.push(event);
+  }
+
+  async flush(): Promise<TelemetryFlushResult> {
+    return {
+      deliveredCount: this.events.length,
+      failedCount: 0,
+      droppedCount: 0,
+      pendingCount: 0,
+    };
+  }
+
+  async close(): Promise<TelemetryFlushResult> {
+    return this.flush();
+  }
+}
+
+class ThrowingTelemetrySink implements TelemetrySink {
+  emit(_event: TelemetryEvent): void {
+    throw new Error("telemetry sink exploded");
+  }
+
+  async flush(): Promise<TelemetryFlushResult> {
+    return {
+      deliveredCount: 0,
+      failedCount: 1,
+      droppedCount: 0,
+      pendingCount: 0,
+    };
+  }
+
+  async close(): Promise<TelemetryFlushResult> {
+    return this.flush();
+  }
 }
 
 class RecordingTraceSink {

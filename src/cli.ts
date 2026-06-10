@@ -10,11 +10,14 @@ import {
   formatReviewSummaryMarkdown,
   GitHubVcsAdapter,
   GitLabVcsAdapter,
+  JsonlTelemetryTransport,
   JsonlTraceSink,
   LocalCiAdapter,
+  NonBlockingTelemetrySink,
   PiAgentRuntime,
   publishReviewInlineFindings,
   publishReviewSummary,
+  createTelemetryFailureTraceLogger,
   loadProjectReviewConfig,
   loadReviewFixture,
   reviewConfigSchema,
@@ -75,7 +78,14 @@ async function runCommand(args: string[]): Promise<void> {
   const now = new Date();
   const runId = source.kind === "fixture" ? source.fixture.runId ?? createRunId(now) : createRunId(now);
   const tracePath = outputDirectory === undefined ? undefined : join(outputDirectory, "runs", runId, "trace.jsonl");
+  const telemetryPath = outputDirectory === undefined ? undefined : join(outputDirectory, "runs", runId, "telemetry.jsonl");
   const traceSink = tracePath === undefined ? undefined : new JsonlTraceSink(tracePath);
+  const telemetrySink = telemetryPath === undefined
+    ? undefined
+    : new NonBlockingTelemetrySink({
+      transport: new JsonlTelemetryTransport(telemetryPath),
+      ...(traceSink !== undefined ? { onFailure: createTelemetryFailureTraceLogger({ traceSink, runId }) } : {}),
+    });
   const stateStore = outputDirectory === undefined ? undefined : new FileSystemReviewStateStore(outputDirectory);
   const runtime = runtimeName === "dummy"
     ? new DummyAgentRuntime({ defaultFindings: source.fakeFindings })
@@ -95,6 +105,7 @@ async function runCommand(args: string[]): Promise<void> {
         ...(stateStore !== undefined ? { stateStore } : {}),
         ...(traceSink !== undefined ? { traceSink } : {}),
         ...(tracePath !== undefined ? { tracePath } : {}),
+        ...(telemetrySink !== undefined ? { telemetrySink } : {}),
         ...(runtime !== undefined ? { runtime } : {}),
       })
       : await runReviewFromChange({
@@ -108,6 +119,7 @@ async function runCommand(args: string[]): Promise<void> {
         ...(stateStore !== undefined ? { stateStore } : {}),
         ...(traceSink !== undefined ? { traceSink } : {}),
         ...(tracePath !== undefined ? { tracePath } : {}),
+        ...(telemetrySink !== undefined ? { telemetrySink } : {}),
         ...(runtime !== undefined ? { runtime } : {}),
       });
 
@@ -155,6 +167,7 @@ async function runCommand(args: string[]): Promise<void> {
       process.exitCode = decision.exitCode;
     }
   } finally {
+    await telemetrySink?.close();
     await traceSink?.close();
   }
 }

@@ -5,10 +5,12 @@ import type {
   CoordinatorRunResult,
   DiffSummary,
   Finding,
+  JsonValue,
   ModelSelection,
   PriorReviewState,
   ReviewConfig,
   ReviewContext,
+  ReviewErrorClassification,
   ReviewContextArtifacts,
   ReviewDecision,
   ReviewerContextReferences,
@@ -21,6 +23,8 @@ import type {
   RuntimeToolPolicy,
   SafetyMode,
   Severity,
+  TelemetryEvent,
+  TelemetrySink,
   TokenUsage,
   TraceSink,
 } from "../contracts/index.ts";
@@ -40,6 +44,7 @@ export interface RunReviewOptions {
   stateStore?: ReviewStateStore;
   traceSink?: TraceSink;
   tracePath?: string;
+  telemetrySink?: TelemetrySink;
   runtime?: AgentRuntime;
 }
 
@@ -81,6 +86,7 @@ export async function runReviewFromChange(options: RunReviewFromChangeOptions): 
     ...(options.stateStore !== undefined ? { stateStore: options.stateStore } : {}),
     ...(options.traceSink !== undefined ? { traceSink: options.traceSink } : {}),
     ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
+    ...(options.telemetrySink !== undefined ? { telemetrySink: options.telemetrySink } : {}),
     ...(options.runtime !== undefined ? { runtime: options.runtime } : {}),
   });
 }
@@ -245,6 +251,18 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
     });
     await options.stateStore?.saveSummary(runId, summary);
+    await emitTelemetry({
+      telemetrySink: options.telemetrySink,
+      traceSink: options.traceSink,
+      event: createRunMetricsTelemetryEvent({
+        runId,
+        timestamp: completedAtTimestamp,
+        context,
+        summary,
+        metrics,
+        status: "completed",
+      }),
+    });
 
     await emitTrace(options.traceSink, {
       type: "review.completed",
@@ -288,6 +306,18 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         durationMs: overallMs,
       },
     });
+    const metrics: ReviewRunMetrics = {
+      durationsMs: {
+        overallMs,
+        contextBuildMs,
+        riskAssessmentMs,
+      },
+      ...(context.contextArtifacts !== undefined
+        ? {
+          context: createContextMetrics(context.contextArtifacts),
+        }
+        : {}),
+    };
     await options.stateStore?.saveRun({
       runId,
       startedAt: timestamp,
@@ -297,21 +327,22 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         metadata: context.metadata,
         risk: context.risk,
       },
-      metrics: {
-        durationsMs: {
-          overallMs,
-          contextBuildMs,
-          riskAssessmentMs,
-        },
-        ...(context.contextArtifacts !== undefined
-          ? {
-            context: createContextMetrics(context.contextArtifacts),
-          }
-          : {}),
-      },
+      metrics,
       error: serializedError.message,
       errorClassification,
       ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
+    });
+    await emitTelemetry({
+      telemetrySink: options.telemetrySink,
+      traceSink: options.traceSink,
+      event: createRunMetricsTelemetryEvent({
+        runId,
+        timestamp: failedAtTimestamp,
+        context,
+        metrics,
+        status: "failed",
+        errorClassification,
+      }),
     });
 
     throw error;
@@ -461,6 +492,111 @@ function createRunMetrics(input: {
       : {}),
     ...(failureMetrics.length > 0 ? { failures: failureMetrics } : {}),
   };
+}
+
+function createRunMetricsTelemetryEvent(input: {
+  runId: string;
+  timestamp: string;
+  context: ReviewContext;
+  metrics: ReviewRunMetrics;
+  status: "completed" | "failed";
+  summary?: ReviewSummary;
+  errorClassification?: ReviewErrorClassification;
+}): TelemetryEvent {
+  const data: Record<string, JsonValue> = {
+    schemaVersion: "ai-review.run_metrics.v1",
+    status: input.status,
+    provider: input.context.metadata.provider,
+    repository: input.context.metadata.repository.slug,
+    changeId: input.context.metadata.changeId,
+    headSha: input.context.metadata.headSha,
+    safetyMode: input.context.safetyMode,
+    riskTier: input.context.risk.tier,
+    riskReason: input.context.risk.reason,
+    reviewedFileCount: input.context.risk.reviewedFileCount,
+    ignoredFileCount: input.context.risk.ignoredFileCount,
+    durationMs: input.metrics.durationsMs.overallMs,
+    durationsMs: toJsonRecord(input.metrics.durationsMs),
+    findingCount: input.summary?.findings.length ?? 0,
+    findingsBySeverity: countFindingsBy(input.summary?.findings ?? [], (finding) => finding.severity),
+    findingsByReviewer: countFindingsBy(input.summary?.findings ?? [], (finding) => finding.reviewer),
+    decision: input.summary?.decision ?? "review_failed",
+    outcome: input.summary?.outcome ?? "fail",
+  };
+
+  if (input.metrics.context !== undefined) {
+    data.context = toJsonRecord(input.metrics.context);
+  }
+  if (input.metrics.tokens !== undefined) {
+    data.tokens = toJsonRecord(input.metrics.tokens);
+  }
+  if (input.metrics.agents !== undefined) {
+    data.agents = input.metrics.agents.map((agent) => ({
+      agentRunId: agent.agentRunId,
+      role: agent.role,
+      kind: agent.kind,
+      usage: toJsonRecord(agent.usage),
+      ...(agent.prompt !== undefined ? { prompt: toJsonRecord(agent.prompt) } : {}),
+      ...(agent.attemptCount !== undefined ? { attemptCount: agent.attemptCount } : {}),
+      ...(agent.retryCount !== undefined ? { retryCount: agent.retryCount } : {}),
+    }));
+  }
+  if (input.metrics.failures !== undefined) {
+    data.failures = input.metrics.failures.map((failure) => ({
+      agentRunId: failure.agentRunId,
+      role: failure.role,
+      kind: failure.kind,
+      errorName: failure.errorName,
+      errorCategory: failure.errorClassification.category,
+      retryable: failure.errorClassification.retryable,
+      ...(failure.durationMs !== undefined ? { durationMs: failure.durationMs } : {}),
+      ...(failure.attemptCount !== undefined ? { attemptCount: failure.attemptCount } : {}),
+      ...(failure.retryCount !== undefined ? { retryCount: failure.retryCount } : {}),
+    }));
+  }
+  if (input.summary?.reReview !== undefined) {
+    data.reReview = {
+      newFindingCount: input.summary.reReview.newFindingIds.length,
+      recurringFindingCount: input.summary.reReview.recurringFindingIds.length,
+      fixedFindingCount: input.summary.reReview.fixedFindingIds.length,
+    };
+  }
+  if (input.errorClassification !== undefined) {
+    data.errorClassification = {
+      category: input.errorClassification.category,
+      retryable: input.errorClassification.retryable,
+      reason: input.errorClassification.reason,
+    };
+  }
+
+  return {
+    type: "ai_review.run_metrics",
+    runId: input.runId,
+    timestamp: input.timestamp,
+    data,
+  };
+}
+
+function countFindingsBy(findings: Finding[], selectKey: (finding: Finding) => string): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const finding of findings) {
+    const key = selectKey(finding);
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+
+  return counts;
+}
+
+function toJsonRecord(record: object): Record<string, JsonValue> {
+  const jsonRecord: Record<string, JsonValue> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (value === undefined) {
+      continue;
+    }
+    jsonRecord[key] = value as JsonValue;
+  }
+
+  return jsonRecord;
 }
 
 function createContextMetrics(artifacts: ReviewContextArtifacts): NonNullable<ReviewRunMetrics["context"]> {
@@ -715,6 +851,30 @@ function serializeError(error: unknown): { name: string; message: string; stack?
 
 async function emitTrace(traceSink: TraceSink | undefined, event: RuntimeEvent): Promise<void> {
   await traceSink?.write(event);
+}
+
+async function emitTelemetry(input: {
+  telemetrySink: TelemetrySink | undefined;
+  traceSink: TraceSink | undefined;
+  event: TelemetryEvent;
+}): Promise<void> {
+  try {
+    input.telemetrySink?.emit(input.event);
+  } catch (error) {
+    const serializedError = serializeError(error);
+    await emitTrace(input.traceSink, {
+      type: "runtime.event",
+      runId: input.event.runId ?? "unknown",
+      timestamp: input.event.timestamp,
+      message: "Telemetry emit failed",
+      data: {
+        event: "telemetry.emit_failed",
+        telemetryEventType: input.event.type,
+        errorName: serializedError.name,
+        errorMessage: serializedError.message,
+      },
+    });
+  }
 }
 
 export function createRunId(now: Date): string {
