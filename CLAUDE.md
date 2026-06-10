@@ -23,6 +23,7 @@ Full design: **docs/architecture.md**. Project purpose & status: **README.md**.
 bun run check          # bunx tsc --noEmit && bun test  ← THE verification gate. Run before any PR.
 bun test               # bun:test suite (tests live in test/)
 bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --runtime dummy
+bun run src/cli.ts run --git-diff --runtime dummy --output-dir .ai-review   # review local changes, no PR. default base HEAD = uncommitted only; --base main for committed branch work. captures telemetry/traces
 bun run src/cli.ts schemas        # emit config + structured-output JSON schemas
 bun run schema:config             # regenerate .ai-review.schema.json
 ```
@@ -46,6 +47,7 @@ src/
     re-review.ts               #   new/recurring/fixed finding classification
     reviewer-definitions.ts    #   TRUSTED, factory-owned reviewer prompts/modules
     fixture.ts                 #   fixture loading for local/dummy runs
+    git-diff-source.ts         #   --git-diff: build metadata+diff from local git (no PR, no publish)
   runtime/                     # agent runtimes behind AgentRuntime
     dummy-agent-runtime.ts     #   deterministic, for tests / no-network runs
     pi-agent-runtime.ts        #   real Pi subprocess (JSON mode, project resources disabled)

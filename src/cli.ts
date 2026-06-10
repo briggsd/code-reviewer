@@ -18,6 +18,7 @@ import {
   publishReviewInlineFindings,
   publishReviewSummary,
   createTelemetryFailureTraceLogger,
+  loadGitDiffChange,
   loadProjectReviewConfig,
   loadReviewFixture,
   reviewConfigSchema,
@@ -26,7 +27,23 @@ import {
   runReviewFromChange,
 } from "./index.ts";
 import { parseRunPublishOptions } from "./cli/run-options.ts";
-import type { ChangeRef, DiffSummary, Finding, PriorReviewState, ReviewConfig, ReviewFixture, ChangeMetadata, VcsAdapter } from "./index.ts";
+import type { ChangeRef, DiffSummary, Finding, GitRunner, PriorReviewState, ReviewConfig, ReviewFixture, ChangeMetadata, VcsAdapter } from "./index.ts";
+
+const gitRunner: GitRunner = async (args) => {
+  const proc = Bun.spawn(["git", ...args], { stdout: "pipe", stderr: "pipe" });
+  // Drain stdout and stderr concurrently: reading stdout to completion before
+  // touching stderr can deadlock when git fills the stderr pipe buffer.
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(`git ${args.join(" ")} failed: ${stderr.trim()}`);
+  }
+
+  return stdout;
+};
 
 const command = Bun.argv[2] ?? "help";
 
@@ -53,7 +70,7 @@ type ReviewSource =
       config: ReviewConfig;
       priorState?: PriorReviewState;
       fakeFindings: Finding[];
-      adapter: VcsAdapter;
+      adapter?: VcsAdapter;
     };
 
 async function runCommand(args: string[]): Promise<void> {
@@ -124,7 +141,7 @@ async function runCommand(args: string[]): Promise<void> {
       });
 
     if (publishOptions.publishInline) {
-      if (source.kind !== "change") {
+      if (source.kind !== "change" || source.adapter === undefined) {
         throw new Error("--publish-inline requires --provider github|gitlab");
       }
       if (source.adapter.provider !== "github") {
@@ -142,7 +159,7 @@ async function runCommand(args: string[]): Promise<void> {
     }
 
     if (publishOptions.publishSummary) {
-      if (source.kind !== "change") {
+      if (source.kind !== "change" || source.adapter === undefined) {
         throw new Error("--publish-summary requires --provider github|gitlab");
       }
 
@@ -189,9 +206,35 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
     };
   }
 
+  if (hasFlag(args, "--git-diff")) {
+    const base = readFlag(args, "--base");
+    const changeId = readFlag(args, "--change-id");
+    const seedFixturePath = readFlag(args, "--seed-fixture");
+    const seedFixture = seedFixturePath === undefined ? undefined : await loadReviewFixture(seedFixturePath);
+    const config = await loadProjectReviewConfig({
+      ...(configPath !== undefined ? { path: configPath } : {}),
+      base: seedFixture?.config ?? createDefaultReviewConfig(),
+    });
+    const { metadata, diff } = await loadGitDiffChange(
+      {
+        ...(base !== undefined ? { base } : {}),
+        ...(changeId !== undefined ? { changeId } : {}),
+      },
+      gitRunner,
+    );
+
+    return {
+      kind: "change",
+      metadata,
+      diff,
+      config,
+      fakeFindings: seedFixture?.fakeFindings ?? [],
+    };
+  }
+
   const provider = readFlag(args, "--provider");
   if (provider !== "github" && provider !== "gitlab") {
-    throw new Error("run requires either --fixture <path> or --provider github|gitlab");
+    throw new Error("run requires --fixture <path>, --git-diff, or --provider github|gitlab");
   }
 
   const repo = requiredFlag(args, "--repo");
@@ -283,6 +326,12 @@ function printHelp(): void {
   console.log("  schemas                              Print reviewer/coordinator output schemas");
   console.log("  run --fixture <path> [--config <path>] [--output-dir] [--runtime dummy|pi]");
   console.log("      [--format json|markdown] [--ci-exit] [--pi-provider <name> --pi-model <id>]");
+  console.log("  run --git-diff [--base <ref>] [--change-id <id>] [--config <path>] [--seed-fixture <path>]");
+  console.log("      [--runtime dummy|pi] [--output-dir <path>] [--format json|markdown] [--ci-exit]");
+  console.log("      [--pi-provider <name> --pi-model <id>]");
+  console.log("                                       Review local git changes; no publish.");
+  console.log("                                       --base default HEAD = uncommitted changes only; pass --base <branch>");
+  console.log("                                       for committed branch work. Untracked files need `git add -N` first.");
   console.log("  run --provider github|gitlab --repo <owner/name> --change-id <id>");
   console.log("      [--head-sha <sha>] [--api-base-url <url>] [--seed-fixture <path>] [--config <path>] [--runtime dummy|pi]");
   console.log("      [--output-dir <path>] [--format json|markdown] [--publish-summary] [--publish-inline] [--ci-exit]");

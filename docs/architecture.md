@@ -72,7 +72,7 @@ The review runner is the executable launched by CI. It owns the top-level workfl
 11. Emit the final CI status.
 12. Persist traces and state.
 
-The runner should be usable both in CI and locally. Local mode uses the same review lifecycle but reads working-tree diffs instead of PR/MR metadata.
+The runner should be usable both in CI and locally. Local mode uses the same review lifecycle but reads working-tree diffs instead of PR/MR metadata. The `--git-diff` CLI source (`src/runner/git-diff-source.ts`) implements this: it builds the same `ChangeMetadata` + `DiffSummary` from `git diff` (working tree vs `--base`, default `HEAD`) under `provider: "local"`, so a developer can review uncommitted changes — and capture telemetry/traces via `--output-dir` — before opening a PR. There is no adapter, so publishing is unavailable in this mode. (Untracked files are not included unless intent-added with `git add -N`.)
 
 ### VCS adapters
 
