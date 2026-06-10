@@ -154,8 +154,11 @@ export class PiAgentRuntime implements AgentRuntime {
     }
 
     assertNotTruncatedOutput(processResult.events, agentRunId);
-    const parsed = parseCoordinatorOutput(processResult.finalText);
-    const summary = parsed ?? summarizeReview(input.context, reviewerResults.flatMap((result) => result.findings));
+    const parsed = parseCoordinatorOutput(
+      processResult.finalText,
+      ["coordinator", ...input.selectedReviewers.map((reviewer) => reviewer.role)],
+    );
+    const summary = parsed?.summary ?? summarizeReview(input.context, reviewerResults.flatMap((result) => result.findings));
 
     this.emitAgentEvent("agent.output", input.runId, agentRunId, "coordinator", {
       decision: summary.decision,
@@ -163,6 +166,12 @@ export class PiAgentRuntime implements AgentRuntime {
       findingCount: summary.findings.length,
       structuredOutput: parsed !== undefined,
       failedReviewerCount: reviewerFailures.length,
+      ...(parsed !== undefined && parsed.reviewerRoleAdjustments.length > 0
+        ? {
+          reviewerRoleAdjustmentCount: parsed.reviewerRoleAdjustments.length,
+          reviewerRoleAdjustments: parsed.reviewerRoleAdjustments,
+        }
+        : {}),
     });
     this.emitAgentEvent("agent.completed", input.runId, agentRunId, "coordinator", {
       reviewerCount: reviewerResults.length,
@@ -796,6 +805,13 @@ interface ReviewerRoleAdjustment {
   reason: "reviewer_role_mismatch";
 }
 
+interface CoordinatorRoleAdjustment {
+  index: number;
+  emittedReviewer: string;
+  adjustedReviewer: "coordinator";
+  reason: "coordinator_reviewer_not_dispatched";
+}
+
 // Trust boundary (issue #32): the `reviewer` label in a specialist finding is
 // model-authored and untrusted — a prompt-injected diff can make a reviewer
 // self-label as any role (e.g. "security"), and publisher/summary render it
@@ -804,9 +820,7 @@ interface ReviewerRoleAdjustment {
 // Normalize any mismatch back to the dispatched role (rather than discarding,
 // to preserve a possibly-real finding) and record an adjustment so spoofing is
 // observable. (Model-emitted finding ids are dropped centrally in
-// validateFinding, so identity stays factory-owned for every path.) Only the
-// specialist boundary calls this; the coordinator path legitimately attributes
-// findings across roles and is left untouched.
+// validateFinding, so identity stays factory-owned for every path.)
 function enforceReviewerRole(findings: Finding[], dispatchedRole: string): {
   findings: Finding[];
   adjustments: ReviewerRoleAdjustment[];
@@ -827,6 +841,38 @@ function enforceReviewerRole(findings: Finding[], dispatchedRole: string): {
     return {
       ...finding,
       reviewer: dispatchedRole,
+    };
+  });
+
+  return { findings: normalizedFindings, adjustments };
+}
+
+// Trust boundary (issue #37): coordinator output is also model-authored, but it
+// can legitimately attribute consolidated findings to multiple specialist
+// roles. Preserve labels for roles that were actually dispatched for this run,
+// and normalize clearly-spoofed out-of-set labels to `coordinator` so summaries
+// and stable IDs are not keyed on attacker-chosen roles.
+function enforceCoordinatorReviewerRoles(findings: Finding[], allowedReviewerRoles: readonly string[]): {
+  findings: Finding[];
+  adjustments: CoordinatorRoleAdjustment[];
+} {
+  const allowed = new Set(allowedReviewerRoles);
+  const adjustments: CoordinatorRoleAdjustment[] = [];
+  const normalizedFindings = findings.map((finding, index) => {
+    if (allowed.has(finding.reviewer)) {
+      return finding;
+    }
+
+    adjustments.push({
+      index,
+      emittedReviewer: truncateTraceValue(String(finding.reviewer)),
+      adjustedReviewer: "coordinator",
+      reason: "coordinator_reviewer_not_dispatched",
+    });
+
+    return {
+      ...finding,
+      reviewer: "coordinator",
     };
   });
 
@@ -889,7 +935,7 @@ function maxSeverity(severities: readonly Severity[]): Severity | undefined {
   return maximum;
 }
 
-function parseCoordinatorOutput(text: string) {
+function parseCoordinatorOutput(text: string, allowedReviewerRoles: readonly string[]) {
   const parsed = getRecord(parseJsonObject(text));
   if (
     !isReviewDecision(parsed.decision) ||
@@ -903,13 +949,21 @@ function parseCoordinatorOutput(text: string) {
     return undefined;
   }
 
+  const roleEnforcement = enforceCoordinatorReviewerRoles(
+    parsed.findings.map((finding) => validateFinding(finding)),
+    allowedReviewerRoles,
+  );
+
   return {
-    decision: parsed.decision,
-    outcome: parsed.outcome,
-    title: parsed.title,
-    body: parsed.body,
-    findings: parsed.findings.map((finding) => validateFinding(finding)),
-    risk: parsed.risk as ReturnType<typeof summarizeReview>["risk"],
+    summary: {
+      decision: parsed.decision,
+      outcome: parsed.outcome,
+      title: parsed.title,
+      body: parsed.body,
+      findings: roleEnforcement.findings,
+      risk: parsed.risk as ReturnType<typeof summarizeReview>["risk"],
+    },
+    reviewerRoleAdjustments: roleEnforcement.adjustments,
   };
 }
 

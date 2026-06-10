@@ -635,6 +635,8 @@ Every run emits JSONL events. Event types:
 
 Each event includes run ID, project ID, change ID, timestamp, and enough metadata to debug without reading the full raw prompt. When project config references an enabled reviewer role with no trusted operator definition, the runner emits `agent.skipped` with `reason: "no_trusted_reviewer_definition"` instead of silently ignoring it.
 
+Pi `agent.output` events may include `reviewerRoleAdjustmentCount` and `reviewerRoleAdjustments` when model-authored finding labels are normalized at a trust boundary. Specialist adjustments use `{ index, emittedReviewer, dispatchedRole, reason: "reviewer_role_mismatch" }`. Coordinator adjustments use `{ index, emittedReviewer, adjustedReviewer: "coordinator", reason: "coordinator_reviewer_not_dispatched" }` when the coordinator emits a reviewer label outside `coordinator` plus the specialist roles dispatched for that run. Operators should treat these as prompt-injection or schema-drift signals and inspect the corresponding raw output before relying on the affected finding attribution.
+
 ### Metrics
 
 Track:

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   BunPiProcessRunner,
+  createStableFindingId,
   FileSystemReviewStateStore,
   JsonlTraceSink,
   loadReviewFixture,
@@ -242,9 +243,9 @@ class SpoofedReviewerRolePiProcessRunner implements PiProcessRunner {
           outcome: "pass",
           title: "AI review found a documentation finding",
           body: "Coordinator consolidated one finding.",
-          // The coordinator also emits an attacker-chosen id; it must be dropped
-          // centrally so the published summary gets a recomputed factory id.
-          findings: [{ ...spoofedFinding, id: "fnd_coordinatorspoof" }],
+          // The coordinator also emits an attacker-chosen reviewer label and id;
+          // both must be neutralized before the summary is published.
+          findings: [{ ...spoofedFinding, reviewer: "release", id: "fnd_coordinatorspoof" }],
           risk: {
             tier: "lite",
             reason: "Fake coordinator fallback risk.",
@@ -403,6 +404,7 @@ describe("PiAgentRuntime", () => {
     ]);
     const securityResult = result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "security");
     expect(securityResult?.findings).toHaveLength(1);
+    expect(result.summary.findings[0]?.reviewer).toBe("security");
     expect(securityResult?.promptMetrics?.contextMode).toBe("path_references");
     expect(securityResult?.promptMetrics?.promptBytes).toBeGreaterThan(0);
     expect(securityResult?.promptMetrics?.inlineDiffBytes).toBeGreaterThan(securityResult?.promptMetrics?.contextPayloadBytes ?? 0);
@@ -500,13 +502,37 @@ describe("PiAgentRuntime", () => {
       expect(documentationResult?.findings[0]?.reviewer).toBe("documentation");
       expect(documentationResult?.findings[0]?.id).toBeUndefined();
 
-      // The coordinator path is intentionally NOT role-normalized — it attributes
-      // findings across roles by design — so its emitted "security" label
-      // survives. But its attacker-chosen id is still dropped centrally, so the
-      // published summary carries a recomputed factory id, not the spoofed one.
-      expect(result.summary.findings[0]?.reviewer).toBe("security");
-      expect(result.summary.findings[0]?.id).toMatch(/^fnd_[a-f0-9]{16}$/);
-      expect(result.summary.findings[0]?.id).not.toBe("fnd_coordinatorspoof");
+      // The coordinator may attribute findings to dispatched roles, but an
+      // out-of-set label is normalized to coordinator before stable IDs are
+      // assigned.
+      const coordinatorFinding = result.summary.findings[0];
+      const expectedCoordinatorId = createStableFindingId({
+        ...securityFinding(),
+        reviewer: "coordinator",
+        severity: "warning",
+        category: "docs",
+        title: "Reviewer impersonating another role",
+        body: "A documentation reviewer emitted a finding labeled as security.",
+        confidence: "high",
+        evidence: ["The dispatched role was documentation."],
+        recommendation: "Normalize the label to the dispatched role.",
+      });
+      const forbiddenReleaseId = createStableFindingId({
+        ...securityFinding(),
+        reviewer: "release",
+        severity: "warning",
+        category: "docs",
+        title: "Reviewer impersonating another role",
+        body: "A documentation reviewer emitted a finding labeled as security.",
+        confidence: "high",
+        evidence: ["The dispatched role was documentation."],
+        recommendation: "Normalize the label to the dispatched role.",
+      });
+      expect(coordinatorFinding?.reviewer).toBe("coordinator");
+      expect(coordinatorFinding?.id).toBe(expectedCoordinatorId);
+      expect(coordinatorFinding?.id).toMatch(/^fnd_[a-f0-9]{16}$/);
+      expect(coordinatorFinding?.id).not.toBe("fnd_coordinatorspoof");
+      expect(coordinatorFinding?.id).not.toBe(forbiddenReleaseId);
 
       const events = (await readFile(tracePath, "utf8"))
         .trim()
@@ -519,6 +545,14 @@ describe("PiAgentRuntime", () => {
         emittedReviewer: "security",
         dispatchedRole: "documentation",
         reason: "reviewer_role_mismatch",
+      }]);
+      const coordinatorOutput = events.find((event) => event.type === "agent.output" && event.role === "coordinator");
+      expect(coordinatorOutput?.data?.reviewerRoleAdjustmentCount).toBe(1);
+      expect(coordinatorOutput?.data?.reviewerRoleAdjustments).toEqual([{
+        index: 0,
+        emittedReviewer: "release",
+        adjustedReviewer: "coordinator",
+        reason: "coordinator_reviewer_not_dispatched",
       }]);
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
