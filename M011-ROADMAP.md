@@ -1,6 +1,6 @@
 # M011 Roadmap Stub — Non-blocking telemetry and run-level product analytics
 
-> Stub status: tentative. Build this out after M008 exposes reliable durations, token/cost, and error classifications.
+> Active milestone. Live slice status is the GitHub milestone "M011"; the build record for shipped work is `M011-SUMMARY.md`. This file is the plan and rationale.
 
 ## Vision
 
@@ -10,6 +10,8 @@ Separate engineering traces from non-blocking telemetry and add the first produc
 
 - GitHub #19 — Non-blocking TelemetrySink + truncation detection + heartbeat
 - GitHub #20 — Run-level product analytics from re-review signal
+
+Live status is the GitHub milestone "M011," not this file. **#19 governs S01–S03; #20 governs S04–S06.**
 
 ## Tentative Success Criteria
 
@@ -25,28 +27,29 @@ Separate engineering traces from non-blocking telemetry and add the first produc
 
 The acceptance signal (`fixed`/`recurring`/won't-fix) is inherently longitudinal: it only exists once a PR has **multiple pushes over time**. S04/S05 can ship the plumbing in a sprint, but the metric is not meaningful until a corpus of live multi-push re-reviews exists. Trusting early per-reviewer acceptance numbers is exactly the vault's "AWUs become the new active sessions" failure — activity masquerading as outcome. Until then, report acceptance with run-count context and treat it as directional; do not tune reviewers on thin samples.
 
-## Tentative Slices
+## Slices
 
-- [x] **S01: Non-blocking TelemetrySink contract** `risk:high` `depends:[]` `issues:[#19]`
-  > After this: telemetry has a bounded queue/timeout/fire-and-forget delivery model whose failures are logged but never fail the review.
-  > Shipped: `TelemetrySink`/`TelemetryTransport` contracts, `NonBlockingTelemetrySink`, bounded queue/drop accounting, per-event delivery timeout, trace-stream failure logger, and tests covering transport errors, timeouts, and queue overflow.
+> **Status lives in GitHub** — milestone [M011 — Non-blocking telemetry & run-level product analytics] plus each issue's state; the build record for shipped slices is in `M011-SUMMARY.md`. This section is the plan and rationale, not a tracker (no `[x]`/`[ ]` checkboxes). Slices group under the two Source Issues: **#19 covers S01–S03**, **#20 covers S04–S06**. `depends:` references other slices.
 
-- [x] **S02: Metrics record routing** `risk:medium` `depends:[S01]` `issues:[#19]`
-  > After this: run-level metrics from M008 are routed to the telemetry sink with stable schema/versioning.
-  > Shipped: runner emits `ai_review.run_metrics` telemetry with `ai-review.run_metrics.v1`, CLI output-dir writes `telemetry.jsonl`, failed telemetry emits are traced without failing review jobs, and tests cover versioned metrics routing plus JSONL transport.
+- **S01 — Non-blocking TelemetrySink contract** → #19 · `risk:high` · `depends:[]`
+  > Telemetry has a bounded queue/timeout/fire-and-forget delivery model whose failures are logged but never fail the review.
 
-- [x] **S03: Truncation detection and heartbeat** `risk:medium` `depends:[S01]` `issues:[#19]`
-  > After this: length-limit termination is classified separately, and slow model runs emit periodic heartbeat events.
-  > Shipped: Pi runtime detects model `finish_reason`/`stop_reason` length-limit termination before JSON parsing so it classifies as `truncated`, and `BunPiProcessRunner` emits sparse heartbeat events during long quiet model runs.
+- **S02 — Metrics record routing** → #19 · `risk:medium` · `depends:[S01]`
+  > Run-level metrics from M008 are routed to the telemetry sink with stable schema/versioning.
 
-- [ ] **S04: Minimum viable product analytics events** `risk:medium` `depends:[S02]` `issues:[#20]`
-  > After this: run start, task completion, and mid-run/cross-push correction events are persisted with run IDs.
+- **S03 — Truncation detection and heartbeat** → #19 · `risk:medium` · `depends:[S01]`
+  > Length-limit termination is classified separately, and slow model runs emit periodic heartbeat events.
 
-- [ ] **S05: Acceptance signal from re-review classification** `risk:medium` `depends:[S04]` `issues:[#20]`
-  > After this: `fixed`, `recurring`, and rejected/won't-fix signals map into accepted/not-accepted/rejected metrics by reviewer.
+- **S04 — Minimum viable product analytics events** → #20 · `risk:medium` · `depends:[S02]`
+  > Run start, task completion, and mid-run/cross-push correction events are persisted with run IDs.
 
-- [ ] **S06: Analytics aggregation and docs** `risk:medium` `depends:[S04,S05]` `issues:[#19,#20]`
-  > After this: maintainers can inspect completion rate, acceptance rate, correction rate, and cost/yield by reviewer and risk tier.
+- **S05 — Acceptance signal from re-review classification** → #20 · `risk:medium` · `depends:[S04]`
+  > `fixed`, `recurring`, and rejected/won't-fix signals map into accepted/not-accepted/rejected metrics by reviewer. Meaningful only once #31 fixes re-review recurrence detection (see Follow-ups in `M011-SUMMARY.md`).
+
+- **S06 — Analytics aggregation and docs** → #20 · `risk:medium` · `depends:[S04,S05]`
+  > Maintainers can inspect completion rate, acceptance rate, correction rate, and cost/yield by reviewer and risk tier.
+
+[M011 — Non-blocking telemetry & run-level product analytics]: https://github.com/briggsd/ai-code-review-factory/milestones
 
 ## Deferred From This Stub
 

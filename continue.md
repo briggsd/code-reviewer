@@ -1,57 +1,53 @@
-# Continue — AI Code Review Factory / after M010
+# Continue — AI Code Review Factory / M013 kicked off (S01 shipped), M011 S04-S06 still open
 
 ## Last action
 
-Completed and committed **M010: Shared context files and token economics** through S05.
+Set up GitHub milestones to mirror the M-series and started **M013 — Agent-ready codebase**
+(from an agent-readiness audit against the `~/vault/Intelligence` corpus):
 
-M010 commits:
+- Created GitHub milestones **M011**, **M012**, **M013** and assigned all 13 open issues
+  (M011: #19/#20 · M012: #15/#16/#21/#22/#23/#24 · M013: #25-#29).
+- Filed agent-readiness issues **#25-#29** (CLAUDE.md, comprehension gate, boundary lint,
+  holdout evals, doc-gardening), all tagged `inspiration-gap`.
+- Wrote `M013-ROADMAP.md` (S01-S05 ↦ #25-#29) and shipped **S01: `CLAUDE.md`**.
+- Branch `m013-agent-ready-codebase`, **PR #30** open against `main` (docs only).
 
-- `d7e71f5` — Add shared review context artifacts
-- `3c7c232` — Add reviewer context references
-- `bced1b2` — Render reviewer prompts with context references
-- `f139708` — Add context token savings metrics
-- Verify packaged context artifacts
-
-Summary artifact: `M010-SUMMARY.md`.
-
-Verification:
-
-```bash
-bun run check
-# 125 pass, 0 fail, 819 expect() calls
-
-bun run smoke:external-package
-# external package smoke passed: ai-code-review-factory-0.1.0.tgz; provider dry-run skipped
-
-bun run pack:smoke
-# package smoke passed: ai-code-review-factory-0.1.0.tgz (78 files)
-```
+Note: M011 S01-S03 (`742dc17`, `49bbe2c`, `f652bf5`) are already on `main` and the
+M013 branch is based on them. Last verified build (before M013 docs): `bun run check` →
+135 pass, 0 fail.
 
 ## Next action
 
-Decide whether to push accumulated local commits or start the next milestone.
-
-Suggested starting points:
+Either continue M013 or resume M011 — both have open slices.
 
 ```bash
 git status --short
-git log --oneline --decorate -10
-read M011-ROADMAP.md
-read M012-ROADMAP.md
+gh pr status                 # PR #30 if still open
+read M013-ROADMAP.md   # M013 S02-S05 open
+read M011-ROADMAP.md   # M011 S04-S06 open
 ```
 
-M011 appears to be the likely next milestone for product analytics/telemetry after M008/M010 metrics; M012 covers advanced resilience/plugin lifecycle work.
+- **M013 next**: S02 boundary lint (#27, cheap mechanical protection) or S03 comprehension
+  gate (#26, dogfoods the runner). S02 is the lower-risk follow-up.
+- **M011 next**: S04 minimum viable product analytics events (#20, depends on S02).
+
+After PR #30 merges, the M013 slices can branch off `main` independently.
 
 ## Open threads
 
-- `main` is ahead of `origin/main` by the accumulated M009/M010 commits.
-- Pre-existing uncommitted note remains in `src/runner/risk-classifier.ts` for #21 risk-tier recalibration; do not stage it unless explicitly asked.
-- `M009-SUMMARY.md` remains untracked from the prior M009 wrap-up.
-- Backlog: `validateFinding` accepts any string `reviewer`; consider normalizing/rejecting model outputs that mislabel their own reviewer role.
-- S04 estimated input-token savings use a byte/4 approximation; future provider telemetry can replace or calibrate the estimate.
+- **PR #30** (`m013-agent-ready-codebase`) awaiting review/merge — docs only.
+- M011 S04-S06 remain open (product analytics events, acceptance signal, aggregation/docs).
+- M012 parking lot holds 6 open issues (#15/#16/#21/#22/#23/#24) — no active slices this session; see the #21 caution below.
+- `src/runner/risk-classifier.ts` contains a pre-existing #21 threshold-recalibration note;
+  still intentionally not committed.
+- `M009-SUMMARY.md` remains untracked from the prior M009 wrap-up; decide keep vs delete.
+- Backlog: `validateFinding` accepts any string `reviewer`; consider normalizing/rejecting
+  model outputs that mislabel their own reviewer role.
 
 ## Do not
 
-- Do not commit `src/runner/risk-classifier.ts` unless explicitly asked; it is a separate #21 note.
-- Do not reopen PR #9 or work on deleted branch `real-review-smoke-pr`.
+- Do not commit `src/runner/risk-classifier.ts` unless explicitly taking on #21.
+- Do not include `M009-SUMMARY.md` unless explicitly deciding to keep that prior summary artifact.
+- Do not reopen or rework the closed issues #10/#11/#12/#13/#14/#17/#18 unless new regressions appear.
+- Do not reopen PR #9 or work on the deleted branch `real-review-smoke-pr`.
 - Do not expose provider secrets or disable the real Pi review workflow by default.
