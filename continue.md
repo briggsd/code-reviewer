@@ -1,53 +1,53 @@
-# Continue — AI Code Review Factory / M010 S01
+# Continue — AI Code Review Factory / M010 S02
 
 ## Last action
 
-Started **M010: Shared context files and token economics** and implemented **S01: Shared context writer**.
+Committed **M010 S01: Shared context writer**:
 
-Key changes:
+- `d7e71f5` — Add shared review context artifacts
 
-- Added `src/runner/context-artifacts.ts` with `writeReviewContextArtifacts`.
-- Runner now writes:
-  - `change-context.json` under `ReviewContext.contextDirectory`
-  - per-file patch artifacts under `ReviewContext.contextDirectory/patches/`
-- Filtered changed files with patch bodies now get deterministic safe `patchPath` references.
-- Shared context JSON intentionally omits inline patch bodies and keeps `patchPath` references.
-- `ReviewContext.contextArtifacts` records artifact paths and byte counts.
-- `context.built` trace data includes the artifact summary.
-- Added runner coverage for path sanitization, patch contents, empty patch skipping, and shared context shape.
-- Marked M010 S01 complete in `M010-ROADMAP.md`.
-- Applied low-priority review cleanup: removed the redundant context-directory `mkdir`, parallelized patch writes, and skipped empty patch artifacts.
+Then implemented **M010 S02: Reviewer context assignment by reference**.
+
+Key S02 changes:
+
+- Added `ReviewerContextReferenceFile` and `ReviewerContextReferences` to `src/contracts/runtime.ts`.
+- `ReviewerRunInput` now includes `contextReferences`.
+- Runner builds reviewer context references from the reviewer’s assigned files:
+  - shared `changeContextPath`
+  - shared `patchDirectory`
+  - per-file metadata with `patchPath`
+  - no inline `patch` bodies in `contextReferences.files`
+- Existing full `ReviewContext` remains on runtime input as the compatibility/fallback channel until S03 updates prompt rendering.
+- Added runner coverage to assert reviewer inputs carry path references without inline patch bodies.
+- Marked M010 S02 complete in `M010-ROADMAP.md`.
 
 Verification:
 
 ```bash
 bun run check
-# 123 pass, 0 fail, 794 expect() calls
+# 124 pass, 0 fail, 802 expect() calls
 ```
 
 ## Next action
 
-Implement **M010 S02: Reviewer context assignment by reference**.
+Commit S02, then implement **M010 S03: Runtime prompt rendering for path-based context**.
 
 Suggested starting points:
 
 ```bash
 git status --short
 read M010-ROADMAP.md
-read src/contracts/runtime.ts
-read src/runner/run-review.ts
 read src/runtime/pi-agent-runtime.ts
-rg "assignedFiles|patchPath|contextArtifacts|files: input.context.diff.files|stringifyPromptData" src test -n
+rg "contextReferences|files: input.context.diff.files|assignedFiles|stringifyPromptData|Review context" src test -n
 ```
 
-S02 likely needs a reviewer input/reference shape that points at `context.contextArtifacts.changeContextPath` plus selected `patchPath`s, while preserving a fallback for runtimes that still need inline diff data.
+S03 should update Pi reviewer prompts to point reviewers at `contextReferences.changeContextPath` and selected `patchPath`s instead of embedding full `context.diff.files` patch payloads. Preserve a clear fallback for runtimes/safety modes that cannot read local files by path.
 
 ## Open threads
 
-- M010 S01 changes are implemented but not committed yet.
-- `main` was already ahead of `origin/main` by 12 commits after M009.
+- M010 S02 is implemented and verified but not committed yet.
 - Pre-existing uncommitted note remains in `src/runner/risk-classifier.ts` for #21 risk-tier recalibration; do not stage it unless explicitly asked.
-- `M009-SUMMARY.md` is still untracked from the prior M009 wrap-up.
+- `M009-SUMMARY.md` remains untracked from the prior M009 wrap-up.
 - Backlog: `validateFinding` accepts any string `reviewer`; consider normalizing/rejecting model outputs that mislabel their own reviewer role.
 
 ## Do not

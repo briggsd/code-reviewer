@@ -24,8 +24,9 @@ Stop embedding the full diff in every reviewer prompt. Write shared change conte
   > After this: the runner writes a shared change-context file plus per-file patch files under `contextDirectory` with safe paths and deterministic names.
   > Implemented: `writeReviewContextArtifacts` writes `change-context.json` plus `patches/*.patch`, adds `patchPath` references to filtered changed files, strips patch bodies from the shared context JSON, and exposes artifact byte counts on `ReviewContext.contextArtifacts` plus `context.built` trace data.
 
-- [ ] **S02: Reviewer context assignment by reference** `risk:high` `depends:[S01]` `issues:[#11]`
+- [x] **S02: Reviewer context assignment by reference** `risk:high` `depends:[S01]` `issues:[#11]`
   > After this: reviewer inputs carry selected context references instead of embedding the entire diff payload.
+  > Implemented: `ReviewerRunInput.contextReferences` now carries the shared context path, patch directory, and assigned file metadata without inline patch bodies. The runner builds references from assigned files and existing `patchPath`s while keeping full `ReviewContext` available as the fallback compatibility channel until S03 changes prompt rendering.
 
 - [ ] **S03: Runtime prompt rendering for path-based context** `risk:high` `depends:[S02]` `issues:[#11]`
   > After this: Pi prompts instruct reviewers to read trusted context files by path while reviewed-repo Pi resources remain disabled.

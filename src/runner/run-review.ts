@@ -10,6 +10,7 @@ import type {
   ReviewConfig,
   ReviewContext,
   ReviewDecision,
+  ReviewerContextReferences,
   ReviewerRunInput,
   ReviewRunMetrics,
   ReviewStateStore,
@@ -494,18 +495,40 @@ function createCoordinatorRunInput(context: ReviewContext): CoordinatorRunInput 
 
 function createReviewerRunInputs(context: ReviewContext): ReviewerRunInput[] {
   return selectTrustedReviewerDefinitions({ config: context.config, risk: context.risk })
-    .map((reviewerDefinition) => ({
-      runId: context.runId,
-      role: reviewerDefinition.role,
-      prompt: `Review the change as the ${reviewerDefinition.role} reviewer.`,
-      context,
-      model: selectModel(context, reviewerDefinition.role),
-      toolPolicy: createRuntimeToolPolicy(context.safetyMode),
-      timeoutMs: context.config.timeouts.reviewerMs,
-      outputSchemaName: "reviewer",
-      assignedFiles: context.diff.files.map((file) => file.path),
-      reviewerDefinition,
-    }));
+    .map((reviewerDefinition) => {
+      const assignedFiles = context.diff.files.map((file) => file.path);
+
+      return {
+        runId: context.runId,
+        role: reviewerDefinition.role,
+        prompt: `Review the change as the ${reviewerDefinition.role} reviewer.`,
+        context,
+        model: selectModel(context, reviewerDefinition.role),
+        toolPolicy: createRuntimeToolPolicy(context.safetyMode),
+        timeoutMs: context.config.timeouts.reviewerMs,
+        outputSchemaName: "reviewer",
+        assignedFiles,
+        contextReferences: createReviewerContextReferences(context, assignedFiles),
+        reviewerDefinition,
+      };
+    });
+}
+
+function createReviewerContextReferences(context: ReviewContext, assignedFiles: string[]): ReviewerContextReferences {
+  const assignedFileSet = new Set(assignedFiles);
+  const files = context.diff.files
+    .filter((file) => assignedFileSet.has(file.path))
+    .map(({ patch, ...file }) => file);
+
+  return {
+    ...(context.contextArtifacts !== undefined
+      ? {
+        changeContextPath: context.contextArtifacts.changeContextPath,
+        patchDirectory: context.contextArtifacts.patchDirectory,
+      }
+      : {}),
+    files,
+  };
 }
 
 export function selectModel(context: ReviewContext, role: string): ModelSelection {

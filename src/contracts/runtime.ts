@@ -6,7 +6,7 @@ import type {
   TokenUsage,
   TraceEventType,
 } from "./common.ts";
-import type { Finding, ReviewContext, ReviewSummary } from "./review.ts";
+import type { ChangedFile, Finding, ReviewContext, ReviewSummary } from "./review.ts";
 import type { ReviewErrorClassification } from "./common.ts";
 
 export interface RuntimeToolPolicy {
@@ -44,9 +44,18 @@ export interface ReviewerDefinition {
   };
 }
 
+export type ReviewerContextReferenceFile = Omit<ChangedFile, "patch">;
+
+export interface ReviewerContextReferences {
+  changeContextPath?: string;
+  patchDirectory?: string;
+  files: ReviewerContextReferenceFile[];
+}
+
 export interface ReviewerRunInput extends AgentRunInput {
   role: Exclude<AgentRole, "coordinator"> | string;
   assignedFiles?: string[];
+  contextReferences: ReviewerContextReferences;
   reviewerDefinition: ReviewerDefinition;
 }
 
