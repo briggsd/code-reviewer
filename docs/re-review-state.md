@@ -10,17 +10,20 @@ The generated ID uses a SHA-256 hash over normalized:
 
 - reviewer,
 - category,
-- location path/line/range/side,
-- title,
-- body.
+- location path/line/range/side.
+
+`title` and `body` are **intentionally excluded** (see #31): they are model-authored free text that the LLM rewords on every run, so hashing them produced a fresh ID per run and silently defeated recurring-finding suppression. The hash therefore avoids title, body, severity, confidence, evidence, and recommendation — all of which may change while the underlying issue remains the same.
 
 The ID format is:
 
 ```text
-fnd_<16 hex chars>
+fnd_<16 hex chars>          # first finding at a given reviewer+category+location
+fnd_<16 hex chars>#<N>      # Nth (N ≥ 2) finding colliding on the same signals within one summary
 ```
 
-This intentionally avoids using severity, confidence, evidence, or recommendation text because those may change while the underlying issue remains the same.
+Because identity is keyed only on reviewer+category+location, two *distinct* findings sharing those signals collide on one base ID. `assignStableFindingIds()` disambiguates them with a `#N` ordinal so the re-review index never silently drops one. The ordinal is assigned in a deterministic content order (not the model's emission order), so an unchanged diff re-yields the same IDs; downstream tools should treat the full string (including any `#N`) as an opaque key. The ordinal is run-stable as long as the colliding group's membership is unchanged — adding or removing a co-located sibling can shift the remaining ordinals, an accepted limitation since identical-on-every-stable-signal findings can't be told apart without their volatile prose.
+
+> **Migration note:** finding IDs produced before #31 folded title/body into the hash. On the first re-review after deploying this change, previously-stored IDs will not match the new scheme, so that run sees a one-time reset (all prior findings classified `fixed`, all current ones `new`). Treat the first post-deploy re-review as a clean-slate baseline.
 
 ## Hidden summary metadata
 

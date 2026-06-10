@@ -613,7 +613,7 @@ Rules:
 - User disagreed: coordinator evaluates the justification and either resolves or responds.
 - New finding: publish normally.
 
-This requires stable finding IDs. Generate IDs from reviewer, category, path, normalized line/range, and normalized title/body hash. Store VCS comment/discussion IDs in state.
+This requires stable finding IDs. Generate IDs from reviewer, category, path, and normalized line/range only — **exclude** title and body, which are model-authored free text that changes between runs and would defeat recurrence matching (see #31). Store VCS comment/discussion IDs in state.
 
 ## Observability
 

@@ -15,7 +15,7 @@ Make a second review of the same PR/MR aware of the first one. Before adding inl
 ## Slices
 
 - [x] **S01: Stable finding IDs** `risk:medium` `depends:[]`
-  > After this: all review summaries include deterministic finding IDs derived from reviewer/category/location/title/body, and published hidden metadata records those IDs.
+  > After this: all review summaries include deterministic finding IDs derived from reviewer/category/location, and published hidden metadata records those IDs. (title/body were removed from the hash in #31 — model prose is volatile and broke recurrence matching.)
 
 - [x] **S02: Prior summary metadata parser** `risk:medium` `depends:[S01]`
   > After this: GitHub/GitLab adapters can recover prior run metadata from existing bot summary comments/notes instead of only finding the comment to update.
