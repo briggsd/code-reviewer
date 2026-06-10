@@ -95,7 +95,7 @@ Details + diagram: **docs/architecture.md**.
 - Milestones are `M0xx-ROADMAP.md` (vision, source issues, success criteria, named slices
   S01.. with `risk:`/`depends:`/`issues:` tags, definition of done) and close out as
   `M0xx-SUMMARY.md`. GitHub milestones mirror the in-flight M-series.
-- **`continue.md`** is the session-to-session handoff: last action, next action, why,
+- **`continue.md`** is the session-to-session handoff: last action, next action,
   open threads, and an explicit **Do not** list. Read it first; update it before you stop.
 
 ## Conventions & known gotchas

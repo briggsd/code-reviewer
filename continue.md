@@ -22,7 +22,7 @@ Either continue M013 or resume M011 — both have open slices.
 
 ```bash
 git status --short
-gh pr view 30
+gh pr status                 # PR #30 if still open
 read M013-ROADMAP.md   # M013 S02-S05 open
 read M011-ROADMAP.md   # M011 S04-S06 open
 ```
@@ -37,6 +37,7 @@ After PR #30 merges, the M013 slices can branch off `main` independently.
 
 - **PR #30** (`m013-agent-ready-codebase`) awaiting review/merge — docs only.
 - M011 S04-S06 remain open (product analytics events, acceptance signal, aggregation/docs).
+- M012 parking lot holds 6 open issues (#15/#16/#21/#22/#23/#24) — no active slices this session; see the #21 caution below.
 - `src/runner/risk-classifier.ts` contains a pre-existing #21 threshold-recalibration note;
   still intentionally not committed.
 - `M009-SUMMARY.md` remains untracked from the prior M009 wrap-up; decide keep vs delete.
