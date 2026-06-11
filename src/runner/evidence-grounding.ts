@@ -4,6 +4,15 @@ import type { DiffSummary, Finding } from "../contracts/index.ts";
 // so a modest length suffices.
 const MIN_CHECKABLE_QUOTE_LENGTH = 8;
 
+/**
+ * Normalize a file path for changed-file set membership checks.
+ * Intentionally mirrors stable-finding-id.ts `normalizePath` (do NOT import across modules —
+ * keeping evidence-grounding.ts self-contained).
+ */
+function normalizePath(path: string): string {
+  return path.trim().replaceAll("\\", "/").replace(/^\.\//, "");
+}
+
 export interface FindingGroundingAssessment {
   grounded: Finding[];  // keep — order preserved
   dropped: Finding[];   // fabricated-quote findings to withhold
@@ -91,10 +100,25 @@ export function assessFindingGrounding(
 
   const corpus = buildCorpus(diff);
 
+  // Build the set of changed-file paths so we can scope the drop gate.
+  // Only findings whose location.path is itself a changed file are eligible to be dropped —
+  // staleness/absence findings (e.g. "you forgot to update docs/X") legitimately cite files
+  // that were NOT changed, so dropping them on a diff-corpus miss is a false positive (#73).
+  const changedFilePaths = new Set(diff.files.map((f) => normalizePath(f.path)));
+
   const grounded: Finding[] = [];
   const dropped: Finding[] = [];
 
   for (const finding of findings) {
+    // Scope gate: only findings whose location.path is a CHANGED file are eligible to be
+    // dropped. A finding with no location, no location.path, or a path that is not in the
+    // changed-file set is always kept — we cannot refute it by checking the diff corpus.
+    const locationPath = finding.location?.path;
+    if (locationPath === undefined || !changedFilePaths.has(normalizePath(locationPath))) {
+      grounded.push(finding);
+      continue;
+    }
+
     const quotedCode = finding.quotedCode;
 
     // No quotedCode or empty array → always keep (cannot be mechanically refuted)

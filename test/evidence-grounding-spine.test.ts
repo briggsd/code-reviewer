@@ -80,6 +80,7 @@ describe("evidence grounding spine integration", () => {
       confidence: "high",
       evidence: ["some evidence"],
       recommendation: "fix it",
+      location: { path: "auth/accounts.ts" },
       quotedCode: ["return db.accounts.findById(accountId);"],
     };
 
@@ -92,6 +93,7 @@ describe("evidence grounding spine integration", () => {
       confidence: "high",
       evidence: ["fabricated evidence"],
       recommendation: "fix it",
+      location: { path: "auth/accounts.ts" },
       quotedCode: ["return db.accounts.deleteEverything();"],
     };
 

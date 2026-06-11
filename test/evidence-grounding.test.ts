@@ -34,6 +34,7 @@ function makeFinding(overrides: Partial<Finding>): Finding {
     confidence: "high",
     evidence: ["some evidence"],
     recommendation: "fix it",
+    location: { path: "auth/accounts.ts" },
     ...overrides,
   };
 }
@@ -214,7 +215,9 @@ describe("assessFindingGrounding", () => {
     expect(result.grounded).toContain(finding);
   });
 
-  test("empty diff (no files) → all findings with quotedCode dropped", () => {
+  test("empty diff (no changed files) → grounding drops nothing", () => {
+    // With no changed files, auth/accounts.ts is not in the changed-file set.
+    // So findings pointing at it are not eligible to be dropped — they are always kept.
     const emptyDiff: DiffSummary = {
       files: [],
       totalAdditions: 0,
@@ -226,10 +229,10 @@ describe("assessFindingGrounding", () => {
 
     const result = assessFindingGrounding([withQuote, withoutQuote], emptyDiff);
 
-    expect(result.dropped).toHaveLength(1);
-    expect(result.dropped[0]).toBe(withQuote);
-    expect(result.grounded).toHaveLength(1);
-    expect(result.grounded[0]).toBe(withoutQuote);
+    expect(result.dropped).toHaveLength(0);
+    expect(result.grounded).toHaveLength(2);
+    expect(result.grounded).toContain(withQuote);
+    expect(result.grounded).toContain(withoutQuote);
   });
 
   test("file with undefined patch is skipped in corpus", () => {
@@ -267,5 +270,81 @@ describe("assessFindingGrounding", () => {
 
     expect(result.grounded.map((f) => f.title)).toEqual(["first", "second", "third"]);
     expect(result.dropped).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Changed-file scope gate (#73): findings NOT on a changed file are always kept
+  // -------------------------------------------------------------------------
+
+  test("staleness finding on an unchanged file → always kept (scope gate)", () => {
+    // The diff only changes auth/accounts.ts; docs/reviewer-conventions.md is unchanged.
+    // A staleness finding about docs is legitimate even if its quotedCode isn't in the diff.
+    const diff = makeDiff("+  return db.accounts.findById(accountId);");
+    const staleness = makeFinding({
+      location: { path: "docs/reviewer-conventions.md" },
+      quotedCode: ["acknowledgements are NOT yet implemented"],
+    });
+
+    const result = assessFindingGrounding([staleness], diff);
+
+    expect(result.grounded).toHaveLength(1);
+    expect(result.grounded[0]).toBe(staleness);
+    expect(result.dropped).toHaveLength(0);
+  });
+
+  test("no-location finding → always kept (scope gate)", () => {
+    // A finding with no location is architectural / absence-style — cannot be scoped to a changed file.
+    // Build directly (omitting location) — exactOptionalPropertyTypes prevents passing location: undefined
+    // via makeFinding's Partial<Finding> overrides.
+    const diff = makeDiff("+  return db.accounts.findById(accountId);");
+    const noLocation: Finding = {
+      reviewer: "security",
+      severity: "warning",
+      category: "auth",
+      title: "Test finding",
+      body: "body text",
+      confidence: "high",
+      evidence: ["some evidence"],
+      recommendation: "fix it",
+      quotedCode: ["acknowledgements are NOT yet implemented"],
+      // no location property
+    };
+
+    const result = assessFindingGrounding([noLocation], diff);
+
+    expect(result.grounded).toHaveLength(1);
+    expect(result.grounded[0]).toBe(noLocation);
+    expect(result.dropped).toHaveLength(0);
+  });
+
+  test("fabrication on a changed file is still dropped (regression guard)", () => {
+    // The scope gate only affects eligibility; if location.path IS a changed file,
+    // the existing quote-match logic still drops fabricated quotes.
+    const diff = makeDiff("+  return db.accounts.findById(accountId);");
+    const fabrication = makeFinding({
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["return db.accounts.deleteEverything();"],
+    });
+
+    const result = assessFindingGrounding([fabrication], diff);
+
+    expect(result.dropped).toHaveLength(1);
+    expect(result.dropped[0]).toBe(fabrication);
+    expect(result.grounded).toHaveLength(0);
+  });
+
+  test("path normalization: leading ./ on location.path matches changed file → dropped (fabrication)", () => {
+    // auth/accounts.ts is changed; ./auth/accounts.ts should normalize to the same path.
+    const diff = makeDiff("+  return db.accounts.findById(accountId);");
+    const fabrication = makeFinding({
+      location: { path: "./auth/accounts.ts" },
+      quotedCode: ["return db.accounts.deleteEverything();"],
+    });
+
+    const result = assessFindingGrounding([fabrication], diff);
+
+    expect(result.dropped).toHaveLength(1);
+    expect(result.dropped[0]).toBe(fabrication);
+    expect(result.grounded).toHaveLength(0);
   });
 });
