@@ -25,6 +25,35 @@ import type {
   RuntimeEventSubscription,
   TraceSink,
 } from "../src/index.ts";
+import { normalizeReviewConfig } from "../src/runner/config.ts";
+
+describe("project conventions normalization", () => {
+  test("trims, drops invalid, truncates, and caps conventions", () => {
+    const tooMany = Array.from({ length: 60 }, (_, index) => `convention ${index}`);
+    const config = normalizeReviewConfig({
+      conventions: [
+        "  Real convention.  ",
+        "",
+        "   ",
+        42,
+        null,
+        "x".repeat(600),
+        ...tooMany,
+      ],
+    });
+
+    expect(config.conventions).toBeDefined();
+    expect(config.conventions?.[0]).toBe("Real convention.");
+    expect(config.conventions?.[1]).toBe("x".repeat(500));
+    expect(config.conventions?.length).toBe(50);
+    expect(config.conventions?.some((entry) => entry.trim().length === 0)).toBe(false);
+  });
+
+  test("defaults to an empty conventions list when absent", () => {
+    const config = normalizeReviewConfig({});
+    expect(config.conventions).toEqual([]);
+  });
+});
 
 describe("fixture local runner", () => {
   test("runs a blocking review from a fixture", async () => {

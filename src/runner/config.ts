@@ -56,6 +56,7 @@ export function normalizeReviewConfig(
   return {
     ...base,
     ...override,
+    conventions: normalizeConventions(override.conventions, base.conventions ?? []),
     failOn: Array.isArray(override.failOn) ? (override.failOn as ReviewConfig["failOn"]) : base.failOn,
     sensitivePaths: Array.isArray(override.sensitivePaths)
       ? (override.sensitivePaths as string[])
@@ -89,4 +90,30 @@ function mergeModelRouting(base: ModelRoutingConfig, override: unknown): ModelRo
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeConventions(value: unknown, fallback: string[]): string[] {
+  if (value === undefined) {
+    return [...fallback];
+  }
+
+  const entries = Array.isArray(value) ? value : [value];
+  const normalized: string[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== "string") {
+      continue;
+    }
+
+    const trimmed = entry.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+
+    normalized.push(trimmed.length > 500 ? trimmed.slice(0, 500) : trimmed);
+    if (normalized.length === 50) {
+      break;
+    }
+  }
+
+  return normalized;
 }

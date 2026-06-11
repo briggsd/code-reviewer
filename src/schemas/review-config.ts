@@ -71,7 +71,11 @@ export const reviewConfigSchema = {
         },
       },
     },
-    projectInstructionsPath: { type: "string" },
+    conventions: {
+      type: "array",
+      maxItems: 50,
+      items: { type: "string", maxLength: 500 },
+    },
     extra: {
       type: "object",
       additionalProperties: true,

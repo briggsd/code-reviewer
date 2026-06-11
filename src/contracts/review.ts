@@ -85,7 +85,7 @@ export interface ReviewConfig {
   reviewerPolicy: Record<string, "enabled" | "disabled" | "full_only">;
   timeouts: TimeoutPolicy;
   modelRouting: ModelRoutingConfig;
-  projectInstructionsPath?: string;
+  conventions?: string[];
   extra: Record<string, JsonValue>;
 }
 

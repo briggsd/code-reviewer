@@ -11,6 +11,8 @@ export type JsonSchema = {
   readonly additionalProperties?: boolean | JsonSchema;
   readonly minimum?: number;
   readonly minItems?: number;
+  readonly maxItems?: number;
+  readonly maxLength?: number;
 };
 
 const findingLocationSchema = {
