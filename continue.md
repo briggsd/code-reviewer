@@ -1,6 +1,24 @@
-# Continue — AI Code Review Factory / #73 + #74 FIXED & CLOSED (PRs #76/#78); #77 filed (under-tiering); next = #77 cheap config fix / GitLab parity / #28 eval
+# Continue — AI Code Review Factory / #73 + #74 + #77 FIXED & CLOSED (PRs #76/#78/#79); next = GitLab parity / #28 eval / #69
 
 ## Last action
+
+**#77 SHIPPED & CLOSED (PR #79, squash `d751814`, gate 338/0).** Added repo-local **`.ai-review.json`**
+so the factory full-tiers changes to its OWN deterministic gate logic (the #76-audit gap: gate-file
+changes tiered `lite` → shallow review). `sensitivePaths` re-lists the 5 defaults (it REPLACES, never
+merges — see `normalizeReviewConfig`) + the gate/trust/policy/publish surface: `src/runner/**`,
+`src/runtime/prompt-boundary.ts`, `src/ci/**`, `src/publisher/**`. Only `sensitivePaths` overridden;
+all else falls back to defaults. Affects THIS repo's self-review only (consumers set their own).
+`test/repo-self-review-config.test.ts` guards it (defaults preserved; gate-file diff→full; docs→not
+full). **#79 auto-review found 1 real doc footgun** (documentation reviewer, high conf: replace-not-merge
+of array config is undocumented — a consumer setting `sensitivePaths` would silently drop the security
+defaults) → fixed in `docs/configuration.md` (object maps merge / arrays replace; footgun callout;
+example re-lists defaults). This is option 1 (cheap config) of #77; **option 2** (generalized
+self-review-critical classifier signal / thin-review observability flag) stays DEFERRED unless shallow
+gate reviews recur. NOTE: PR #79 itself reviewed `lite` (it changed config+test+docs, no gate file) —
+**the NEXT `src/runner/**` PR is what actually exercises the full-tier escalation.** Coordinator-applied
+(no subagent — config-shaped, not file-heavy).
+
+---
 
 **#74 SHIPPED & CLOSED (PR #78, squash `61710a6`, gate 334/0).** Markdown renderers escaped no
 untrusted finding/summary text → metacharacters could break formatting / inject HTML. Added a
@@ -216,17 +234,17 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## State
 
-- `main` @ `61710a6`, pushed/synced, gate **334/0**, working tree CLEAN.
+- `main` @ `d751814`, pushed/synced, gate **338/0**, working tree CLEAN.
 - **MERGED last big session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
 - **MERGED this session:** **#76** (#73 grounding changed-file scope, closed #73), **#78** (#74
-  markdown-escape across 3 renderer sinks, closed #74).
-- **Issues open:** **#77** (risk classifier under-tiers the factory's OWN gate-logic changes to lite — filed
-  from the #76 post-merge audit; cheap fix = repo-local `.ai-review.json` `sensitivePaths` over
-  `src/runner/*` gate files), #69 (re-review miscount, low), #57 (partial), #46 (needs
-  prev-head..head ref read), #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012.
-  GitLab-P2/P3 parity not yet filed (degrades safely to P1 advisory).
+  markdown-escape across 3 renderer sinks, closed #74), **#79** (#77 repo `.ai-review.json` self-review
+  full-tiering + config-docs footgun, closed #77).
+- **Issues open:** #69 (re-review miscount, low), #57 (partial), #46 (needs prev-head..head ref read),
+  #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012. GitLab-P2/P3 parity not yet filed
+  (degrades safely to P1 advisory). **#77 option 2** (generalized self-review-critical signal / thin-
+  review observability flag) deferred — only revisit if shallow gate reviews recur despite the config.
 - **#76 post-merge audit (PR #76's empty AI review):** NOT a regression. Reviewers got real ~5K
   prompts (`cacheWrite≈5070`) but returned `{"findings":[]}` in 8 tokens / 0 thinking because risk
   tier = `lite` (no sensitive-path match for `src/runner/*`). Model `sonnet-4-6` is capable (#65:
@@ -285,9 +303,13 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 - Do not trust an implementer (Codex or subagent) summary's "tests added"/gate claims — verify
   vs `git diff` and re-run `bun run check`. Do not `git add -A` when committing delegated work
   (it swept `M009-SUMMARY.md` in once).
-- Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74 or
-  merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78 unless new regressions
-  appear. Closed issues #60/#65/#67 likewise stay closed.
+- Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77 or
+  merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79 unless new
+  regressions appear. Closed issues #60/#65/#67 likewise stay closed.
+- Do not set `sensitivePaths`/`ignoredPaths`/`failOn` in `.ai-review.json` expecting them to APPEND to
+  defaults — those arrays REPLACE wholesale (`normalizeReviewConfig`); object maps (`reviewerPolicy`/
+  `timeouts`/`modelRouting`) merge. The repo `.ai-review.json` deliberately re-lists the 5 default
+  sensitivePaths before its gate-file additions; don't drop them. Documented in `docs/configuration.md`.
 - #54.2 grounding is now **scoped to changed-file findings (#73, PR #76)** — it only drops a finding
   whose `location.path` is a CHANGED file (set built from `diff.files`, normalized). Findings with no
   location / cross-file / staleness quotes are KEPT. Do not revert this scope gate (it's the first
