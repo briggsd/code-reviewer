@@ -1,10 +1,10 @@
-# Continue — AI Code Review Factory / M014 #48+#49 + #60-P1 + #58 + #57-redaction shipped; Opus→Codex AND Opus→Sonnet duos validated; codex-delegate skill + docs/extending.md
+# Continue — AI Code Review Factory / M014 #48+#49 + #60-P1 + #58 + #57-redaction shipped; Opus→Codex AND Opus→Sonnet duos validated; delegate-implement skill + docs/extending.md
 
 ## Last action
 
 Long session run almost entirely through the **coordinator/implementer duo** pattern (Claude
 coordinates; Codex or a Sonnet subagent implements). Shipped 5 PRs, built + hardened the
-`codex-delegate` skill, designed the reviewer-conventions feature, ran an **Opus→Codex vs
+`delegate-implement` skill, designed the reviewer-conventions feature, ran an **Opus→Codex vs
 Opus→Sonnet A/B**, and added a repo onboarding doc. `main` @ `e05e18f`, synced, gate 208/0.
 
 - **MERGED this session:** PR #55 (#48 runtime-kind tag + trusted-publish upload, `30c8451`),
@@ -20,9 +20,9 @@ Opus→Sonnet A/B**, and added a repo onboarding doc. `main` @ `e05e18f`, synced
   reconcile + independent gate) and wrote the tests. **Sonnet subagent (Opus→Sonnet A/B) did
   #58 + #57 in one clean pass each, no confab** — but I gave it tighter specs + it runs
   in-harness (confound). Verdict: in-harness Sonnet for the *implement* loop, cross-provider
-  for *review* (decorrelated blind spots). See `codex-delegate` skill + `codex-coordinator-workflow` memory.
+  for *review* (decorrelated blind spots). See `delegate-implement` skill + `codex-coordinator-workflow` memory.
 - **New durable artifacts:** `docs/extending.md` (test-infra index + integration recipes,
-  for fast orientation + subagent specs; linked from CLAUDE.md). `codex-delegate` skill updated
+  for fast orientation + subagent specs; linked from CLAUDE.md). `delegate-implement` skill updated
   with the **spec-quality lever** (precedent-pointing + front-loaded test-infra) and the
   **confabulation** rule.
 
