@@ -1,4 +1,4 @@
-# Continue — AI Code Review Factory / #54 precision gate COMPLETE + #60-P2 conventions trust guard shipped (PRs #64/#66/#68/#70); next = #60-P3 acknowledgements (now unblocked)
+# Continue — AI Code Review Factory / #54 precision gate + #60 conventions/acknowledgements both COMPLETE & CLOSED (8 PRs this session); next = GitLab parity / #28 eval / #46 / #57
 
 ## Last action
 
@@ -29,6 +29,20 @@ implemented cleanly (208→209, reconciled, no confab); coordinator fixed one co
   claude-sonnet-4-6 --output-dir <dir>`; inspect `runs/*/telemetry.jsonl` (per-agent
   `usage.outputTokens`) + `trace.jsonl` (`grep -c '"type":"thinking"'`).
 
+- **#60 CLOSED — acknowledgements (P3) SHIPPED (PRs #71 `fffb872` + #72 `354c03c`, gate 293/0).**
+  The whole reviewer-conventions+acknowledgements feature is done (P1 conventions + P2 base-read +
+  P3 acknowledgements). **P3a (#71)** = `Acknowledgement` contract + config field + schema +
+  `normalizeAcknowledgements` + base-branch read (generalized `resolveBaseConventions` →
+  `resolveBaseConfig`, one fetch returns conventions + acknowledgements). **P3b (#72)** = apply:
+  `src/runner/acknowledgements.ts` `applyAcknowledgements(findings, acks, now)` — match by path-glob
+  (req) + optional category/stableFindingId; **acknowledge** = keep+annotate+EXCLUDE-from-gate;
+  **suppress** = remove, BUT a `reviewer:"security"` finding is downgraded to acknowledge (never
+  hidden); `expires` (YYYY-MM-DD, inclusive) deactivates. Spine applies after `assignStableFindingIds`,
+  recomputes gate over NON-acknowledged findings, annotates summary (`— acknowledged: <reason>`),
+  trace `acknowledgements.applied` + counts-only telemetry. Review found a real stale-title-count bug
+  (fixed in BOTH grounding + ack blocks: always refresh title when the shown set changes) + doc gaps
+  (configuration.md entries added). **#54.2 grounding withheld 4 fabricated findings on #72's own
+  review** — the precision gate working in production.
 - **#60-P2 conventions trust guard SHIPPED (PR #70, `ea4eeb0`, gate 246/0).** In the VCS provider
   path, `conventions` are now read from the **base/target branch**, not the PR head (principle #6: a
   PR can't grant itself an exception). New `VcsAdapter.readBaseBranchFile?` (GitHub: contents API at
@@ -129,19 +143,20 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## Next action
 
-0. **#60-P3 acknowledgements — NOW UNBLOCKED (recommended next; the high-value trust feature with
-   teeth).** Both prerequisites done: P2 trust boundary (PR #70) + #54 precision gate (the dedup home
-   for the deterministic filter). Design (`docs/reviewer-conventions.md` + #60): structured
-   `acknowledgements[]` in `.ai-review.json` (read from BASE branch via the same `readBaseBranchFile`),
-   each `{ path, category, stableFindingId?, mode: acknowledge|suppress, reason, expires? }`; applied
-   as a deterministic post-review transform (sibling to `evidence-grounding.ts` at `run-review.ts:215`)
-   that **downgrades/annotates** (prefer `acknowledge` — surface + don't fail gate — over `suppress`)
-   rather than hides; adds an `acknowledged` finding state + reason to the contract. Use
-   `stable-finding-id.ts` for precise targeting; `expires` to avoid permanent silent debt; trace +
-   counts-only telemetry. Big slice — consider splitting (config+contract+base-read, then the filter).
-1. **Other threads:** GitLab P2 `readBaseBranchFile` (small follow-up, gives GitLab the trust guard);
-   #28 holdout eval (validates #54); #69 (re-review miscount, low); #46 incremental re-review (needs
-   the `prev-head..head` sibling of `readBaseBranchFile` — Foundation B continues); #57 remaining.
+0. **No single obvious next — pick by priority.** #54 (precision gate) and #60 (conventions+acks)
+   are both COMPLETE. Candidate threads:
+   - **GitLab parity** (small, high-coherence): implement `readBaseBranchFile` on the GitLab adapter
+     so #60-P2/P3 trust guard applies to GitLab too (currently degrades to P1 advisory). Mirror the
+     GitHub impl (GitLab files API at `?ref=<targetBranch>`). Not yet filed as an issue.
+   - **#28 holdout eval** — the measurement counterpart: validate the #54 precision gains (and now
+     acks) with no recall regression. Bigger (eval harness + dataset).
+   - **#46 incremental re-review** — needs a `prev-head..head` sibling of `readBaseBranchFile`
+     (Foundation B continues); carry-forward correctness is the hard part.
+   - **#69** (low — grounding/suppress-dropped findings miscounted as "fixed" in re-review).
+   - **#57 remaining** (trace-redaction enablement + completeness + artifact path-scoping).
+   - **Coordinator-budget** (#45/#54): #68 + #72 auto-reviews each timed out ONCE before converging.
+     The #54.1 validation directives raise coordinator load. If timeouts worsen, lower coordinator
+     `thinking` (medium→low) or trim the directives.
 1. **#57 remaining (stays OPEN):** (a) **enablement** — redaction is default-off, so wire
    `--redact-trace` into the `trusted-real-review` job (or scope the artifact upload paths);
    (b) **redaction completeness** — extend beyond `message_start/end` `content` to other
@@ -160,13 +175,14 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 ## State
 
 - `main` @ `ee66927`, pushed/synced, gate **209/0**.
-- **MERGED this session:** PR #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68 (#54.2
-  grounding), #70 (#60-P2 conventions trust guard). Backend: in-harness Sonnet subagent (Opus 4.8 coord).
-- **Issues open:** #60 (P1+P2 done; **P3 acknowledgements = recommended next**), #54 (COMPLETE —
-  could close or leave for #28 eval), #69 (low — re-review miscount), #57 (partial), #46 (Slice 4 —
-  needs prev-head..head ref read), #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012.
-  GitLab-P2 follow-up not yet filed (degrades safely).
-- **Closed this session:** #65 (no bug), #67 (location-crash, fixed in #66). Prior: #48/#49/#58.
+- **MERGED this session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
+  (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
+  ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
+- **Issues open:** #69 (low — re-review miscount), #57 (partial), #46 (needs prev-head..head ref read),
+  #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012. GitLab-P2/P3 parity not yet filed
+  (degrades safely to P1 advisory).
+- **Closed this session:** #60 (conventions+acks complete), #65 (no bug), #67 (location-crash, fixed
+  in #66). Prior: #48/#49/#58. #54 substantially complete (open or close at will).
 - Working tree (on `main`): clean.
 
 ## Open threads
@@ -210,8 +226,12 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   vs `git diff` and re-run `bun run check`. Do not `git add -A` when committing delegated work
   (it swept `M009-SUMMARY.md` in once).
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58 or merged
-  PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70 unless new regressions appear. Closed issues
-  #65/#67 (this session) likewise stay closed.
+  PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72 unless new regressions appear. Closed
+  issues #60/#65/#67 (this session) likewise stay closed.
+- Do not let `suppress` hide a `reviewer:"security"` finding (acknowledgements.ts downgrades it to
+  acknowledge on purpose). Acknowledged findings stay in `summary.findings` (annotated) + are excluded
+  from the gate only — never silently dropped. Acks come from the BASE branch (provider path), not head.
+  Refresh the summary title whenever the shown finding set changes (grounding + ack blocks).
 - Do not read `conventions`/`acknowledgements` from the PR head in the VCS path — only from the base
   branch via `readBaseBranchFile` (#60-P2 trust guard). `readBaseBranchFile` is BEST-EFFORT (non-2xx →
   undefined); don't make it throw (a conventions-read hiccup must not fail the review). Head-config
