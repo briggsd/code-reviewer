@@ -1,55 +1,84 @@
-# Continue — AI Code Review Factory / #45 SHIPPED + merged (reviewer/coordinator thinking bound, #53→f2d9ae6); #54 filed (coordinator precision gate)
+# Continue — AI Code Review Factory / M014 #48+#49 SHIPPED via Claude+Codex duo; codex-delegate skill created
 
 ## Last action
 
-Shipped the #45 thinking-bound fix end-to-end: implemented, dogfood-verified, survived two AI-review rounds, **merged as PR #53 (`f2d9ae6`, closes #45)**. Then filed **#54** from the dogfood signal. `main` @ `f2d9ae6`, synced.
+Ran the **Claude(coordinator) + Codex(gpt-5-codex, implementer)** workflow end-to-end to ship
+two M014 telemetry slices, survived two AI-review rounds each, **merged the stack to `main`**,
+filed the deferred findings, and **packaged the workflow as the `codex-delegate` skill**.
+`main` @ `6f4b188`, synced, gate green (190/0).
 
-- **#45 MERGED (`f2d9ae6`) — bound reviewer + coordinator thinking effort.** Optional per-role `thinking` (`off|minimal|low|medium|high|xhigh`) on `ModelSelection`; the Pi adapter passes `--thinking` (via exported, testable `buildPiProcessArgs`) and preserves it through the dummy→`defaultModel` swap. **Inheritance is resolved runtime-agnostically in `selectModel`** (a role that omits `thinking` inherits `modelRouting.default.thinking`) so the bound behaves identically for any runtime (pi, opencode, …) — that was an explicit design steer. Default sets `medium` ONCE on `modelRouting.default`; all roles inherit (role entries no longer carry redundant copies). `THINKING_LEVELS` single-sources the TS union + schema enum; a schema-artifact parity test prevents `.ai-review.schema.json` drift. Gate 183/0.
-  - **DOGFOOD-VERIFIED (real Pi + sonnet-4-6, PR #43 fixture, 2026-06-11):** baseline (default thinking) = exit 1, 4/4 reviewers timed out at 6-min cap, no summary. With `medium` = **exit 0**, 4/4 reviewers ≤4m49s, coordinator 3m39s, `summary.json`, **16 findings**, pass, 8m28s of 15-min budget. Coordinator was the tightest margin (3m39s/4m).
-  - `medium` is the tuning knob. Did NOT raise `reviewerMs` (collides with #47 retry-reserve invariant) or do role-aware sharding (coverage tradeoff) — both still available if `medium` underperforms.
-- **The PR was reviewed by our own runner across rounds (CI `ai-review.yml`, `pull_request:[opened,synchronize]`, runs the PR's checked-out runner code = bound active).** It caught two *real* self-inflicted regressions I introduced while fixing it (a doc-vs-test contradiction on inheritance; redundant role bounds after inheritance landed) — genuine value — but on the final round emitted a **confident false positive** (fabricated U+200B in a code fence; verified no such char). That "must-find-something" hallucination = the noise-floor signal → merged. It motivated **#54**.
-- **Filed #54 (M013, enhancement/med) — coordinator precision gate.** Reviewers optimize recall; nothing enforces precision. Make the coordinator (not incentivized to find issues) validate findings against the diff + a deterministic evidence-grounding pre-filter (would kill the U+200B class) + recall-side prompt tuning. Pairs with #28 (eval set). Caveats noted: coordinator is also an LLM (deterministic check composes, not replaces) and is the tightest budget link.
-
-- **PR #52 reviewed — APPROVE, recommend squash-merge (closes #21).** Recalibrates defaults: trivial `files≤5 && lines≤25`, full `files>50 || lines>500`, sensitive-paths unchanged as first short-circuit. `bun run check` passes locally (177/0). Two commits (`Recalibrate risk thresholds` + `Align risk config example`) = one logical change → **squash** (matches repo convention; #47 was squashed). Only substantive note: the full **file** threshold 20→50 downgrades 21–50-file PRs from full→lite — intended per #21/Cloudflare, just a conscious depth trade. Classifier is hardcoded (no `config.risk` contract field); the doc YAML is aspirational — pre-existing, disclosed honestly in the PR.
-- **#45 full-tier dogfood (PR #43 fixture, real Pi + sonnet-4-6): root-caused as NON-CONVERGENCE, not clock/throttle/crawl.** 15 files / 868 lines, `riskTier: full`, ran at `/tmp/ai-review-pr43-full-tier-output/runs/dogfood-pr43-full-tier-budget/`. All 4 reviewers hit the **360000ms per-reviewer cap** (NOT the 15-min overall — #47 moved that bottleneck), no coordinator, no partial, fail-closed held. **Trace (44MB) proof:** heartbeat `silenceMs` 55ms–7.4s throughout (active to the wall, never near 60s inactivity-kill); only 14–20 tool calls each (no repo-crawl); 4 subprocesses all progressing (no throttle); ~450–490 thinking steps/reviewer and **still quoting diff hunks at kill with zero findings JSON emitted**. Posted the investigation to #45 (briggsd had posted setup/result but not the trace dig). **Title rename to per-reviewer scope was DENIED by auto-mode — rename #45 manually** (still says "11-min overall timeout," which the dogfood disproved).
-
-- **#47 merged (`96be06e`, squash)** — **bound full-tier review budget.** Raised default `overallMs` 660k→**900k (15 min)**, keeping reviewer 6 min / coordinator 4 min; made retryable reviewer failures reserve `reviewer + coordinator + reserve` of wall-clock before retrying.
-- **Review caught a real bug, fixed on the branch before merge (commit `61864e9`, folded into the squash):** the retry guard scaled reviewer/coordinator/overall by risk tier but left `minimumRemainingMs` (the reserve floor, default 2 min) **unscaled**. On `trivial` the unscaled floor pushed the reserve (270k) above the scaled overall ceiling (225k), **silently disabling all reviewer retries**; `lite` was nearly as tight. Fix = `scaleTimeoutForRiskTier(reserve, tier)` at the call site (`src/runtime/pi-agent-runtime.ts:368`), new `riskTierTimeoutScale`/`scaleTimeoutForRiskTier` exports (`src/runner/run-review.ts`). Exported `shouldRetryReviewerFailure` and added guard unit tests that actually exercise the `- elapsedMs` branch (the existing test was tautological: reserve > overall at t=0, so elapsed never decided). Docs corrected (restored the `660000` history figure; added scaled lite/trivial ceilings).
-- **Reviewed the AI reviewer's own 6 findings on #47:** 4 fair (the tautological-test gap #1 was the best; doc nits #4/#5/#6), **1 false positive** (#2 — claimed the single-reviewer timeout under-counts the parallel phase, but reviewers share one `reviewerMs` and run via `Promise.allSettled`, so it's correct), 1 cosmetic (#3). The reviewer **missed the actual correctness bug** (unscaled reserve) — that's the dogfood signal motivating M014 below.
-- **Filed M014 — Telemetry egress & CI collection (milestone #4)** + issues **#48–#51.** Root problem: PR review telemetry (`ai_review.run_metrics`, `run-review.ts:557–617`) is rich and counts-only, but only lands in a local JSONL → per-PR artifact zip; never aggregated, so we can't gather cross-run signal to improve reviewers. Decision: **artifact-first v1** (no new transport code), **remote centralization phase 2.** Roadmap: `M014-ROADMAP.md` (**UNTRACKED — needs commit**, like M011–M013).
+- **#48 MERGED (PR #55 → `30c8451`).** `run_metrics` telemetry now carries a top-level
+  `runtime` kind tag (`pi`/`dummy`/`deterministic`) on **both** completed + failed emit paths,
+  sourced from `AgentRuntime.name` via `resolveRuntimeKind()` (sanitizes: trim → strip control
+  chars → trim → cap 64; falls back to `"deterministic"`). `trusted-publish` CI job now uploads
+  `ai-review-trusted-<n>` (was dropping telemetry). Shared constants in
+  **`src/runtime/runtime-kind.ts`**: `DUMMY_RUNTIME_KIND`, `DETERMINISTIC_RUNTIME_KIND`,
+  `NON_REAL_RUNTIME_KINDS`.
+- **#49 MERGED (PR #59 → `6f4b188`; superseded auto-closed #56).** Cross-run aggregation puller:
+  pure **`rollupRunMetrics`** (`src/state/run-metrics-rollup.ts`, counts-only, excludes
+  `NON_REAL_RUNTIME_KINDS` + untagged) + on-demand **`scripts/telemetry-rollup.ts`**
+  (`bun run telemetry:rollup`) that pulls last-N runs' `ai-review*` artifacts and filters by the
+  runtime tag, not artifact name.
+- **Codex workflow:** 5 codex runs, each coordinator-reviewed + independently gated. Lessons:
+  gpt-5-codex needs **API-key auth** (not ChatGPT); codex **yields after exploration** unless the
+  spec forces "implement to completion"; `codex exec resume` drops `-C`/`-s` (use fresh `exec`).
+  Coordinator judgment beat the reviewer (held the allowlist push 3×; sanitize+extensible won).
+- **`codex-delegate` skill created** (user `~/.claude/skills/codex-delegate/` = portable playbook +
+  `spec-template.md` + `run-codex.sh`; project `.claude/skills/codex-delegate/SKILL.md` = repo pins).
+  Memory: `codex-coordinator-workflow.md`.
 
 ## Next action
 
-1. **Housekeeping:** delete merged branch `codex/bound-reviewer-thinking` (local + remote — squashed into `f2d9ae6`). **Restore pi auth** now that dogfooding is done (`cp ~/.pi/agent/auth.json.bak-preA ~/.pi/agent/auth.json` — left in dogfood mode all session).
-2. **#54 (coordinator precision gate)** — newly filed from this session's false-positive signal; M013, the precision counterpart to #28's eval set. Not started.
-3. **#46 (incremental re-review)** — highest-leverage cost lever; review only the delta since `previousHeadSha` on re-push (plumbing stored, unused).
-5. **M014 v1: #48 (S01) → #49 (S02).** #48 = fix dummy-vs-real capture + `trusted-publish` not uploading + tag runtime kind (CI-yaml + small tag, `risk:low`). #49 = the `gh`-based aggregation puller that turns artifacts into one rolled-up dataset — **the slice that actually delivers "access."** #50 (counts-only boundary) + #51 (remote transport, phase 2) follow.
-6. **#20** (re-review analytics) unblocked; **M013 waves** (#27/#33→#28/#26/#29) sit behind #45/#21.
-7. **Defer UX:** #41 (heartbeat progress) and #42 (`--pi-api-key`).
+1. **Smoke-test `/codex-delegate`** on a small real task — **#58** (job-kind tag) is the candidate.
+2. **#57 (security, med)** — scope CI telemetry artifact uploads (operator prompts in trace.jsonl,
+   PR diffs, write-scoped token). **#58 (obs, low)** — dry-run vs trusted-publish job-kind tag.
+   Both filed this session from PR #55 review's deferred findings.
+3. **#54 (coordinator precision gate)** — M013; directly motivated by the reviewer's non-determinism
+   + "must-find-something" floor observed across the #55/#56 review rounds this session.
+4. **#46 (incremental re-review)** — highest-leverage cost lever; plumbing stored, unused.
+5. **M013 waves** (#27/#33→#28/#26/#29) and **M012 parking lot** (#15/#16/#22/#23/#24).
+6. **Defer UX:** #41 (heartbeat), #42 (`--pi-api-key`), #20 (re-review analytics).
 
 ## State
 
-- `main` @ `f2d9ae6`, pushed/synced. Merged: PR #52 (`f365c75`, closes #21), PR #53 (`f2d9ae6`, closes #45).
-- **New issue this session:** **#54** (coordinator precision gate, M013, enhancement/med).
-- **Open residuals:** #54 (precision gate, med), #46 (incremental re-review, med), #41 (heartbeat), #42 (`--pi-api-key`), #20 (re-review analytics). M014 #48–#51; M013 #26/#27/#28/#29/#33/#54; M012 parking lot #15/#16/#22/#23/#24.
-- Working tree (on `main`): untracked `M009-SUMMARY.md` and `M014-ROADMAP.md`.
+- `main` @ `6f4b188`, pushed/synced, gate 190/0. Merged this session: PR #55 (`30c8451`, closes #48),
+  PR #59 (`6f4b188`, closes #49). #56 auto-closed (its stacked base `codex/48` was deleted on merge).
+- **New issues this session:** **#57** (artifact-scoping security, med), **#58** (job-kind tag, low).
+  Both labeled `workflow:claude+gpt-5-codex`.
+- **Closed:** #48, #49.
+- **Open residuals:** #54 (precision gate), #46 (incremental re-review), #57, #58, #41, #42, #20;
+  M013 #26/#27/#28/#29/#33/#54; M012 parking lot #15/#16/#22/#23/#24.
+- Working tree (on `main`): untracked `M009-SUMMARY.md`; the project skill
+  `.claude/skills/codex-delegate/SKILL.md` (committing this session).
 
 ## Open threads
 
-- **Merged branches to delete:** `codex/bound-reviewer-thinking` (squashed into `f2d9ae6`) and the older `codex/full-tier-review-budget` (into `96be06e`) — both safe to delete local + remote.
-- **pi auth STILL IN DOGFOOD MODE — restore now (dogfooding is done):** the `anthropic` OAuth block was removed from `~/.pi/agent/auth.json` so pi bills the `.env` `ANTHROPIC_API_KEY`; backup at `~/.pi/agent/auth.json.bak-preA`. Restore: `cp ~/.pi/agent/auth.json.bak-preA ~/.pi/agent/auth.json`. #42 fixes this in-product.
+- **Codex auth IS IN API-KEY MODE** (switched so `gpt-5-codex` works; bills OpenAI platform).
+  Restore ChatGPT auth: `cp ~/.codex/auth.json.bak-chatgpt ~/.codex/auth.json`. (#42 is the in-product fix on the pi side.)
+- **pi auth STILL IN DOGFOOD MODE** (prior session): `cp ~/.pi/agent/auth.json.bak-preA ~/.pi/agent/auth.json`.
+- **`gh` Projects-classic bug on this repo:** `gh pr edit` / `gh issue view` (no `--json`) error on
+  `projectCards`. Use `gh api` (REST) for mutations + `gh issue view --json`.
+- **Stacked-PR merge order:** retarget the child PR onto `main` BEFORE merging+deleting the parent's
+  base branch (deleting the base auto-closes the child, which can't then be retargeted). This bit #56.
 - `M009-SUMMARY.md` still untracked — decide keep vs delete.
-- Re-review optimization map (Cloudflare parity): classification ✅ (M002/#31), analytics 📋 #20, telemetry egress 📋 M014/#48–#51, inline *actions* 📋 deferred in #15, incremental 📋 #46.
-- **Local review loops** (`--git-diff`): `bun run src/cli.ts run --git-diff [--base main] --runtime pi --pi-provider anthropic --pi-model claude-sonnet-4-6 --output-dir .ai-review --format markdown`. Default base HEAD = uncommitted; `--base main` for committed branch work; untracked files need `git add -N`. Full budget is now 15 min, but whole-tree diffs can still be slow — narrow the diff for a clean run. Writes `telemetry.jsonl` + `trace.jsonl` under `.ai-review/runs/<id>/`.
+- Two `codex-delegate` skills (user portable + project overlay, same name) — project wins in this repo.
 
 ## Do not
 
-- Do not drop the `thinking` preservation through the dummy→`defaultModel` swap in `PiAgentRuntime.modelArgs` — without it the reviewer reasoning bound silently vanishes in real-Pi runs (model gets replaced by `--pi-model`), reopening the #45 non-convergence failure. Guarded by the modelArgs-preservation test in `test/pi-runtime.test.ts`.
-- Do not move `thinking` inheritance into a runtime adapter or drop it from `selectModel` — it is resolved once in the runtime-agnostic orchestration layer on purpose (consistent across pi/opencode/…). And do not re-add explicit `thinking` to role entries in `default-config.ts` (set it once on `modelRouting.default`; roles inherit) — duplicates shadow the default and create a maintenance trap (#53 re-review). `THINKING_LEVELS` is the single source for the level set; the schema-artifact parity test fails if `.ai-review.schema.json` drifts.
-- Do not remove the tier-scaling of the retry reserve (`scaleTimeoutForRiskTier` on `minimumRemainingMs`) — without it `trivial`/`lite` silently stop retrying; guarded by the `shouldRetryReviewerFailure` unit tests and `scaleTimeoutForRiskTier` test.
-- Do not re-introduce deferred `process.exitCode` for the CI gate — use `finalizeCiExit` / `process.exit` (partial-timeout fail-closed guarantee depends on it; guarded by `test/cli-exit.test.ts`).
-- Do not include `M009-SUMMARY.md` in a commit unless explicitly deciding to keep that prior artifact.
-- Do not put diff text, finding bodies, prompts, or secrets into telemetry payloads — counts/identifiers only (the M014 #50 boundary; the M008 rule).
-- Do not reopen PR #9 or work on the deleted branch `real-review-smoke-pr`.
-- Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40 (and PR #47) unless new regressions appear.
-- Do not expose provider secrets or disable the real Pi review workflow's default-off gate.
+- Do not allowlist runtime-kind values to a closed set — `resolveRuntimeKind` SANITIZES + falls back
+  to `deterministic` on purpose so a future real runtime (e.g. `opencode`) still registers as signal.
+  The AI reviewer pushed an allowlist 3× across #55; it is wrong for extensibility. `NON_REAL_RUNTIME_KINDS`
+  (`src/runtime/runtime-kind.ts`) is the single source the puller imports — do not duplicate the set.
+- Do not drop the `thinking` preservation through the dummy→`defaultModel` swap in
+  `PiAgentRuntime.modelArgs` (reopens #45 non-convergence; guarded by modelArgs test). Do not move
+  `thinking` inheritance out of `selectModel` or re-add explicit `thinking` to role entries (#53).
+- Do not remove tier-scaling of the retry reserve (`scaleTimeoutForRiskTier` on `minimumRemainingMs`)
+  — without it `trivial`/`lite` silently stop retrying.
+- Do not re-introduce deferred `process.exitCode` for the CI gate — use `finalizeCiExit`/`process.exit`
+  (partial-timeout fail-closed; guarded by `test/cli-exit.test.ts`).
+- Do not put diff text, finding bodies, prompts, or secrets into telemetry/rollups — counts/identifiers
+  only (M008; the #50 boundary; the #57 concern).
+- Do not include `M009-SUMMARY.md` in a commit unless explicitly deciding to keep it.
+- Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49 or PRs #9/#47/#53/#55/#56/#59
+  unless new regressions appear. Do not work on deleted branch `real-review-smoke-pr`.
+- Do not expose provider secrets or disable the real-Pi review workflow's default-off gate.
