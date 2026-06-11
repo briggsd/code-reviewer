@@ -1,4 +1,4 @@
-# Continue — AI Code Review Factory / #54 precision gate COMPLETE: #54.1 prompts + quotedCode contract + #54.2 grounding all shipped (PRs #64/#66/#68); next = #54 wrap-up or Slice 3
+# Continue — AI Code Review Factory / #54 precision gate COMPLETE + #60-P2 conventions trust guard shipped (PRs #64/#66/#68/#70); next = #60-P3 acknowledgements (now unblocked)
 
 ## Last action
 
@@ -29,6 +29,17 @@ implemented cleanly (208→209, reconciled, no confab); coordinator fixed one co
   claude-sonnet-4-6 --output-dir <dir>`; inspect `runs/*/telemetry.jsonl` (per-agent
   `usage.outputTokens`) + `trace.jsonl` (`grep -c '"type":"thinking"'`).
 
+- **#60-P2 conventions trust guard SHIPPED (PR #70, `ea4eeb0`, gate 246/0).** In the VCS provider
+  path, `conventions` are now read from the **base/target branch**, not the PR head (principle #6: a
+  PR can't grant itself an exception). New `VcsAdapter.readBaseBranchFile?` (GitHub: contents API at
+  `?ref=<targetBranch>`, **best-effort** — any non-2xx → undefined, never fails the review);
+  `src/runner/base-conventions.ts` `resolveBaseConventions` (base present → authoritative, head
+  IGNORED; absent → empty NOT head; no adapter support → keep config = safe P1 degradation);
+  `cli.ts` overrides `config.conventions` + counts-only `conventions.resolved` trace. **GitLab
+  DEFERRED** (stays P1 advisory — follow-up). Migration: head-only conventions stop counting on
+  GitHub → commit `.ai-review.json` to the base branch (documented in `docs/reviewer-conventions.md`).
+  Review caught a real best-effort-vs-throw mismatch (fixed) + doc gaps (added). **This unblocks
+  #60-P3** (acknowledgements need this trust boundary + #54, both now done).
 - **#54.2 evidence-grounding SHIPPED (PR #68, `03e311e`, gate 236/0).** Deterministic post-review
   filter (`src/runner/evidence-grounding.ts`, `assessFindingGrounding`): drops a finding iff its
   verbatim `quotedCode` has a checkable quote (≥8 chars) and NONE substring-matches the changed-file
@@ -118,15 +129,19 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## Next action
 
-0. **#54 is substantially COMPLETE** (#54.1 prompts + quotedCode contract + #54.2 grounding shipped).
-   Remaining #54-adjacent options: (a) **#69** — fix grounding-dropped-as-"fixed" re-review miscount
-   (low, analytics polish); (b) **#28 holdout eval** — the measurement counterpart to verify #54
-   precision gains with no recall regression (the natural validation of all this work); (c) watch the
-   **coordinator-budget** signal (#45/#54) if auto-review timeouts recur.
-1. **Slice 3 (Foundation B) — ref-addressing VCS plumbing + #60-P2 base-branch conventions read.**
-   The other high-value thread: extend `VcsAdapter` (single-`ChangeRef` today) to read `.ai-review.json`
-   at the base ref → conventions become authoritative (trust guard), and design it to also cover
-   `previousHeadSha..head` diffs for #46 (Slice 4). Independent of the #54 line.
+0. **#60-P3 acknowledgements — NOW UNBLOCKED (recommended next; the high-value trust feature with
+   teeth).** Both prerequisites done: P2 trust boundary (PR #70) + #54 precision gate (the dedup home
+   for the deterministic filter). Design (`docs/reviewer-conventions.md` + #60): structured
+   `acknowledgements[]` in `.ai-review.json` (read from BASE branch via the same `readBaseBranchFile`),
+   each `{ path, category, stableFindingId?, mode: acknowledge|suppress, reason, expires? }`; applied
+   as a deterministic post-review transform (sibling to `evidence-grounding.ts` at `run-review.ts:215`)
+   that **downgrades/annotates** (prefer `acknowledge` — surface + don't fail gate — over `suppress`)
+   rather than hides; adds an `acknowledged` finding state + reason to the contract. Use
+   `stable-finding-id.ts` for precise targeting; `expires` to avoid permanent silent debt; trace +
+   counts-only telemetry. Big slice — consider splitting (config+contract+base-read, then the filter).
+1. **Other threads:** GitLab P2 `readBaseBranchFile` (small follow-up, gives GitLab the trust guard);
+   #28 holdout eval (validates #54); #69 (re-review miscount, low); #46 incremental re-review (needs
+   the `prev-head..head` sibling of `readBaseBranchFile` — Foundation B continues); #57 remaining.
 1. **#57 remaining (stays OPEN):** (a) **enablement** — redaction is default-off, so wire
    `--redact-trace` into the `trusted-real-review` job (or scope the artifact upload paths);
    (b) **redaction completeness** — extend beyond `message_start/end` `content` to other
@@ -145,11 +160,12 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 ## State
 
 - `main` @ `ee66927`, pushed/synced, gate **209/0**.
-- **MERGED this session:** PR #64 (#54.1 precision prompts) + PR #66 (quotedCode contract + #67
-  crash fix) + PR #68 (#54.2 evidence-grounding). Backend: in-harness Sonnet subagent (Opus 4.8 coord).
-- **Issues open:** #54 (substantially COMPLETE — #54.1/contract/#54.2 all shipped; could close or
-  leave for #28 eval), #69 (NEW, low — re-review miscount), #60 (P1 landed; P2/P3 = Slices 3/5),
-  #57 (partial), #46 (Slice 4), #28 (holdout eval — validates #54), plus #41/#42/#20 + M013/M012.
+- **MERGED this session:** PR #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68 (#54.2
+  grounding), #70 (#60-P2 conventions trust guard). Backend: in-harness Sonnet subagent (Opus 4.8 coord).
+- **Issues open:** #60 (P1+P2 done; **P3 acknowledgements = recommended next**), #54 (COMPLETE —
+  could close or leave for #28 eval), #69 (low — re-review miscount), #57 (partial), #46 (Slice 4 —
+  needs prev-head..head ref read), #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012.
+  GitLab-P2 follow-up not yet filed (degrades safely).
 - **Closed this session:** #65 (no bug), #67 (location-crash, fixed in #66). Prior: #48/#49/#58.
 - Working tree (on `main`): clean.
 
@@ -194,8 +210,12 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   vs `git diff` and re-run `bun run check`. Do not `git add -A` when committing delegated work
   (it swept `M009-SUMMARY.md` in once).
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58 or merged
-  PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68 unless new regressions appear. Closed issues
+  PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70 unless new regressions appear. Closed issues
   #65/#67 (this session) likewise stay closed.
+- Do not read `conventions`/`acknowledgements` from the PR head in the VCS path — only from the base
+  branch via `readBaseBranchFile` (#60-P2 trust guard). `readBaseBranchFile` is BEST-EFFORT (non-2xx →
+  undefined); don't make it throw (a conventions-read hiccup must not fail the review). Head-config
+  conventions are intentionally ignored in the provider path (the trust point).
 - Do not ground/drop against narrative `evidence` — #54.2 grounds the verbatim `quotedCode` field
   ONLY (`evidence-grounding.ts`). The corpus includes ALL changed lines (+/-/space) and is normalized
   as ONE string (so multi-line quotes match); truncated diffs skip grounding. Don't "optimize" any of
