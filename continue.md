@@ -1,6 +1,30 @@
-# Continue — AI Code Review Factory / #73 #74 #77 #80 #82 FIXED & CLOSED (PRs #76/#78/#79/#81/#83); next = #28 eval / #69 / #84
+# Continue — AI Code Review Factory / #73 #74 #77 #80 #82 #28 FIXED & CLOSED (PRs #76/#78/#79/#81/#83/#85); next = RUN evals vs pi → close #54 / #69 / #84
 
 ## Last action
+
+**#28 SHIPPED & CLOSED (PR #85, squash `97a224b`, gate 385/0).** The holdout eval harness — the
+capstone validating the session's precision work. **Architecture (load-bearing split):** pure scorer
++ types in `src/evals/` (type-checked, 34+ unit tests — `EvalCriterion` DSL: has_finding /
+no_findings_at_or_above / max_findings / decision_in / outcome_is; `scoreRun`/`scoreScenario` =
+satisfaction fraction meaned over K runs + per-criterion pass rates + threshold). Gated runner in
+`scripts/evals.ts` (`AI_REVIEW_LIVE_EVAL=1 bun run evals`, spawns the real CLI per scenario × K, reads
+summary.json, scores; never in `bun run check`). 5 holdout scenarios in `evals/` (real diffs, NO
+fakeFindings, SEPARATE from examples/fixtures/): auth-sqli, **clean-refactor (the precision guard —
+must NOT over-flag)**, hardcoded-secret, noisy-benign, logic-bug. `src/evals` NOT in the public barrel.
+Full-tier review (size-escalated, 7 findings) → fixed 5 (flag NaN/0 validation; scorer searches
+`recommendation`; defused a scanner-tripping fake secret; scenario-fixture path containment + sort),
+documented 2 (safetyMode coverage gap — fixtures use repo-convention "trusted", which is tool-policy
+not injection-defense; serial-execution intentional for the opt-in MVP). Backend: Sonnet subagent.
+
+**>>> NEXT ACTION (the payoff): RUN the eval against pi.** `set -a; . ./.env; set +a` then
+`AI_REVIEW_LIVE_EVAL=1 bun run evals --runtime pi` (5 scenarios × 3 runs = 15 real reviews, ~30min +
+tokens; needs ANTHROPIC_API_KEY in .env). This produces the actual satisfaction numbers that validate
+#54/#60/#73 — and is **#54's last open acceptance criterion** ("precision impact measurable... no
+recall regression"). After a clean run, **#54 can CLOSE**. Watch `clean-refactor` (precision) +
+`auth-sqli`/`logic-bug` (recall). If scenarios underperform, that's real signal (prompt tuning) — do
+NOT tune `reviewer-definitions.ts` against the holdout (breaks discipline); investigate first.
+
+---
 
 **#82 SHIPPED & CLOSED (PR #83, squash `e1efa14`, gate 350/0).** GitLab inline publishing (MR diff
 discussions) — completes GitLab write-back. **Part A:** extracted the shared inline-comment renderer
@@ -283,7 +307,7 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## State
 
-- `main` @ `e1efa14`, pushed/synced, gate **350/0**, working tree CLEAN.
+- `main` @ `97a224b`, pushed/synced, gate **385/0**, working tree CLEAN.
 - **MERGED last big session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
@@ -291,7 +315,7 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   markdown-escape across 3 renderer sinks, closed #74), **#79** (#77 repo `.ai-review.json` self-review
   full-tiering + config-docs footgun, closed #77), **#81** (#80 GitLab `readBaseBranchFile` trust-guard
   parity, closed #80), **#83** (#82 GitLab inline MR-discussion publishing + shared inline renderer,
-  closed #82).
+  closed #82), **#85** (#28 holdout eval harness MVP, closed #28).
 - **Issues open:** **#84** (inline dedup trusts comment-author metadata → finding-suppression; low/
   security, cross-provider — filed from the #83 review), #69 (re-review miscount, low), #57 (partial),
   #46 (needs prev-head..head ref read), #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012.
@@ -357,9 +381,13 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 - Do not trust an implementer (Codex or subagent) summary's "tests added"/gate claims — verify
   vs `git diff` and re-run `bun run check`. Do not `git add -A` when committing delegated work
   (it swept `M009-SUMMARY.md` in once).
-- Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80/#82
-  or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83 unless new
+- Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80/#82/#28
+  or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85 unless new
   regressions appear. Closed issues #60/#65/#67 likewise stay closed.
+- Do not tune `src/runner/reviewer-definitions.ts` (or coordinator prompts) against the `evals/`
+  holdout scenarios to make them pass — that destroys the holdout discipline (#28). The eval set is a
+  TRUE holdout: investigate underperformance, don't memorize the fixtures. `src/evals` is pure logic
+  (no I/O); the runner (`scripts/evals.ts`) is gated + not type-checked (lives outside tsconfig).
 - Do not re-export `src/publisher/inline-comment-markdown.ts` from `publisher/index.ts` (#82/#83 review):
   it encodes the `ai-code-review-factory-inline` wire format + the security-sensitive dedup parser;
   keep it off the public API. Adapters/tests import it via the direct file path. The renderer
