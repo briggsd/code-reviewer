@@ -1,8 +1,11 @@
-# Continue — AI Code Review Factory / #47 shipped (full-tier budget + retry-reserve fix); M014 telemetry-egress milestone filed
+# Continue — AI Code Review Factory / #52 reviewed (risk thresholds, closes #21); #45 diagnosed via dogfood (non-convergence)
 
 ## Last action
 
-Reviewed PR #47 (`[codex] Bound full-tier review budget`), caught + fixed a correctness bug in review, shipped it, then planned and filed the telemetry-egress milestone the dogfood loop exposed. `main` is at `96be06e`.
+Reviewed PR #52 (`[codex] Recalibrate risk thresholds`) and ran the #45 full-tier-budget dogfood to root-cause why full reviews fail. `main` is at `96be06e`; PR #52 is open on the fork.
+
+- **PR #52 reviewed — APPROVE, recommend squash-merge (closes #21).** Recalibrates defaults: trivial `files≤5 && lines≤25`, full `files>50 || lines>500`, sensitive-paths unchanged as first short-circuit. `bun run check` passes locally (177/0). Two commits (`Recalibrate risk thresholds` + `Align risk config example`) = one logical change → **squash** (matches repo convention; #47 was squashed). Only substantive note: the full **file** threshold 20→50 downgrades 21–50-file PRs from full→lite — intended per #21/Cloudflare, just a conscious depth trade. Classifier is hardcoded (no `config.risk` contract field); the doc YAML is aspirational — pre-existing, disclosed honestly in the PR.
+- **#45 full-tier dogfood (PR #43 fixture, real Pi + sonnet-4-6): root-caused as NON-CONVERGENCE, not clock/throttle/crawl.** 15 files / 868 lines, `riskTier: full`, ran at `/tmp/ai-review-pr43-full-tier-output/runs/dogfood-pr43-full-tier-budget/`. All 4 reviewers hit the **360000ms per-reviewer cap** (NOT the 15-min overall — #47 moved that bottleneck), no coordinator, no partial, fail-closed held. **Trace (44MB) proof:** heartbeat `silenceMs` 55ms–7.4s throughout (active to the wall, never near 60s inactivity-kill); only 14–20 tool calls each (no repo-crawl); 4 subprocesses all progressing (no throttle); ~450–490 thinking steps/reviewer and **still quoting diff hunks at kill with zero findings JSON emitted**. Posted the investigation to #45 (briggsd had posted setup/result but not the trace dig). **Title rename to per-reviewer scope was DENIED by auto-mode — rename #45 manually** (still says "11-min overall timeout," which the dogfood disproved).
 
 - **#47 merged (`96be06e`, squash)** — **bound full-tier review budget.** Raised default `overallMs` 660k→**900k (15 min)**, keeping reviewer 6 min / coordinator 4 min; made retryable reviewer failures reserve `reviewer + coordinator + reserve` of wall-clock before retrying.
 - **Review caught a real bug, fixed on the branch before merge (commit `61864e9`, folded into the squash):** the retry guard scaled reviewer/coordinator/overall by risk tier but left `minimumRemainingMs` (the reserve floor, default 2 min) **unscaled**. On `trivial` the unscaled floor pushed the reserve (270k) above the scaled overall ceiling (225k), **silently disabling all reviewer retries**; `lite` was nearly as tight. Fix = `scaleTimeoutForRiskTier(reserve, tier)` at the call site (`src/runtime/pi-agent-runtime.ts:368`), new `riskTierTimeoutScale`/`scaleTimeoutForRiskTier` exports (`src/runner/run-review.ts`). Exported `shouldRetryReviewerFailure` and added guard unit tests that actually exercise the `- elapsedMs` branch (the existing test was tautological: reserve > overall at t=0, so elapsed never decided). Docs corrected (restored the `660000` history figure; added scaled lite/trivial ceilings).
@@ -11,9 +14,9 @@ Reviewed PR #47 (`[codex] Bound full-tier review budget`), caught + fixed a corr
 
 ## Next action
 
-1. **Commit `M014-ROADMAP.md` to `main`** (track the spec like M011–M013), and **delete the merged branch** `codex/full-tier-review-budget` (local + remote — it's content-identical to `main`).
-2. **#45 (full-tier timeout) — decide close vs keep.** #47 raised the ceiling to 15 min + bounded retries (the budget lever). #45 also mentions "right-size fan-out"; either confirm 15 min suffices via a real-Pi dogfood on a ~500-line PR and close, or keep open scoped to fan-out only. PR #47 did **not** reference #45.
-3. **#21 (recalibrate risk thresholds) — priority:high, blocks M013 waves.** Now that full-tier budget is raised, the tier question is the live lever: #21 = "is the tier right?", #45 = "does full fit the budget?".
+1. **Squash-merge PR #52** (closes #21) and rename #45's stale title (auto-mode denied the rename this session). **Delete the merged branch** `codex/full-tier-review-budget` (content-identical to `main`). (`M014-ROADMAP.md` already tracked via `a0a0897` — done.)
+2. **#45 — STAYS OPEN, re-scoped to fix-direction 1 (per-reviewer convergence).** Dogfood proved #47's 15-min budget moved the bottleneck to the 360k per-reviewer cap, and the failure is non-convergence (over-deliberation), not clock/throttle/crawl. The fix is its own slice: **(a) bound reviewer thinking budget + tighten output contract (primary), (b) role-aware file assignment, (c) raise `reviewerMs` 360k→~540–600k as accompaniment only.** Explicitly NOT staging fan-out or capping tool budget (trace rules both out). #47 spent fix-direction 2 (raise overall); #52/#21 spent fix-direction 3 (reclassify).
+3. **#21 — being closed by PR #52** (recalibrate risk thresholds). Squash-merge to close.
 4. **#46 (incremental re-review)** — highest-leverage cost lever; review only the delta since `previousHeadSha` on re-push (plumbing stored, unused).
 5. **M014 v1: #48 (S01) → #49 (S02).** #48 = fix dummy-vs-real capture + `trusted-publish` not uploading + tag runtime kind (CI-yaml + small tag, `risk:low`). #49 = the `gh`-based aggregation puller that turns artifacts into one rolled-up dataset — **the slice that actually delivers "access."** #50 (counts-only boundary) + #51 (remote transport, phase 2) follow.
 6. **#20** (re-review analytics) unblocked; **M013 waves** (#27/#33→#28/#26/#29) sit behind #45/#21.
@@ -23,12 +26,11 @@ Reviewed PR #47 (`[codex] Bound full-tier review budget`), caught + fixed a corr
 
 - `main` @ `96be06e`, synced. Merged this session: PR #47.
 - **New this session:** milestone **M014 #4** + issues **#48** (S01 artifact capture, high), **#49** (S02 puller, high), **#50** (S03 counts-only boundary, med/security), **#51** (S04 remote transport, low). All labeled `observability` (not `inspiration-gap` — that means "gap vs Cloudflare writeup"; M014 is dogfooding-sourced).
-- **Open residuals:** #45 (full-tier, med — see Next #2), #46 (incremental re-review, med), #21 (risk thresholds, high), #41 (heartbeat), #42 (`--pi-api-key`), #20 (re-review analytics). M013 #26/#27/#28/#29/#33; M012 parking lot #15/#16/#22/#23/#24.
+- **Open residuals:** #45 (full-tier per-reviewer convergence, med — see Next #2), #46 (incremental re-review, med), #41 (heartbeat), #42 (`--pi-api-key`), #20 (re-review analytics). #21 closing via PR #52. M013 #26/#27/#28/#29/#33; M012 parking lot #15/#16/#22/#23/#24.
 - Working tree (on `main`): untracked `M009-SUMMARY.md` and `M014-ROADMAP.md`.
 
 ## Open threads
 
-- **`M014-ROADMAP.md` untracked** — commit it to `main` so the milestone spec is in-repo (Next #1).
 - **Merged branch `codex/full-tier-review-budget`** still exists locally + on origin; safe to delete (squashed into `96be06e`, tree-identical).
 - **pi auth (carried from prior session — VERIFY before next live dogfood):** the `anthropic` OAuth block was removed from `~/.pi/agent/auth.json` so pi bills the `.env` `ANTHROPIC_API_KEY`; backup at `~/.pi/agent/auth.json.bak-preA`. **Restore when done dogfooding** (`cp ~/.pi/agent/auth.json.bak-preA ~/.pi/agent/auth.json`). #42 fixes this in-product.
 - `M009-SUMMARY.md` still untracked — decide keep vs delete.
