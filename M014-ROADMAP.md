@@ -27,12 +27,16 @@ reliably and (b) a puller that aggregates the artifacts into one dataset. A remo
   fixed counts, and context-savings bytes — all counts and metadata, no raw diff or
   finding text.
 - **The artifact exists but isn't a dataset.** `.ai-review` → `actions/upload-artifact`
-  → per-PR `ai-review-<n>` zip. To learn anything across PRs you download and unzip N
-  artifacts by hand. There is no aggregation and no puller.
+  → per-PR zips. The CI workflow now emits three names: `ai-review-<n>` (dry-run,
+  `--runtime dummy`), `ai-review-trusted-<n>` (trusted-publish, also dummy), and
+  `ai-review-real-<n>` (trusted-real-review, `--runtime pi`). To learn anything across
+  PRs you download and unzip N artifacts by hand. There is no aggregation and no puller,
+  so the puller must fetch the whole set and filter by telemetry, not by artifact name.
 - **Capture is wrong by default.** The default same-repo path runs `--runtime dummy` (the
   `dry-run` job in `.github/workflows/ai-review.yml`), whose telemetry is deterministic
-  noise; real signal only exists when `AI_REVIEW_REAL_REVIEW_ENABLED=true`. The
-  `trusted-publish` job uploads no artifacts at all, discarding its local telemetry.
+  noise; real signal only exists when `AI_REVIEW_REAL_REVIEW_ENABLED=true`. S01 fixed the
+  `trusted-publish` job to upload `ai-review-trusted-<n>` instead of dropping its
+  telemetry, but it still tags events as dummy runtime noise.
 
 ## Decision: artifact-first v1, remote phase 2
 
@@ -68,6 +72,15 @@ and rationale behind those issues.
   identifiers only; a test asserts no diff text, finding bodies, prompts, or secrets.
 - The destination choice (artifact now, remote later) is recorded, with the trigger that
   would promote phase 2.
+
+## Telemetry field update
+
+- `ai-review.run_metrics.v1` now emits a `runtime` field on both completed and failed
+  runs. The value is the sanitized runtime name; today that yields `"pi"`,
+  `"dummy"`, `"deterministic"`, and any future real runtime identifier.
+- Downstream aggregation should exclude `NON_REAL_RUNTIME_KINDS`
+  (`"dummy"`, `"deterministic"`) when calculating production signal, relying on the
+  telemetry tag rather than artifact naming.
 
 ## Cross-Milestone Boundary
 

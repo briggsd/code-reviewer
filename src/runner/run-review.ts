@@ -29,6 +29,7 @@ import type {
   TokenUsage,
   TraceSink,
 } from "../contracts/index.ts";
+import { resolveRuntimeKind } from "../runtime/runtime-kind.ts";
 import { writeReviewContextArtifacts } from "./context-artifacts.ts";
 import { filterDiff } from "./diff-filter.ts";
 import { classifyReviewError } from "./error-classifier.ts";
@@ -102,6 +103,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
   const startedAt = options.now ?? clock();
   const timestamp = startedAt.toISOString();
   const runId = fixture.runId ?? createRunId(startedAt);
+  const runtimeKind = resolveRuntimeKind(options.runtime?.name);
 
   await emitTrace(options.traceSink, {
     type: "review.started",
@@ -266,6 +268,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         summary,
         metrics,
         status: "completed",
+        runtime: runtimeKind,
       }),
     });
 
@@ -346,6 +349,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         context,
         metrics,
         status: "failed",
+        runtime: runtimeKind,
         errorClassification,
       }),
     });
@@ -540,12 +544,14 @@ function createRunMetricsTelemetryEvent(input: {
   context: ReviewContext;
   metrics: ReviewRunMetrics;
   status: "completed" | "failed";
+  runtime: string;
   summary?: ReviewSummary;
   errorClassification?: ReviewErrorClassification;
 }): TelemetryEvent {
   const data: Record<string, JsonValue> = {
     schemaVersion: "ai-review.run_metrics.v1",
     status: input.status,
+    runtime: input.runtime,
     provider: input.context.metadata.provider,
     repository: input.context.metadata.repository.slug,
     changeId: input.context.metadata.changeId,

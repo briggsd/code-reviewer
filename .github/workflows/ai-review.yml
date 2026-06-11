@@ -86,6 +86,14 @@ jobs:
             --output-dir .ai-review \
             --ci-exit
 
+      - name: Upload trusted publish artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-review-trusted-${{ github.event.pull_request.number }}
+          path: .ai-review
+          include-hidden-files: true
+
   trusted-real-review:
     name: AI review publish real Pi summary
     runs-on: ubuntu-latest

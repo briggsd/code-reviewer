@@ -297,6 +297,7 @@ describe("JSONL trace and filesystem state", () => {
       data: {
         schemaVersion: "ai-review.run_metrics.v1",
         status: "completed",
+        runtime: "dummy",
         provider: "github",
         repository: "example/payments-api",
         changeId: "17",
@@ -313,6 +314,29 @@ describe("JSONL trace and filesystem state", () => {
           outputTokens: 0,
           estimatedCostUsd: 0,
         },
+      },
+    });
+  });
+
+  test("runner tags failed run metrics with runtime", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const telemetrySink = new RecordingTelemetrySink();
+    const runtime = new FailingRuntime();
+
+    await expect(runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+      runtime,
+      telemetrySink,
+    })).rejects.toThrow("synthetic runtime failure");
+
+    expect(telemetrySink.events).toHaveLength(1);
+    expect(telemetrySink.events[0]).toMatchObject({
+      type: "ai_review.run_metrics",
+      runId: "fixture-auth-pr",
+      data: {
+        status: "failed",
+        runtime: "failing",
       },
     });
   });
