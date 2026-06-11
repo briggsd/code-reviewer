@@ -41,7 +41,7 @@ import { assessFindingGrounding } from "./evidence-grounding.ts";
 import { backfillFindingLocations } from "./location-backfill.ts";
 import { applyAcknowledgements } from "./acknowledgements.ts";
 import { classifyReReviewFindings } from "./re-review.ts";
-import { assignStableFindingIds } from "./stable-finding-id.ts";
+import { assignStableFindingIds, createStableFindingId } from "./stable-finding-id.ts";
 
 export interface RunReviewOptions {
   fixture: ReviewFixture;
@@ -299,7 +299,15 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         data: { acknowledgedCount: acked.acknowledgedCount, suppressedCount: acked.suppressedCount },
       });
     }
-    const summary = classifyReReviewFindings(ackedSummary, context.priorState);
+    // Stable IDs of findings grounding withheld this run, so re-review classifies a prior
+    // finding that vanished only because grounding dropped it as `withheld`, not `fixed` (#69).
+    // Best-effort match: recomputing the ID here matches the prior stored ID only when it was not
+    // backfill-derived or collision-suffixed (a dropped finding can't be re-backfilled — its quote
+    // is absent from the current diff). When it doesn't match, the prior finding stays in
+    // `fixedFindingIds` (pre-#69 behavior — no regression). This is analytics/signal-accuracy only:
+    // withheld/fixed never affect the CI gate, decision, or outcome (those were finalized above).
+    const withheldStableIds = new Set(grounding.dropped.map((f) => createStableFindingId(f)));
+    const summary = classifyReReviewFindings(ackedSummary, context.priorState, withheldStableIds);
 
     await emitTrace(options.traceSink, {
       type: "coordinator.completed",
@@ -316,6 +324,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
             newFindingCount: summary.reReview.newFindingIds.length,
             recurringFindingCount: summary.reReview.recurringFindingIds.length,
             fixedFindingCount: summary.reReview.fixedFindingIds.length,
+            withheldFindingCount: summary.reReview.withheldFindingIds.length,
           }
           : {}),
       },
@@ -710,6 +719,7 @@ function createRunMetricsTelemetryEvent(input: {
       newFindingCount: input.summary.reReview.newFindingIds.length,
       recurringFindingCount: input.summary.reReview.recurringFindingIds.length,
       fixedFindingCount: input.summary.reReview.fixedFindingIds.length,
+      withheldFindingCount: input.summary.reReview.withheldFindingIds.length,
     };
   }
   if (input.groundingDroppedCount !== undefined && input.groundingDroppedCount > 0) {

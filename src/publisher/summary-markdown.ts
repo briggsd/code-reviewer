@@ -42,6 +42,10 @@ export function formatReviewSummaryMarkdown(
     if (summary.reReview.fixedFindingIds.length > 0) {
       lines.push(`- Fixed IDs: ${summary.reReview.fixedFindingIds.map((id) => `\`${id}\``).join(", ")}`);
     }
+    lines.push(`- Withheld prior findings: ${summary.reReview.withheldFindingIds.length}`);
+    if (summary.reReview.withheldFindingIds.length > 0) {
+      lines.push(`- Withheld IDs: ${summary.reReview.withheldFindingIds.map((id) => `\`${id}\``).join(", ")}`);
+    }
   }
 
   lines.push("---");

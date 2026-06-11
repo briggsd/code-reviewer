@@ -59,16 +59,19 @@ Provider-backed runs now call `VcsAdapter.getPriorReviewState()` while fetching 
 
 The context-building trace includes `priorFindingCount` so artifacts show whether a re-review had prior state available.
 
-## New, recurring, and fixed classification
+## New, recurring, fixed, and withheld classification
 
 When `ReviewContext.priorState` is present, the runner attaches `summary.reReview` after stable IDs are assigned:
 
 - `newFindingIds`: current finding IDs that were not in prior state.
 - `recurringFindingIds`: current finding IDs that were also in prior state.
-- `fixedFindingIds`: prior finding IDs that are absent from the current review.
-- `classifications`: per-ID records with status `new`, `recurring`, or `fixed`, plus current/prior finding details where available.
+- `fixedFindingIds`: prior finding IDs that are absent from the current review **and were not withheld by evidence grounding this run**.
+- `withheldFindingIds`: prior finding IDs absent from the current review **because evidence grounding dropped the matching finding this run** (its `quotedCode` could not be located in the changed files). The finding was not necessarily resolved — it was withheld for lack of grounding evidence, so it is excluded from `fixedFindingIds` and reported separately (#69).
+- `classifications`: per-ID records with status `new`, `recurring`, `fixed`, or `withheld`, plus current/prior finding details where available. `withheld` entries carry `priorFinding`/`lastSeenHeadSha` (like `fixed`) and no current `finding`.
 
-Summary markdown renders a **Re-review status** section with the new/recurring/fixed counts. Fixed findings are reported in the summary only; provider threads are not resolved yet.
+Summary markdown renders a **Re-review status** section with the new/recurring/fixed/withheld counts (withheld and fixed each also list their IDs when non-empty). Fixed findings are reported in the summary only; provider threads are not resolved yet.
+
+> **Withheld matching is best-effort (#69).** A withheld finding is matched to its prior-state entry by recomputing `createStableFindingId()` on the grounding-dropped finding. This matches only when the recomputed ID equals the stored prior ID. It will *not* match when the prior ID was derived from a backfilled location (a line `quotedCode` resolved in the prior diff but not this one — a dropped finding can't be re-backfilled, since its quote is absent from the current diff) or carried a collision ordinal (`#N`). In those cases the prior finding stays in `fixedFindingIds` — the pre-#69 behavior, so there is no regression; withheld simply does not fire. This is acceptable because the classification is analytics/signal-accuracy only: `withheldFindingIds`/`fixedFindingIds` never affect the CI gate, decision, or outcome.
 
 ## Fixture
 
@@ -84,13 +87,14 @@ Run it locally with:
 bun run src/cli.ts run --fixture examples/fixtures/re-review-pr.json --format markdown
 ```
 
-The output should include a **Re-review status** section with one recurring finding and one fixed prior finding.
+The output should include a **Re-review status** section with one recurring finding and one fixed prior finding. The fixture does not yet demonstrate a `withheld` finding — `withheld` counts appear only when evidence grounding drops a finding that also existed in prior state (a finding whose `quotedCode` grounded in a prior run but no longer matches the current diff).
 
 ## Future inline/discussion consumption
 
 Future inline publishers and discussion resolvers must preserve these invariants:
 
 - Only resolve provider threads for IDs in `fixedFindingIds` after a fresh provider diff/head check.
+- **Never resolve a provider thread for an ID in `withheldFindingIds`.** The finding was suppressed by evidence grounding this run and may reappear on a later run once grounding evidence is present; resolving its thread would prematurely hide a real issue. Only `fixedFindingIds` are thread-resolution candidates.
 - Never resolve a thread using summary text alone; use stable ID state plus provider thread/comment mapping.
 - Treat placeholder prior findings from summary metadata as enough for classification, but not enough for destructive provider actions.
 - Keep summary publishing as the fallback when inline coordinates or discussion IDs are missing.
@@ -103,5 +107,5 @@ Future inline publishers and discussion resolvers must preserve these invariants
 3. Load prior full summary state from artifacts or a real state store where available.
 4. Generate stable IDs for the current run.
 5. Compare current IDs to prior IDs.
-6. Classify findings as new, recurring, or absent/fixed.
+6. Classify findings as new, recurring, fixed, or withheld (grounding-suppressed — absent this run because evidence grounding dropped them).
 7. Publish summary updates first; resolve inline discussions only after provider-specific safety gates are implemented.

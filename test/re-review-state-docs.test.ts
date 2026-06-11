@@ -19,10 +19,11 @@ describe("re-review state documentation", () => {
     expect(guide).toContain("newFindingIds");
     expect(guide).toContain("recurringFindingIds");
     expect(guide).toContain("fixedFindingIds");
+    expect(guide).toContain("withheldFindingIds");
     expect(guide).toContain("examples/fixtures/re-review-pr.json");
     expect(guide).toContain("Future inline/discussion consumption");
     expect(guide).toContain("evaluateInlinePublishReadiness()");
-    expect(guide).toContain("new, recurring, or absent/fixed");
+    expect(guide).toContain("new, recurring, fixed, or withheld");
     expect(readme).toContain("[Re-review state](docs/re-review-state.md)");
   });
 });

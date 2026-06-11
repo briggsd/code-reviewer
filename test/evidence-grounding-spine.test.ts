@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { loadReviewFixture, runReview } from "../src/index.ts";
+import { createStableFindingId, loadReviewFixture, runReview } from "../src/index.ts";
 import type {
   CoordinatorRunInput,
   CoordinatorRunResult,
   Finding,
   AgentRuntime,
+  PriorReviewState,
   ReviewerRunInput,
   ReviewerRunResult,
   RuntimeEvent,
@@ -173,5 +174,85 @@ describe("evidence grounding spine integration", () => {
     const metrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
     expect(metrics).toBeDefined();
     expect(Object.prototype.hasOwnProperty.call(metrics?.data, "grounding")).toBe(false);
+  });
+
+  test("grounding-dropped finding from prior state is classified as withheld, not fixed", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const telemetrySink = new RecordingTelemetrySink();
+    const traceSink = new RecordingTraceSink();
+
+    // This finding will be DROPPED by grounding (quotedCode is fabricated, not in the diff).
+    // We build the prior-state entry with the SAME reviewer/category/location so
+    // createStableFindingId produces the same id for both.
+    const droppedFinding: Finding = {
+      reviewer: "security",
+      severity: "critical",
+      category: "data_exposure",
+      title: "Dropped finding — fabricated quote",
+      body: "body",
+      confidence: "high",
+      evidence: ["fabricated evidence"],
+      recommendation: "fix it",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["return db.accounts.deleteEverything();"],
+    };
+    const droppedStableId = createStableFindingId(droppedFinding);
+
+    // A second finding that will be KEPT (no quotedCode → grounding passes it through).
+    const groundedFinding: Finding = {
+      reviewer: "code_quality",
+      severity: "warning",
+      category: "correctness",
+      title: "Grounded finding — kept",
+      body: "body",
+      confidence: "medium",
+      evidence: ["evidence"],
+      recommendation: "fix it",
+      location: { path: "auth/accounts.ts" },
+    };
+
+    fixture.fakeFindings = [droppedFinding, groundedFinding];
+
+    // Prior state contains the to-be-dropped finding so re-review can compare
+    const priorState: PriorReviewState = {
+      previousRunId: "prior-run",
+      previousHeadSha: "old-head",
+      findings: [
+        {
+          stableId: droppedStableId,
+          finding: { ...droppedFinding, id: droppedStableId },
+          status: "open",
+          lastSeenHeadSha: "old-head",
+        },
+      ],
+    };
+
+    const result = await runReview({
+      fixture: { ...fixture, priorState },
+      clock: createIncrementingClock("2026-06-11T00:02:00.000Z"),
+      telemetrySink,
+      traceSink,
+    });
+
+    const { summary } = result;
+
+    // (a) grounding dropped the fabricated finding
+    const groundingTrace = traceSink.events.find((e) => e.type === "grounding.applied");
+    expect(groundingTrace).toBeDefined();
+    expect(groundingTrace?.data?.droppedFindingCount).toBe(1);
+
+    // (b) dropped finding's prior-state entry is withheld, not fixed
+    expect(summary.reReview?.withheldFindingIds).toContain(droppedStableId);
+    expect(summary.reReview?.fixedFindingIds).not.toContain(droppedStableId);
+
+    // (c) coordinator.completed trace carries withheldFindingCount
+    const coordinatorTrace = traceSink.events.find((e) => e.type === "coordinator.completed");
+    expect(coordinatorTrace).toBeDefined();
+    expect(coordinatorTrace?.data?.withheldFindingCount).toBe(1);
+
+    // (d) telemetry run_metrics carries withheldFindingCount
+    const metrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
+    expect(metrics).toBeDefined();
+    expect((metrics?.data?.reReview as { withheldFindingCount: number } | undefined)?.withheldFindingCount).toBe(1);
   });
 });

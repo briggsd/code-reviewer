@@ -115,7 +115,7 @@ Example `.ai-review.json`:
 - Stable finding IDs in completed summaries and hidden summary metadata.
 - Prior summary metadata parsing from existing GitHub comments and GitLab notes.
 - Provider-backed runs carry prior review state into `ReviewContext.priorState`.
-- Re-review summaries classify findings as new, recurring, or fixed; see `examples/fixtures/re-review-pr.json` for a fixture-backed example.
+- Re-review summaries classify findings as new, recurring, fixed, or withheld (grounding-suppressed); see `examples/fixtures/re-review-pr.json` for a fixture-backed example.
 - Runtime/model/schema failures persist `run.json.error` and a terminal `review.failed` trace event after context construction.
 
 ## Design stance

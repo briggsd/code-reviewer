@@ -155,6 +155,78 @@ describe("re-review finding classification", () => {
     expect(markdown).toContain("Fixed prior findings: 1");
     expect(markdown).toContain("`fnd_fixed`");
   });
+
+  test("summary markdown renders withheld counts and IDs (withheld finding surfaces, not silently absent)", () => {
+    // fnd_fixed is withheld this run (not resolved) → it must show as withheld, not fixed,
+    // and the count must render so the section isn't misleading (the finding-1 fix).
+    const summary = createSummary([recurringFinding]);
+    const reReview = createReReviewSummary(summary, priorState, new Set(["fnd_fixed"]));
+    const markdown = formatReviewSummaryMarkdown({ ...summary, reReview });
+
+    expect(markdown).toContain("### Re-review status");
+    expect(markdown).toContain("Fixed prior findings: 0");
+    expect(markdown).toContain("Withheld prior findings: 1");
+    expect(markdown).toContain("Withheld IDs: `fnd_fixed`");
+  });
+
+  test("withheld: prior finding in withheldStableIds goes to withheldFindingIds, not fixedFindingIds", () => {
+    // fnd_fixed is absent from current summary; passing it as withheld should route it to withheld
+    const summary = createSummary([recurringFinding]);
+    const withheldStableIds = new Set(["fnd_fixed"]);
+    const reReview = createReReviewSummary(summary, priorState, withheldStableIds);
+
+    expect(reReview.withheldFindingIds).toEqual(["fnd_fixed"]);
+    expect(reReview.fixedFindingIds).toEqual([]);
+    const withheldClassification = reReview.classifications.find((c) => c.stableId === "fnd_fixed");
+    expect(withheldClassification?.status).toBe("withheld");
+    expect(withheldClassification?.priorFinding).toBeDefined();
+    expect(withheldClassification?.lastSeenHeadSha).toBe("old-head");
+  });
+
+  test("withheld: prior finding absent from current AND absent from withheldStableIds stays in fixedFindingIds (regression guard)", () => {
+    // fnd_fixed is absent from current summary; NOT in withheldStableIds → must still be fixed
+    const summary = createSummary([recurringFinding]);
+    const reReview = createReReviewSummary(summary, priorState, new Set<string>());
+
+    expect(reReview.fixedFindingIds).toEqual(["fnd_fixed"]);
+    expect(reReview.withheldFindingIds).toEqual([]);
+    const fixedClassification = reReview.classifications.find((c) => c.stableId === "fnd_fixed");
+    expect(fixedClassification?.status).toBe("fixed");
+  });
+
+  test("withheld: no third arg → withheldFindingIds is empty and fixedFindingIds unchanged (back-compat)", () => {
+    // Calling without the optional third parameter must behave exactly as before the change
+    const summary = createSummary([recurringFinding]);
+    const reReview = createReReviewSummary(summary, priorState);
+
+    expect(reReview.withheldFindingIds).toEqual([]);
+    expect(reReview.fixedFindingIds).toEqual(["fnd_fixed"]);
+  });
+
+  test("withheld: hasVisibleReReviewState becomes true when only withheldFindingIds is non-empty", () => {
+    // A summary with NO new/recurring/fixed but with withheld findings should still attach reReview
+    const emptyPrior: PriorReviewState = {
+      previousRunId: "prior-run",
+      previousHeadSha: "old-head",
+      findings: [
+        {
+          stableId: "fnd_withheld_only",
+          finding: { ...recurringFinding, id: "fnd_withheld_only" },
+          status: "open",
+          lastSeenHeadSha: "old-head",
+        },
+      ],
+    };
+    // Current summary has NO findings → fnd_withheld_only absent from current
+    // withheldStableIds contains it → should be withheld not fixed
+    const summary = createSummary([]);
+    const withheldStableIds = new Set(["fnd_withheld_only"]);
+    const result = classifyReReviewFindings(summary, emptyPrior, withheldStableIds);
+
+    expect(result.reReview).toBeDefined();
+    expect(result.reReview?.withheldFindingIds).toEqual(["fnd_withheld_only"]);
+    expect(result.reReview?.fixedFindingIds).toEqual([]);
+  });
 });
 
 function createSummary(findings: Finding[]): ReviewSummary {

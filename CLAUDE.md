@@ -50,7 +50,7 @@ src/
     risk-classifier.ts         #   trivial/lite/full tiering  (see #21)
     diff-filter.ts, context-artifacts.ts, stable-finding-id.ts, path-match.ts
     error-classifier.ts        #   retryable vs terminal failures
-    re-review.ts               #   new/recurring/fixed finding classification
+    re-review.ts               #   new/recurring/fixed/withheld finding classification
     reviewer-definitions.ts    #   TRUSTED, factory-owned reviewer prompts/modules
     fixture.ts                 #   fixture loading for local/dummy runs
     git-diff-source.ts         #   --git-diff: build metadata+diff from local git (no PR, no publish)

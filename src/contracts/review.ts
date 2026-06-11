@@ -152,7 +152,7 @@ export interface Finding {
   recommendation: string;
 }
 
-export type ReReviewFindingStatus = "new" | "recurring" | "fixed";
+export type ReReviewFindingStatus = "new" | "recurring" | "fixed" | "withheld";
 
 export interface ReReviewFindingClassification {
   stableId: string;
@@ -166,6 +166,7 @@ export interface ReReviewSummary {
   newFindingIds: string[];
   recurringFindingIds: string[];
   fixedFindingIds: string[];
+  withheldFindingIds: string[];
   classifications: ReReviewFindingClassification[];
 }
 
