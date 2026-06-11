@@ -1,4 +1,4 @@
-# Continue — AI Code Review Factory / #54-P1 precision prompts shipped (PR #64); #65 investigated→closed (no bug, thinking works); next = Slice 2 (#54.2 grounding stage)
+# Continue — AI Code Review Factory / #54-P1 shipped (PR #64); #65 closed (no bug); Slice 2 (#54.2 grounding) DEFERRED — needs a verbatim-quote contract first
 
 ## Last action
 
@@ -29,6 +29,19 @@ implemented cleanly (208→209, reconciled, no confab); coordinator fixed one co
   claude-sonnet-4-6 --output-dir <dir>`; inspect `runs/*/telemetry.jsonl` (per-agent
   `usage.outputTokens`) + `trace.jsonl` (`grep -c '"type":"thinking"'`).
 
+- **Slice 2 (#54.2 evidence-grounding) ATTEMPTED → DEFERRED (no merge).** Built the deterministic
+  grounding post-filter (drop findings whose cited `evidence` isn't in the diff). Worked
+  mechanically (221/0) but the duo caught a **design flaw**: it dropped *legitimate* findings,
+  because real `evidence` is **narrative prose** ("The patch returns db.accounts.findById(accountId)
+  directly…") or **about-absence** ("no auth check before returning"), not verbatim quotes — neither
+  substring-matches the diff. The implementer had masked it by rewriting fixtures to bare quotes.
+  Dropping real findings violates principle #1. **Branch deleted, `main` clean.** Decision (user):
+  **defer until a verbatim-quote contract exists.** New sequencing: (1) prerequisite slice = add a
+  contractually-verbatim `quotedCode: string[]` to `Finding` + reviewer-prompt to populate it; (2)
+  THEN ground `quotedCode` (reliable by contract), revisit drop-vs-demote. #54.1 (shipped) covers
+  the judgment side meanwhile. Full writeup + reusable spine scaffolding in **#54 comment**
+  (`run-review.ts:215` transform, decision recompute via `chooseDecision`, `grounding.applied`
+  trace, counts-only telemetry, "N withheld" note).
 - **(Prior session) MERGED:** PR #55 (#48 runtime-kind tag + trusted-publish upload, `30c8451`),
   PR #59 (#49 aggregation puller, `6f4b188`), PR #61 (#60 P1 reviewer conventions, `2462d60`),
   PR #62 (#58 job-kind tag, `161fba9`), PR #63 (#57 trace redaction slice, `e05e18f`).
@@ -69,12 +82,14 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## Next action
 
-0. **Slice 2 (recommended next) — #54.2 deterministic evidence-grounding post-filter** (Foundation
-   A). Post-review stage at `run-review.ts:215` (`assignStableFindingIds → classifyReReviewFindings`):
-   string-match each finding's cited `evidence`/`location` against the changed files; drop/hard-demote
-   quote-not-in-file findings (the U+200B case in #54). Build it as a composable finding-transform so
-   #60-P3's acknowledgement filter slots in later. #54 acceptance #1 = "fabricated-evidence fixture
-   filtered before publish." (#65 is closed; thinking works — not a blocker.)
+0. **#54.2 prerequisite (recommended next if continuing #54) — verbatim-quote contract.** Add
+   `quotedCode: string[]` to `Finding` (`src/contracts/review.ts`) + `validateFinding`
+   (`pi-agent-runtime.ts`) + reviewer-prompt instruction ("copy the exact changed line(s) you flag,
+   verbatim, into `quotedCode`"). This is the FOUNDATION that makes evidence-grounding (#54.2) safe —
+   only a contractually-verbatim field can be string-matched without false-dropping narrative/absence
+   evidence. THEN #54.2 grounds `quotedCode`. See #54 comment for the deferral rationale.
+   **Alternatively skip ahead to Slice 3** (ref-addressing plumbing + #60-P2 base-branch read,
+   Foundation B) — independent of the #54.2 detour and high-value (the conventions trust guard).
 1. **#57 remaining (stays OPEN):** (a) **enablement** — redaction is default-off, so wire
    `--redact-trace` into the `trusted-real-review` job (or scope the artifact upload paths);
    (b) **redaction completeness** — extend beyond `message_start/end` `content` to other
@@ -95,8 +110,8 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 - `main` @ `ee66927`, pushed/synced, gate **209/0**.
 - **MERGED this session:** PR #64 (#54-P1 precision prompts; backend: in-harness Sonnet subagent,
   noted in PR body). **FILED then CLOSED:** #65 (investigated → works-as-designed, no bug).
-- **Issues open:** #54 (P1 done in #64; **#54.2 grounding stage = Slice 2, recommended next**),
-  #60 (P1 landed; P2/P3 remain = Slices 3/5), #57 (partial — redaction landed; enablement +
+- **Issues open:** #54 (P1 done in #64; **#54.2 DEFERRED — needs verbatim `quotedCode` contract
+  first**, see #54 comment), #60 (P1 landed; P2/P3 remain = Slices 3/5), #57 (partial — redaction landed; enablement +
   completeness + path-scoping remain), #46 (Slice 4), plus #41/#42/#20 + M013/M012 backlog.
   #28 (holdout eval) is the measurement counterpart for #54.
 - **Closed:** #65 (this session, not-planned); #48, #49, #58 (prior).
@@ -144,6 +159,11 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   (it swept `M009-SUMMARY.md` in once).
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58 or merged
   PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64 unless new regressions appear.
+- Do not ground/drop findings against the narrative `evidence` field (the #54.2 trap). Real
+  `evidence` is prose or about-absence, not verbatim quotes → string-matching it false-drops real
+  findings (violates principle #1). Grounding requires a contractually-verbatim field
+  (`quotedCode`) FIRST. Don't "fix" the resulting test failures by rewriting fixtures to bare
+  quotes — that masks the flaw (the implementer did this; it's wrong).
 - Do not re-investigate #65 (CLOSED, works-as-designed). Reviewers/thinking/runtime/CI all work;
   thinking is a CAP not a floor → trivial diffs correctly yield fast empty reviews. A fast/empty
   CI review on a small clean PR is EXPECTED, not a regression. Only reopen if a *substantive* diff
