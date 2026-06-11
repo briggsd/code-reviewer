@@ -28,6 +28,10 @@ bun run src/cli.ts schemas        # emit config + structured-output JSON schemas
 bun run schema:config             # regenerate .ai-review.schema.json
 bun run telemetry:rollup --runs 20 --output telemetry-rollup.json   # aggregate run_metrics from recent CI artifacts (needs authed `gh`; targets the hardcoded .github/workflows/ai-review.yml)
 bun run telemetry:analyze --runs 20 --output telemetry-analyze.json  # segmented analysis (by tier/reviewer/decision/rates) from same events; prints human table + writes JSON
+bun run lint           # Biome lint+format check (advisory — NOT part of `check`)
+bun run lint:fix       # auto-apply Biome fixes
+bun run knip           # unused files/exports/deps (advisory)
+bun run dup            # jscpd copy-paste detection over src/ (advisory)
 ```
 
 Smoke scripts (opt-in, network/model-gated — default tests are fake/no-network):
@@ -116,8 +120,11 @@ Details + diagram: **docs/architecture.md**.
 ## Conventions & known gotchas
 
 - TypeScript strict everywhere (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
-  `verbatimModuleSyntax`). No `any`. There is **no linter/formatter** yet — strict tsc is
-  the only static gate (mechanizing boundary rules is tracked in #27).
+  `verbatimModuleSyntax`). No `any`. **Strict tsc is the blocking static gate** (the only
+  gate folded into `bun run check`). **Biome** (`bun run lint` / `lint:fix`), **knip**, and
+  **jscpd** (`bun run dup`) are **advisory** quality tools — run in CI's `quality` job
+  (continue-on-error) and available locally, but deliberately not part of `check`.
+  Mechanizing architecture-boundary rules is tracked in #27.
 - `validateFinding` currently accepts any `reviewer` string; model self-mislabeling is a
   known backlog item, not a guarantee.
 - Context/token-savings metrics use a `bytes/4` approximation pending real provider telemetry.

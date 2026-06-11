@@ -20,7 +20,8 @@ mandatory — this repo's reviewer is non-deterministic and confabulation has ha
 ## Repo pins
 - **Gate (run yourself, every iteration):** `bun run check` (= `bunx tsc --noEmit && bun test`).
   Strict TS (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`),
-  **no `any`**; strict tsc is the only static gate.
+  **no `any`**; strict tsc is the only *blocking* static gate. Biome (`bun run lint`), knip
+  (`bun run knip`), and jscpd (`bun run dup`) are advisory tools available locally and in CI.
 - **Runtime:** Bun `>=1.3.0`, no build step. Confirm `node_modules` exists before launching.
 - **Branch convention:** `<backend>/<issue#>-<short-slug>` (e.g. `codex/48-…`, `sonnet/58-…`).
 - **Commit footer (required):** `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
