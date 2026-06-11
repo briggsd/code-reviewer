@@ -21,6 +21,7 @@
     "start": "bun run src/cli.ts",
     "schema:config": "bun run scripts/write-config-schema.ts",
     "telemetry:rollup": "bun run scripts/telemetry-rollup.ts",
+    "telemetry:analyze": "bun run scripts/telemetry-analyze.ts",
     "pack:smoke": "bun run scripts/package-smoke.ts",
     "smoke:external-package": "bun run scripts/external-package-smoke.ts",
     "smoke:pi": "bun run scripts/pi-live-smoke.ts",
