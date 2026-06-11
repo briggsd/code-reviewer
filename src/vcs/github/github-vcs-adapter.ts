@@ -12,6 +12,7 @@ import type {
   PublishSummaryResult,
   VcsAdapter,
 } from "../../contracts/index.ts";
+import { escapeMarkdown } from "../../publisher/markdown-escape.ts";
 import { formatReviewSummaryMarkdown } from "../../publisher/summary-markdown.ts";
 import { createPriorReviewStateFromMetadata, parseSummaryHiddenMetadata } from "../../publisher/summary-metadata.ts";
 
@@ -402,16 +403,20 @@ function formatInlineFindingComment(finding: Finding, change: ChangeMetadata, ru
     findingId: finding.id ?? null,
     runId: runId ?? null,
   });
+  // Escape each evidence item individually before embedding in a list line (#74).
+  // category is NOT in a code span in this inline format — escape it too (#74).
   const evidence = finding.evidence.length === 0
     ? ["- No separate evidence was provided."]
-    : finding.evidence.map((item) => `- ${item}`);
+    : finding.evidence.map((item) => `- ${escapeMarkdown(item)}`);
 
   return [
-    `### AI review: ${formatSeverity(finding.severity)} · ${finding.category}`,
+    // category appears outside a code span here (unlike summary-markdown) — escape it (#74).
+    `### AI review: ${formatSeverity(finding.severity)} · ${escapeMarkdown(finding.category)}`,
     "",
-    `**${finding.title}**`,
+    // title/body/recommendation are LLM-produced free text — escape before embedding (#74).
+    `**${escapeMarkdown(finding.title)}**`,
     "",
-    finding.body,
+    escapeMarkdown(finding.body),
     "",
     `**Confidence:** ${formatTitleCase(finding.confidence)}`,
     "",
@@ -424,7 +429,7 @@ function formatInlineFindingComment(finding: Finding, change: ChangeMetadata, ru
     "",
     "**Recommendation**",
     "",
-    finding.recommendation,
+    escapeMarkdown(finding.recommendation),
     "",
     "_AI review inline comment. CI status and the summary comment remain authoritative._",
     "",

@@ -1,4 +1,5 @@
 import type { Finding, ReviewSummary } from "../contracts/index.ts";
+import { escapeMarkdown } from "./markdown-escape.ts";
 
 export interface SummaryMarkdownOptions {
   includeHiddenMetadata?: boolean;
@@ -58,20 +59,26 @@ export function formatReviewSummaryMarkdown(
 
 function formatFinding(finding: Finding): string {
   const location = formatLocation(finding);
+  // acknowledged.reason comes from the base-branch .ai-review.json — untrusted text (#74).
   const acknowledgedSuffix = finding.acknowledged !== undefined
-    ? ` — _acknowledged: ${finding.acknowledged.reason}_`
+    ? ` — _acknowledged: ${escapeMarkdown(finding.acknowledged.reason)}_`
     : "";
   const lines = [
-    `- **${finding.severity.toUpperCase()}: ${finding.title}**${location}${acknowledgedSuffix}`,
+    // title is LLM-produced — escape before embedding in bold text (#74).
+    `- **${finding.severity.toUpperCase()}: ${escapeMarkdown(finding.title)}**${location}${acknowledgedSuffix}`,
+    // category/reviewer/confidence are inside code spans (controlled-ish enums) — left as-is per spec.
     `  - Category: \`${finding.category}\``,
     `  - Reviewer: \`${finding.reviewer}\``,
     `  - Confidence: \`${finding.confidence}\``,
-    `  - Why it matters: ${finding.body}`,
-    `  - Recommendation: ${finding.recommendation}`,
+    // body and recommendation are LLM-produced free text — escape them (#74).
+    `  - Why it matters: ${escapeMarkdown(finding.body)}`,
+    `  - Recommendation: ${escapeMarkdown(finding.recommendation)}`,
   ];
 
   if (finding.evidence.length > 0) {
-    lines.push(`  - Evidence: ${finding.evidence.join("; ")}`);
+    // Escape each evidence entry individually before joining, so metacharacters in one
+    // entry cannot bleed into the separator (#74).
+    lines.push(`  - Evidence: ${finding.evidence.map((e) => escapeMarkdown(e)).join("; ")}`);
   }
 
   return lines.join("\n");
@@ -82,14 +89,17 @@ function formatLocation(finding: Finding): string {
     return "";
   }
 
+  // path comes from the diff/VCS response — treat as untrusted text and escape it (#74).
+  // Line numbers are numeric — no escaping needed.
   const { path, line, startLine, endLine } = finding.location;
+  const escapedPath = escapeMarkdown(path);
   if (line !== undefined) {
-    return ` (${path}:${line})`;
+    return ` (${escapedPath}:${line})`;
   }
 
   if (startLine !== undefined && endLine !== undefined) {
-    return ` (${path}:${startLine}-${endLine})`;
+    return ` (${escapedPath}:${startLine}-${endLine})`;
   }
 
-  return ` (${path})`;
+  return ` (${escapedPath})`;
 }
