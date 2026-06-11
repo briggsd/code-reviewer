@@ -58,8 +58,11 @@ export function formatReviewSummaryMarkdown(
 
 function formatFinding(finding: Finding): string {
   const location = formatLocation(finding);
+  const acknowledgedSuffix = finding.acknowledged !== undefined
+    ? ` — _acknowledged: ${finding.acknowledged.reason}_`
+    : "";
   const lines = [
-    `- **${finding.severity.toUpperCase()}: ${finding.title}**${location}`,
+    `- **${finding.severity.toUpperCase()}: ${finding.title}**${location}${acknowledgedSuffix}`,
     `  - Category: \`${finding.category}\``,
     `  - Reviewer: \`${finding.reviewer}\``,
     `  - Confidence: \`${finding.confidence}\``,

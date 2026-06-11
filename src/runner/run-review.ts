@@ -37,6 +37,7 @@ import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
 import { classifyRisk } from "./risk-classifier.ts";
 import { findUnsupportedReviewerPolicyEntries, selectTrustedReviewerDefinitions } from "./reviewer-definitions.ts";
 import { assessFindingGrounding } from "./evidence-grounding.ts";
+import { applyAcknowledgements } from "./acknowledgements.ts";
 import { classifyReReviewFindings } from "./re-review.ts";
 import { assignStableFindingIds } from "./stable-finding-id.ts";
 
@@ -226,9 +227,9 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         findings: grounding.grounded,
         decision,
         outcome,
-        ...(decision !== runtimeResult.summary.decision
-          ? { title: createSummaryTitle(decision, grounding.grounded) }
-          : {}),
+        // The displayed finding set changed (some withheld), so refresh the title — its count must
+        // reflect the findings now shown, not the coordinator's pre-grounding count.
+        title: createSummaryTitle(decision, grounding.grounded),
         body: `${runtimeResult.summary.body}\n\n_${groundingDroppedCount} finding(s) withheld: the code they cited could not be found in the changed files._`,
       };
       await emitTrace(options.traceSink, {
@@ -244,7 +245,40 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         },
       });
     }
-    const summary = classifyReReviewFindings(assignStableFindingIds(groundedSummary), context.priorState);
+    const withIds = assignStableFindingIds(groundedSummary);
+    const acked = applyAcknowledgements(withIds.findings, context.config.acknowledgements ?? [], startedAt);
+    const acknowledgedCount = acked.acknowledgedCount;
+    const suppressedCount = acked.suppressedCount;
+    let ackedSummary = withIds;
+    if (acked.acknowledgedCount > 0 || acked.suppressedCount > 0) {
+      // Recompute the gate from findings that still count — acknowledged + suppressed are excluded.
+      const gateFindings = acked.findings.filter((f) => f.acknowledged === undefined);
+      const highestSeverity = getHighestSeverity(gateFindings);
+      const decision = chooseDecision(gateFindings, highestSeverity);
+      const hasBlockingFinding = highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
+      const outcome = context.config.mode === "blocking" && hasBlockingFinding ? "fail" : "pass";
+      const notes: string[] = [];
+      if (acked.acknowledgedCount > 0) notes.push(`${acked.acknowledgedCount} finding(s) acknowledged`);
+      if (acked.suppressedCount > 0) notes.push(`${acked.suppressedCount} suppressed`);
+      ackedSummary = {
+        ...withIds,
+        findings: acked.findings,
+        decision,
+        outcome,
+        // Refresh the title for the changed set. Count reflects the findings SHOWN (acked.findings —
+        // acknowledged ones are still listed, annotated); the decision is driven by gateFindings.
+        title: createSummaryTitle(decision, acked.findings),
+        body: `${withIds.body}\n\n_${notes.join("; ")} by project acknowledgements (base-branch .ai-review.json)._`,
+      };
+      await emitTrace(options.traceSink, {
+        type: "acknowledgements.applied",
+        runId,
+        role: "coordinator",
+        timestamp: clock().toISOString(),
+        data: { acknowledgedCount: acked.acknowledgedCount, suppressedCount: acked.suppressedCount },
+      });
+    }
+    const summary = classifyReReviewFindings(ackedSummary, context.priorState);
 
     await emitTrace(options.traceSink, {
       type: "coordinator.completed",
@@ -306,6 +340,8 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         runtime: runtimeKind,
         ...(jobKind !== undefined ? { jobKind } : {}),
         ...(groundingDroppedCount > 0 ? { groundingDroppedCount } : {}),
+        ...(acknowledgedCount > 0 ? { acknowledgedCount } : {}),
+        ...(suppressedCount > 0 ? { suppressedCount } : {}),
       }),
     });
 
@@ -585,6 +621,8 @@ function createRunMetricsTelemetryEvent(input: {
   runtime: string;
   jobKind?: string;
   groundingDroppedCount?: number;
+  acknowledgedCount?: number;
+  suppressedCount?: number;
   summary?: ReviewSummary;
   errorClassification?: ReviewErrorClassification;
 }): TelemetryEvent {
@@ -653,6 +691,16 @@ function createRunMetricsTelemetryEvent(input: {
   }
   if (input.groundingDroppedCount !== undefined && input.groundingDroppedCount > 0) {
     data.grounding = { droppedFindingCount: input.groundingDroppedCount };
+  }
+  if ((input.acknowledgedCount !== undefined && input.acknowledgedCount > 0) || (input.suppressedCount !== undefined && input.suppressedCount > 0)) {
+    const ackData: Record<string, number> = {};
+    if (input.acknowledgedCount !== undefined && input.acknowledgedCount > 0) {
+      ackData.acknowledgedCount = input.acknowledgedCount;
+    }
+    if (input.suppressedCount !== undefined && input.suppressedCount > 0) {
+      ackData.suppressedCount = input.suppressedCount;
+    }
+    data.acknowledgements = ackData;
   }
   if (input.errorClassification !== undefined) {
     data.errorClassification = {

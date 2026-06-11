@@ -146,6 +146,9 @@ export interface Finding {
    * it against the diff); no grounding/verification is performed in this version.
    */
   quotedCode?: string[];
+  /** Set when a base-branch acknowledgement matched this finding (#60-P3). Acknowledged findings
+   *  are surfaced + annotated but excluded from the CI gate; they are never hidden. */
+  acknowledged?: { reason: string };
   recommendation: string;
 }
 

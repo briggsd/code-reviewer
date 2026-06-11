@@ -72,6 +72,23 @@ bun run schema:config
 - `sensitivePaths`: glob-like path patterns that escalate risk.
 - `ignoredPaths`: glob-like path patterns filtered out before review.
 - `reviewerPolicy`: role name to `enabled`, `disabled`, or `full_only`.
+- `conventions`: array of prose strings telling the reviewer about this repo's expected exceptions
+  (e.g. "scripts/* are maintainer-run tools; don't apply an untrusted-input threat model"). Rendered
+  as inert, sanitized untrusted data in the reviewer/coordinator prompts (never as instructions).
+  **In the GitHub provider path these are read from the base/target branch, not the PR head** (a PR
+  cannot grant itself an exception); see `docs/reviewer-conventions.md`. Bounded: ≤50 entries, ≤500
+  chars each.
+- `acknowledgements`: array of structured records accepting a *specific* known finding. Each is
+  `{ "path": "<glob>", "category"?: "<cat>", "stableFindingId"?: "fnd_…", "mode": "acknowledge" |
+  "suppress", "reason": "<why>", "expires"?: "YYYY-MM-DD" }`. A matching finding (by path glob +
+  optional category/stableFindingId) is, for `acknowledge`, **kept and annotated but excluded from
+  the CI gate** (surfaced, not hidden); for `suppress`, **removed** — except a security-reviewer
+  finding, which is downgraded to `acknowledge` (never silently hidden). An `expires` date in the
+  past makes the entry inactive. Like `conventions`, these are read from the **base branch** in the
+  provider path. Bounded: ≤100 entries.
+  > **⚠️ Upgrading:** earlier releases declared `acknowledgements` but ignored it. After upgrading,
+  > acknowledgements on your **base branch** become active and will change which findings reach the
+  > gate. Review any pre-configured entries before upgrading. (`reason` is now required.)
 - `timeouts`: reviewer/coordinator/overall budgets in milliseconds.
   - Reviewer agents run in parallel; the coordinator runs after all reviewers complete.
   - `overallMs` is an enforced wall-clock ceiling for the whole runtime phase and should be at least `reviewerMs + coordinatorMs` plus headroom.
