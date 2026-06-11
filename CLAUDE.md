@@ -63,6 +63,11 @@ docs/                          # canonical design docs (see README "Documents" i
 M0xx-ROADMAP.md / -SUMMARY.md  # sequential milestone roadmaps + completion notes
 ```
 
+**Extending or testing the codebase?** Start with **docs/extending.md** — integration
+recipes (add a telemetry field / config field / CLI flag / prompt injection) and a
+**test-infra index** (which capture fake/fixture to use, where to assert). Fastest way to
+orient before writing or delegating a change.
+
 ## Lifecycle (one sentence per stage)
 
 `PR/MR event → CI job → VCS adapter fetches metadata+diff+prior state → diff filter →
