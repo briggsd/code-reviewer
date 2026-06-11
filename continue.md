@@ -1,6 +1,27 @@
-# Continue — AI Code Review Factory / #28 eval VALIDATED @ 100% (precision+recall proven); #73 #74 #77 #80 #82 #28 closed; next = #69 / #84 / #87 / M014
+# Continue — AI Code Review Factory / 8 issues closed this session (incl. #28 eval VALIDATED @ 100%, #84 + #87 security/UX); next = #69 / M014 (#50/#57) / M013
 
 ## Last action
+
+**#84 + #87 SHIPPED & CLOSED (PRs #88 + #89).** Two final fixes this session, both improved by their
+full-tier reviews:
+- **#84 (PR #88, security):** inline dedup trusted comment metadata WITHOUT checking the author → a
+  planted marker could suppress a finding. Fix: verify the comment/note author == the bot identity
+  (`GET /user`, memoized, safe-on-failure → no suppression). The review caught that the **summary**-
+  comment dedup was the SAME class but **higher impact** (a planted `<!-- ai-code-review-factory`
+  comment → bot PATCHes a comment it can't edit → 403 → whole summary suppressed) — fixed that too in
+  the same PR. Both inline + summary dedup now author-verified, both adapters.
+- **#87 (PR #89, UX/correctness):** findings often omit `location.path` → inline publishing skipped
+  them (found via the #28 eval). Fix: `src/runner/location-backfill.ts` deterministically maps
+  `quotedCode` → file+new-side line (hunk parser; RIGHT-side only) and backfills `location` in the
+  spine after grounding / before stable-ids. Full-tier review found a real cross-file path-overwrite
+  bug (now path-constrained), a `push(...spread)` RangeError on huge patches (now a loop + isLockfile
+  skip), and the need for a re-review migration note (stable IDs change for backfilled findings) — all
+  fixed. Also extracted the shared `normalizeForMatch` (text-normalize.ts) used by grounding + backfill
+  (was duplicated). Backfill emits counts-only `location.backfill.applied` trace + telemetry.
+
+---
+
+**Earlier last action:**
 
 **EVAL RAN AGAINST PI → 5/5 SCENARIOS, 100.0% MEAN SATISFACTION (after one recalibration, PR #86).**
 The capstone payoff: the holdout eval empirically validates the session's precision work on real
@@ -324,7 +345,7 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## State
 
-- `main` @ `c30364f`, pushed/synced, gate **385/0**, working tree CLEAN.
+- `main` @ `7f56879`, pushed/synced, gate **412/0**, working tree CLEAN.
 - **MERGED last big session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
@@ -333,14 +354,12 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   full-tiering + config-docs footgun, closed #77), **#81** (#80 GitLab `readBaseBranchFile` trust-guard
   parity, closed #80), **#83** (#82 GitLab inline MR-discussion publishing + shared inline renderer,
   closed #82), **#85** (#28 holdout eval harness MVP, closed #28), **#86** (eval-criteria recalibration
-  → 5/5 @ 100%).
-- **Issues open:** **#87** (findings omit `location.path` → inline publishing skips them; low/observ —
-  filed from the eval run), **#84** (inline dedup trusts comment-author metadata → finding-suppression; low/
-  security, cross-provider — filed from the #83 review), #69 (re-review miscount, low), #57 (partial),
-  #46 (needs prev-head..head ref read), #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012.
-  **GitLab parity now COMPLETE** (base-read #80 + inline publish #82); GitLab inline has documented MVP
-  limits (renamed files, single-page dedup) + a pending live smoke. **#77 option 2** (generalized
-  self-review signal / thin-review flag) deferred — but #77 is now PROVEN end-to-end (#83 got a real
+  → 5/5 @ 100%), **#88** (#84 inline+summary dedup author-trust, closed #84), **#89** (#87 location backfill, closed #87).
+- **Issues open:** **#69** (re-review miscount, low — likely-quick next), #57 (partial — telemetry
+  redaction), #46 (needs prev-head..head ref read), **M014** #50/#51 (telemetry egress), **M013**
+  #26/#27/#29/#33, #41/#42/#20, **M012** parking lot #15/#16/#22/#23/#24.
+  **GitLab parity COMPLETE** (base-read #80 + inline publish #82 + dedup author-trust #84). **#77 PROVEN
+  end-to-end**; eval VALIDATED 5/5@100%. **#77 option 2** (generalized self-review signal / thin-review
   full-tier review). **#77 option 2** revisit only if needed.
 - **#76 post-merge audit (PR #76's empty AI review):** NOT a regression. Reviewers got real ~5K
   prompts (`cacheWrite≈5070`) but returned `{"findings":[]}` in 8 tokens / 0 thinking because risk
@@ -401,8 +420,8 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   vs `git diff` and re-run `bun run check`. Do not `git add -A` when committing delegated work
   (it swept `M009-SUMMARY.md` in once).
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80/#82/#28
-  or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85 unless new
-  regressions appear. Closed issues #60/#65/#67 likewise stay closed.
+  #84/#87 or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85/#86/#88/#89
+  unless new regressions appear. Closed issues #60/#65/#67 likewise stay closed.
 - Do not tune `src/runner/reviewer-definitions.ts` (or coordinator prompts) against the `evals/`
   holdout scenarios to make them pass — that destroys the holdout discipline (#28). The eval set is a
   TRUE holdout: investigate underperformance, don't memorize the fixtures. `src/evals` is pure logic
