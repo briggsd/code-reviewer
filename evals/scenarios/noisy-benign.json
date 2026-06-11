@@ -1,0 +1,18 @@
+{
+  "name": "noisy-benign",
+  "description": "A larger diff of pure formatting/whitespace/comment changes with no logic change. Guards signal-to-noise: a good reviewer stays mostly quiet on cosmetic churn.",
+  "fixture": "evals/fixtures/noisy-benign.json",
+  "criteria": [
+    {
+      "kind": "no_findings_at_or_above",
+      "label": "no warnings or worse on formatting-only diff",
+      "severity": "warning"
+    },
+    {
+      "kind": "max_findings",
+      "label": "at most 3 suggestions on cosmetic-only change",
+      "count": 3,
+      "atOrAbove": "suggestion"
+    }
+  ]
+}

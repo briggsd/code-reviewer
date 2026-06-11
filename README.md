@@ -23,6 +23,7 @@ This repository starts as an architecture/design workspace. The implementation t
 - [Release readiness](docs/release-readiness.md) — checklist for verification, packaging, CI adoption, and release blockers.
 - [Re-review state](docs/re-review-state.md) — stable finding IDs and hidden metadata for future incremental review.
 - [Research findings](research/ci-vcs-runtime-findings.md) — CI/VCS/runtime questions researched before drafting the architecture.
+- [Evals](docs/evals.md) — holdout scenario eval harness: behavioral scoring, holdout hygiene, and how to run.
 
 ## Development
 

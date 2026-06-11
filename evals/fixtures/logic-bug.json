@@ -1,0 +1,44 @@
+{
+  "runId": "eval-logic-bug",
+  "safetyMode": "trusted",
+  "metadata": {
+    "provider": "github",
+    "repository": {
+      "provider": "github",
+      "owner": "example",
+      "name": "app",
+      "slug": "example/app",
+      "defaultBranch": "main"
+    },
+    "changeId": "5",
+    "headSha": "eee001",
+    "baseSha": "eee000",
+    "sourceBranch": "fix/pagination",
+    "targetBranch": "main",
+    "title": "Fix pagination bounds",
+    "description": "Updates the page bounds check in the pagination helper.",
+    "author": {
+      "username": "dev"
+    },
+    "labels": []
+  },
+  "diff": {
+    "files": [
+      {
+        "path": "src/pagination.ts",
+        "status": "modified",
+        "additions": 4,
+        "deletions": 3,
+        "isBinary": false,
+        "patch": "@@ -5,9 +5,10 @@ export function paginate<T>(items: T[], page: number, pageSize: number): T[] {\n-  if (page < 0 || pageSize <= 0) {\n-    throw new Error('Invalid page parameters');\n+  if (page <= 0 || pageSize < 0) {\n+    throw new Error('Invalid pagination parameters');\n   }\n   const start = page * pageSize;\n-  const end = start + pageSize;\n-  return items.slice(start, end);\n+  const end = start + pageSize + 1;\n+  return items.slice(start, end);\n }"
+      }
+    ],
+    "totalAdditions": 4,
+    "totalDeletions": 3,
+    "truncated": false
+  },
+  "config": {
+    "mode": "blocking",
+    "failOn": ["critical"]
+  }
+}

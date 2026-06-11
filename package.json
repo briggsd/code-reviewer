@@ -25,7 +25,8 @@
     "smoke:external-package": "bun run scripts/external-package-smoke.ts",
     "smoke:pi": "bun run scripts/pi-live-smoke.ts",
     "smoke:gitlab": "bun run scripts/gitlab-live-smoke.ts",
-    "smoke:action-wrapper": "bun run scripts/action-wrapper-smoke.ts"
+    "smoke:action-wrapper": "bun run scripts/action-wrapper-smoke.ts",
+    "evals": "bun run scripts/evals.ts"
   },
   "engines": {
     "bun": ">=1.3.0"

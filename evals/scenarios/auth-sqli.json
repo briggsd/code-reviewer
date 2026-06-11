@@ -1,0 +1,24 @@
+{
+  "name": "auth-sqli",
+  "description": "A diff that builds a SQL query by string-concatenating untrusted input in an auth path. Expects the security reviewer to flag SQL injection at critical severity.",
+  "fixture": "evals/fixtures/auth-sqli.json",
+  "criteria": [
+    {
+      "kind": "has_finding",
+      "label": "flags SQL injection in auth path",
+      "minSeverity": "critical",
+      "pathIncludes": "auth",
+      "textIncludes": "inject"
+    },
+    {
+      "kind": "decision_in",
+      "label": "decision reflects security concern",
+      "values": ["significant_concerns", "minor_issues"]
+    },
+    {
+      "kind": "outcome_is",
+      "label": "CI outcome is fail",
+      "value": "fail"
+    }
+  ]
+}

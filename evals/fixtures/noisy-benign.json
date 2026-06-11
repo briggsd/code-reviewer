@@ -1,0 +1,44 @@
+{
+  "runId": "eval-noisy-benign",
+  "safetyMode": "trusted",
+  "metadata": {
+    "provider": "github",
+    "repository": {
+      "provider": "github",
+      "owner": "example",
+      "name": "app",
+      "slug": "example/app",
+      "defaultBranch": "main"
+    },
+    "changeId": "4",
+    "headSha": "ddd001",
+    "baseSha": "ddd000",
+    "sourceBranch": "chore/formatting",
+    "targetBranch": "main",
+    "title": "Format utility functions",
+    "description": "Reformats utility functions for consistent style — whitespace and comment cleanup only.",
+    "author": {
+      "username": "dev"
+    },
+    "labels": []
+  },
+  "diff": {
+    "files": [
+      {
+        "path": "src/utils.ts",
+        "status": "modified",
+        "additions": 10,
+        "deletions": 8,
+        "isBinary": false,
+        "patch": "@@ -1,12 +1,14 @@ // Utility helpers\n-export function clamp(value:number,min:number,max:number):number{return Math.min(Math.max(value,min),max);}\n-export function capitalize(s:string):string{return s.charAt(0).toUpperCase()+s.slice(1);}\n-// sleep helper\n-export function sleep(ms:number):Promise<void>{return new Promise(resolve=>setTimeout(resolve,ms));}\n+// Numeric utilities\n+export function clamp(value: number, min: number, max: number): number {\n+  return Math.min(Math.max(value, min), max);\n+}\n+\n+// String utilities\n+export function capitalize(s: string): string {\n+  return s.charAt(0).toUpperCase() + s.slice(1);\n+}\n+\n+// Async utilities\n+export function sleep(ms: number): Promise<void> {\n+  return new Promise((resolve) => setTimeout(resolve, ms));\n+}"
+      }
+    ],
+    "totalAdditions": 10,
+    "totalDeletions": 8,
+    "truncated": false
+  },
+  "config": {
+    "mode": "blocking",
+    "failOn": ["critical"]
+  }
+}

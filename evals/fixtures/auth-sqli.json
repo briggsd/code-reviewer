@@ -1,0 +1,44 @@
+{
+  "runId": "eval-auth-sqli",
+  "safetyMode": "trusted",
+  "metadata": {
+    "provider": "github",
+    "repository": {
+      "provider": "github",
+      "owner": "example",
+      "name": "app",
+      "slug": "example/app",
+      "defaultBranch": "main"
+    },
+    "changeId": "1",
+    "headSha": "aaa001",
+    "baseSha": "aaa000",
+    "sourceBranch": "feature/login",
+    "targetBranch": "main",
+    "title": "Add login endpoint",
+    "description": "Adds a login endpoint for user authentication.",
+    "author": {
+      "username": "dev"
+    },
+    "labels": []
+  },
+  "diff": {
+    "files": [
+      {
+        "path": "auth/login.ts",
+        "status": "modified",
+        "additions": 8,
+        "deletions": 1,
+        "isBinary": false,
+        "patch": "@@ -10,7 +10,14 @@ export async function login(req: Request) {\n+  const username = req.body.username;\n+  const password = req.body.password;\n+  const query = `SELECT * FROM users WHERE username = '${username}' AND password = '${password}'`;\n+  const result = await db.query(query);\n+  if (result.rows.length === 0) {\n+    return { error: 'Invalid credentials' };\n+  }\n+  return { token: generateToken(result.rows[0]) };\n }"
+      }
+    ],
+    "totalAdditions": 8,
+    "totalDeletions": 1,
+    "truncated": false
+  },
+  "config": {
+    "mode": "blocking",
+    "failOn": ["critical"]
+  }
+}

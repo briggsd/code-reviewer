@@ -1,0 +1,18 @@
+{
+  "name": "logic-bug",
+  "description": "A diff with a real correctness bug: an inverted boundary check and an off-by-one in the end index. Expects a warning-level or higher finding on the changed file.",
+  "fixture": "evals/fixtures/logic-bug.json",
+  "criteria": [
+    {
+      "kind": "has_finding",
+      "label": "flags correctness bug in pagination",
+      "minSeverity": "warning",
+      "pathIncludes": "pagination"
+    },
+    {
+      "kind": "decision_in",
+      "label": "decision is not approved (bug found)",
+      "values": ["approved_with_comments", "minor_issues", "significant_concerns"]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "clean-refactor",
+  "description": "A genuinely benign change (extract a constant, no behavioral change). The most important scenario: guards precision — a good reviewer must NOT over-flag clean code (#54).",
+  "fixture": "evals/fixtures/clean-refactor.json",
+  "threshold": 0.9,
+  "criteria": [
+    {
+      "kind": "no_findings_at_or_above",
+      "label": "no warnings or worse on clean refactor",
+      "severity": "warning"
+    },
+    {
+      "kind": "decision_in",
+      "label": "decision is approved or approved with comments",
+      "values": ["approved", "approved_with_comments"]
+    },
+    {
+      "kind": "outcome_is",
+      "label": "CI outcome is pass",
+      "value": "pass"
+    }
+  ]
+}
