@@ -1,4 +1,5 @@
 import type { DiffSummary, Finding } from "../contracts/index.ts";
+import { normalizeForMatch as normalize } from "./text-normalize.ts";
 
 // A small floor avoids dropping on trivially short quotes; quotedCode is verbatim
 // so a modest length suffices.
@@ -16,17 +17,6 @@ function normalizePath(path: string): string {
 export interface FindingGroundingAssessment {
   grounded: Finding[];  // keep — order preserved
   dropped: Finding[];   // fabricated-quote findings to withhold
-}
-
-/**
- * Normalize a text fragment for grounding comparison.
- * Applies Unicode NFC, collapses all whitespace sequences to a single space,
- * and trims. Zero-width / control chars (e.g. U+200B) are intentionally NOT
- * stripped so that a fabricated quote containing such characters cannot
- * trivially match a clean corpus.
- */
-function normalize(text: string): string {
-  return text.normalize("NFC").replace(/\s+/g, " ").trim();
 }
 
 /**

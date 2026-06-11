@@ -25,6 +25,14 @@ Because identity is keyed only on reviewer+category+location, two *distinct* fin
 
 > **Migration note:** finding IDs produced before #31 folded title/body into the hash. On the first re-review after deploying this change, previously-stored IDs will not match the new scheme, so that run sees a one-time reset (all prior findings classified `fixed`, all current ones `new`). Treat the first post-deploy re-review as a clean-slate baseline.
 
+> **Migration note (location backfill, #87):** the location-backfill stage now derives a `path|line|side`
+> location from `quotedCode` for findings the model left unlocated, *before* `assignStableFindingIds()` runs.
+> Those findings previously hashed with `unknown-location`; after backfill they hash at their real
+> coordinates, producing a different stable ID. So on the first re-review after deploying this change, any
+> previously-unlocated-but-now-backfilled finding gets a one-time reset (prior instance classified `fixed`,
+> current one `new`) — same shape and audience as the #31 reset above. Treat that first run as a clean-slate
+> baseline for those findings.
+
 ## Hidden summary metadata
 
 Published summary comments/notes include hidden metadata with `schemaVersion: 1` and `findingIds`:

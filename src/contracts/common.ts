@@ -50,6 +50,7 @@ export type TraceEventType =
   | "agent.completed"
   | "coordinator.completed"
   | "grounding.applied"
+  | "location.backfill.applied"
   | "acknowledgements.applied"
   | "publisher.completed"
   | "review.timeout"

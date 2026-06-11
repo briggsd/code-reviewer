@@ -38,6 +38,7 @@ import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
 import { classifyRisk } from "./risk-classifier.ts";
 import { findUnsupportedReviewerPolicyEntries, selectTrustedReviewerDefinitions } from "./reviewer-definitions.ts";
 import { assessFindingGrounding } from "./evidence-grounding.ts";
+import { backfillFindingLocations } from "./location-backfill.ts";
 import { applyAcknowledgements } from "./acknowledgements.ts";
 import { classifyReReviewFindings } from "./re-review.ts";
 import { assignStableFindingIds } from "./stable-finding-id.ts";
@@ -246,6 +247,25 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         },
       });
     }
+    // Deterministically backfill `location` from `quotedCode` for findings that
+    // have evidence but no usable line — so they become inline-eligible after
+    // assignStableFindingIds keys them at their authoritative coordinates (#87).
+    // The backfill runs after grounding (so we only locate grounded findings) and
+    // before stable-id assignment (so backfilled coordinates feed the id key,
+    // making ids stable across re-reviews).
+    const backfill = backfillFindingLocations(groundedSummary.findings, context.diff);
+    const locationBackfilledCount = backfill.backfilledCount;
+    if (locationBackfilledCount > 0) {
+      groundedSummary = { ...groundedSummary, findings: backfill.findings };
+      await emitTrace(options.traceSink, {
+        type: "location.backfill.applied",
+        runId,
+        role: "coordinator",
+        timestamp: clock().toISOString(),
+        data: { backfilledCount: locationBackfilledCount },
+      });
+    }
+
     const withIds = assignStableFindingIds(groundedSummary);
     const acked = applyAcknowledgements(withIds.findings, context.config.acknowledgements ?? [], startedAt);
     const acknowledgedCount = acked.acknowledgedCount;
@@ -341,6 +361,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         runtime: runtimeKind,
         ...(jobKind !== undefined ? { jobKind } : {}),
         ...(groundingDroppedCount > 0 ? { groundingDroppedCount } : {}),
+        ...(locationBackfilledCount > 0 ? { locationBackfilledCount } : {}),
         ...(acknowledgedCount > 0 ? { acknowledgedCount } : {}),
         ...(suppressedCount > 0 ? { suppressedCount } : {}),
       }),
@@ -622,6 +643,7 @@ function createRunMetricsTelemetryEvent(input: {
   runtime: string;
   jobKind?: string;
   groundingDroppedCount?: number;
+  locationBackfilledCount?: number;
   acknowledgedCount?: number;
   suppressedCount?: number;
   summary?: ReviewSummary;
@@ -692,6 +714,9 @@ function createRunMetricsTelemetryEvent(input: {
   }
   if (input.groundingDroppedCount !== undefined && input.groundingDroppedCount > 0) {
     data.grounding = { droppedFindingCount: input.groundingDroppedCount };
+  }
+  if (input.locationBackfilledCount !== undefined && input.locationBackfilledCount > 0) {
+    data.locationBackfill = { backfilledCount: input.locationBackfilledCount };
   }
   if ((input.acknowledgedCount !== undefined && input.acknowledgedCount > 0) || (input.suppressedCount !== undefined && input.suppressedCount > 0)) {
     const ackData: Record<string, number> = {};
