@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveBaseConventions } from "../src/index.ts";
+import { resolveBaseConfig } from "../src/index.ts";
 import type { ChangeMetadata, VcsAdapter } from "../src/index.ts";
 import { createDefaultReviewConfig } from "../src/index.ts";
 
@@ -45,7 +45,7 @@ function makeAdapterWithoutBaseRead(): VcsAdapter {
   };
 }
 
-describe("resolveBaseConventions", () => {
+describe("resolveBaseConfig", () => {
   test("base file present → base conventions used; head config conventions are ignored", async () => {
     const config = { ...createDefaultReviewConfig(), conventions: ["head convention — must be ignored"] };
     const baseFileContent = JSON.stringify({
@@ -53,7 +53,7 @@ describe("resolveBaseConventions", () => {
     });
     const adapter = makeAdapter(async () => baseFileContent);
 
-    const result = await resolveBaseConventions({ adapter, metadata: baseMetadata, config });
+    const result = await resolveBaseConfig({ adapter, metadata: baseMetadata, config });
 
     expect(result.source).toBe("base");
     expect(result.baseFileFound).toBe(true);
@@ -66,7 +66,7 @@ describe("resolveBaseConventions", () => {
     const config = { ...createDefaultReviewConfig(), conventions: ["head convention — must be ignored"] };
     const adapter = makeAdapter(async () => undefined);
 
-    const result = await resolveBaseConventions({ adapter, metadata: baseMetadata, config });
+    const result = await resolveBaseConfig({ adapter, metadata: baseMetadata, config });
 
     expect(result.source).toBe("base");
     expect(result.baseFileFound).toBe(false);
@@ -77,7 +77,7 @@ describe("resolveBaseConventions", () => {
     const config = { ...createDefaultReviewConfig(), conventions: ["advisory convention from config"] };
     const adapter = makeAdapterWithoutBaseRead();
 
-    const result = await resolveBaseConventions({ adapter, metadata: baseMetadata, config });
+    const result = await resolveBaseConfig({ adapter, metadata: baseMetadata, config });
 
     expect(result.source).toBe("local");
     expect(result.baseFileFound).toBe(false);
@@ -88,7 +88,7 @@ describe("resolveBaseConventions", () => {
     const config = { ...createDefaultReviewConfig(), conventions: ["head"] };
     const adapter = makeAdapter(async () => "not-json{{{");
 
-    const result = await resolveBaseConventions({ adapter, metadata: baseMetadata, config });
+    const result = await resolveBaseConfig({ adapter, metadata: baseMetadata, config });
 
     expect(result.source).toBe("base");
     expect(result.baseFileFound).toBe(true);
@@ -99,7 +99,7 @@ describe("resolveBaseConventions", () => {
     const adapter = makeAdapter(async () => JSON.stringify({ failOn: ["critical"] }));
     const config = createDefaultReviewConfig();
 
-    const result = await resolveBaseConventions({ adapter, metadata: baseMetadata, config });
+    const result = await resolveBaseConfig({ adapter, metadata: baseMetadata, config });
 
     expect(result.source).toBe("base");
     expect(result.baseFileFound).toBe(true);
@@ -113,8 +113,92 @@ describe("resolveBaseConventions", () => {
     }));
     const config = createDefaultReviewConfig();
 
-    const result = await resolveBaseConventions({ adapter, metadata: baseMetadata, config });
+    const result = await resolveBaseConfig({ adapter, metadata: baseMetadata, config });
 
     expect(result.conventions).toEqual(["valid", "x".repeat(500)]);
+  });
+
+  // P3a: acknowledgements resolved from the base file.
+  test("base file with acknowledgements → resolved on ResolvedBaseConfig.acknowledgements", async () => {
+    const config = createDefaultReviewConfig();
+    const baseFileContent = JSON.stringify({
+      acknowledgements: [
+        { path: "scripts/**", mode: "acknowledge", reason: "maintainer tool", category: "injection" },
+      ],
+    });
+    const adapter = makeAdapter(async () => baseFileContent);
+
+    const result = await resolveBaseConfig({ adapter, metadata: baseMetadata, config });
+
+    expect(result.acknowledgements).toHaveLength(1);
+    expect(result.acknowledgements[0]?.path).toBe("scripts/**");
+    expect(result.acknowledgements[0]?.mode).toBe("acknowledge");
+    expect(result.acknowledgements[0]?.reason).toBe("maintainer tool");
+    expect(result.acknowledgements[0]?.category).toBe("injection");
+  });
+
+  test("head config acknowledgements IGNORED in the provider path (base authoritative)", async () => {
+    const config = {
+      ...createDefaultReviewConfig(),
+      acknowledgements: [
+        { path: "src/**", mode: "suppress" as const, reason: "head acknowledgement — must be ignored" },
+      ],
+    };
+    const baseFileContent = JSON.stringify({
+      acknowledgements: [
+        { path: "scripts/**", mode: "acknowledge", reason: "base acknowledgement" },
+      ],
+    });
+    const adapter = makeAdapter(async () => baseFileContent);
+
+    const result = await resolveBaseConfig({ adapter, metadata: baseMetadata, config });
+
+    // Only base acknowledgements should be present.
+    expect(result.acknowledgements).toHaveLength(1);
+    expect(result.acknowledgements[0]?.path).toBe("scripts/**");
+    expect(result.acknowledgements[0]?.reason).toBe("base acknowledgement");
+    // The head config acknowledgement must NOT appear.
+    expect(result.acknowledgements.some((a) => a.reason === "head acknowledgement — must be ignored")).toBe(false);
+  });
+
+  test("adapter without readBaseBranchFile → config acknowledgements kept (source:local)", async () => {
+    const config = {
+      ...createDefaultReviewConfig(),
+      acknowledgements: [
+        { path: "scripts/**", mode: "acknowledge" as const, reason: "local advisory" },
+      ],
+    };
+    const adapter = makeAdapterWithoutBaseRead();
+
+    const result = await resolveBaseConfig({ adapter, metadata: baseMetadata, config });
+
+    expect(result.source).toBe("local");
+    expect(result.acknowledgements).toHaveLength(1);
+    expect(result.acknowledgements[0]?.path).toBe("scripts/**");
+  });
+
+  test("malformed base JSON → acknowledgements [] without throwing", async () => {
+    const config = createDefaultReviewConfig();
+    const adapter = makeAdapter(async () => "not-json{{{");
+
+    const result = await resolveBaseConfig({ adapter, metadata: baseMetadata, config });
+
+    expect(result.acknowledgements).toEqual([]);
+  });
+
+  test("base file absent → acknowledgements [], source:base, baseFileFound:false", async () => {
+    const config = {
+      ...createDefaultReviewConfig(),
+      acknowledgements: [
+        { path: "scripts/**", mode: "acknowledge" as const, reason: "head-only — must be ignored" },
+      ],
+    };
+    const adapter = makeAdapter(async () => undefined);
+
+    const result = await resolveBaseConfig({ adapter, metadata: baseMetadata, config });
+
+    expect(result.source).toBe("base");
+    expect(result.baseFileFound).toBe(false);
+    expect(result.acknowledgements).toEqual([]);
   });
 });

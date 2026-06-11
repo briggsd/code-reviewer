@@ -77,6 +77,15 @@ export interface ModelRoutingConfig {
   roles: Record<string, ModelSelection>;
 }
 
+export interface Acknowledgement {
+  path: string;                               // glob, required
+  category?: string;
+  stableFindingId?: string;
+  mode: "acknowledge" | "suppress";           // acknowledge = downgrade+annotate; suppress = hide
+  reason: string;
+  expires?: string;                           // ISO date (YYYY-MM-DD); applied in P3-b
+}
+
 export interface ReviewConfig {
   mode: ReviewMode;
   failOn: Severity[];
@@ -86,6 +95,7 @@ export interface ReviewConfig {
   timeouts: TimeoutPolicy;
   modelRouting: ModelRoutingConfig;
   conventions?: string[];
+  acknowledgements?: Acknowledgement[];
   extra: Record<string, JsonValue>;
 }
 

@@ -22,7 +22,7 @@ import {
   loadGitDiffChange,
   loadProjectReviewConfig,
   loadReviewFixture,
-  resolveBaseConventions,
+  resolveBaseConfig,
   reviewConfigSchema,
   reviewOutputSchemas,
   runReview,
@@ -30,7 +30,7 @@ import {
 } from "./index.ts";
 import { parseRunPublishOptions } from "./cli/run-options.ts";
 import { finalizeCiExit } from "./cli/ci-exit.ts";
-import type { ChangeRef, DiffSummary, Finding, GitRunner, PriorReviewState, ResolvedConventions, ReviewConfig, ReviewFixture, ChangeMetadata, VcsAdapter } from "./index.ts";
+import type { ChangeRef, DiffSummary, Finding, GitRunner, PriorReviewState, ResolvedBaseConfig, ReviewConfig, ReviewFixture, ChangeMetadata, VcsAdapter } from "./index.ts";
 
 const gitRunner: GitRunner = async (args) => {
   const proc = Bun.spawn(["git", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -74,7 +74,7 @@ type ReviewSource =
       priorState?: PriorReviewState;
       fakeFindings: Finding[];
       adapter?: VcsAdapter;
-      conventionsResolution?: ResolvedConventions;
+      conventionsResolution?: ResolvedBaseConfig;
     };
 
 async function runCommand(args: string[]): Promise<void> {
@@ -135,6 +135,7 @@ async function runCommand(args: string[]): Promise<void> {
       data: {
         source: source.conventionsResolution.source,
         conventionCount: source.conventionsResolution.conventions.length,
+        acknowledgementCount: source.conventionsResolution.acknowledgements.length,
         baseFileFound: source.conventionsResolution.baseFileFound,
       },
     });
@@ -300,11 +301,11 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
     adapter.getPriorReviewState(ref),
   ]);
 
-  // Base-branch trust boundary (#60-P2): conventions come from the base branch, never the
-  // PR head. A PR cannot grant itself an exception; only conventions already on the protected
-  // branch count. The --git-diff and --fixture paths are local/trusted — left unchanged.
-  const resolved = await resolveBaseConventions({ adapter, metadata, config });
-  const effectiveConfig = { ...config, conventions: resolved.conventions };
+  // Base-branch trust boundary (#60-P2/P3a): conventions and acknowledgements come from the
+  // base branch, never the PR head. A PR cannot grant itself an exception; only config already
+  // on the protected branch counts. The --git-diff and --fixture paths are local/trusted — left unchanged.
+  const resolved = await resolveBaseConfig({ adapter, metadata, config });
+  const effectiveConfig = { ...config, conventions: resolved.conventions, acknowledgements: resolved.acknowledgements };
 
   return {
     kind: "change",

@@ -25,7 +25,183 @@ import type {
   RuntimeEventSubscription,
   TraceSink,
 } from "../src/index.ts";
-import { normalizeReviewConfig } from "../src/runner/config.ts";
+import { normalizeAcknowledgements, normalizeReviewConfig } from "../src/runner/config.ts";
+
+describe("normalizeAcknowledgements", () => {
+  test("valid entry is kept with all fields", () => {
+    const result = normalizeAcknowledgements([
+      {
+        path: "scripts/**",
+        mode: "acknowledge",
+        reason: "maintainer tool; own-CI input",
+        category: "injection",
+        stableFindingId: "fnd_abc123",
+        expires: "2026-12-01",
+      },
+    ], []);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.path).toBe("scripts/**");
+    expect(result[0]?.mode).toBe("acknowledge");
+    expect(result[0]?.reason).toBe("maintainer tool; own-CI input");
+    expect(result[0]?.category).toBe("injection");
+    expect(result[0]?.stableFindingId).toBe("fnd_abc123");
+    expect(result[0]?.expires).toBe("2026-12-01");
+  });
+
+  test("entry missing path → dropped", () => {
+    const result = normalizeAcknowledgements([
+      { mode: "acknowledge", reason: "no path" },
+      { path: "", mode: "acknowledge", reason: "empty path" },
+      { path: "   ", mode: "acknowledge", reason: "whitespace path" },
+    ], []);
+
+    expect(result).toHaveLength(0);
+  });
+
+  test("invalid/missing mode → defaulted to 'acknowledge'", () => {
+    const result = normalizeAcknowledgements([
+      { path: "src/**", mode: "invalid", reason: "bad mode" },
+      { path: "lib/**", reason: "no mode at all" },
+    ], []);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]?.mode).toBe("acknowledge");
+    expect(result[1]?.mode).toBe("acknowledge");
+  });
+
+  test("'suppress' mode is kept when explicitly set", () => {
+    const result = normalizeAcknowledgements([
+      { path: "scripts/**", mode: "suppress", reason: "known" },
+    ], []);
+
+    expect(result[0]?.mode).toBe("suppress");
+  });
+
+  test("over-long reason truncated to 500 chars", () => {
+    const longReason = "r".repeat(600);
+    const result = normalizeAcknowledgements([
+      { path: "src/**", mode: "acknowledge", reason: longReason },
+    ], []);
+
+    expect(result[0]?.reason).toBe("r".repeat(500));
+  });
+
+  test("over-long path truncated to 500 chars", () => {
+    const longPath = "p".repeat(600);
+    const result = normalizeAcknowledgements([
+      { path: longPath, mode: "acknowledge", reason: "test" },
+    ], []);
+
+    expect(result[0]?.path).toBe("p".repeat(500));
+  });
+
+  test("optional fields omitted when absent or blank", () => {
+    const result = normalizeAcknowledgements([
+      { path: "src/**", mode: "acknowledge", reason: "test" },
+    ], []);
+
+    expect(result[0]).toBeDefined();
+    expect("category" in (result[0] ?? {})).toBe(false);
+    expect("stableFindingId" in (result[0] ?? {})).toBe(false);
+    expect("expires" in (result[0] ?? {})).toBe(false);
+  });
+
+  test("blank optional string fields are omitted (not set to empty string)", () => {
+    const result = normalizeAcknowledgements([
+      { path: "src/**", mode: "acknowledge", reason: "test", category: "  ", stableFindingId: "", expires: "   " },
+    ], []);
+
+    expect("category" in (result[0] ?? {})).toBe(false);
+    expect("stableFindingId" in (result[0] ?? {})).toBe(false);
+    expect("expires" in (result[0] ?? {})).toBe(false);
+  });
+
+  test("category truncated to 200 chars, stableFindingId to 100 chars, expires to 200 chars", () => {
+    const result = normalizeAcknowledgements([
+      {
+        path: "src/**",
+        mode: "acknowledge",
+        reason: "test",
+        category: "c".repeat(300),
+        stableFindingId: "s".repeat(200),
+        expires: "e".repeat(300),
+      },
+    ], []);
+
+    expect(result[0]?.category).toBe("c".repeat(200));
+    expect(result[0]?.stableFindingId).toBe("s".repeat(100));
+    expect(result[0]?.expires).toBe("e".repeat(200));
+  });
+
+  test("array capped at 100 entries", () => {
+    const entries = Array.from({ length: 120 }, (_, i) => ({
+      path: `path-${i}/**`,
+      mode: "acknowledge",
+      reason: `reason ${i}`,
+    }));
+
+    const result = normalizeAcknowledgements(entries, []);
+
+    expect(result).toHaveLength(100);
+  });
+
+  test("non-array value → empty array (not fallback)", () => {
+    const result = normalizeAcknowledgements("not-an-array", [
+      { path: "fallback/**", mode: "acknowledge", reason: "fallback" },
+    ]);
+
+    expect(result).toHaveLength(0);
+  });
+
+  test("undefined → returns fallback", () => {
+    const fallback = [{ path: "scripts/**", mode: "acknowledge" as const, reason: "fallback" }];
+    const result = normalizeAcknowledgements(undefined, fallback);
+
+    expect(result).toEqual(fallback);
+    // Should be a new array (not the same reference).
+    expect(result).not.toBe(fallback);
+  });
+
+  test("non-object entries dropped (null, number, string, array)", () => {
+    const result = normalizeAcknowledgements([
+      null,
+      42,
+      "string",
+      ["array"],
+      { path: "valid/**", mode: "acknowledge", reason: "ok" },
+    ], []);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.path).toBe("valid/**");
+  });
+
+  test("missing reason → defaults to empty string", () => {
+    const result = normalizeAcknowledgements([
+      { path: "src/**", mode: "acknowledge" },
+    ], []);
+
+    expect(result[0]?.reason).toBe("");
+  });
+
+  test("normalizeReviewConfig wires acknowledgements", () => {
+    const config = normalizeReviewConfig({
+      acknowledgements: [
+        { path: "scripts/**", mode: "suppress", reason: "known risk" },
+      ],
+    });
+
+    expect(config.acknowledgements).toBeDefined();
+    expect(config.acknowledgements).toHaveLength(1);
+    expect(config.acknowledgements?.[0]?.path).toBe("scripts/**");
+    expect(config.acknowledgements?.[0]?.mode).toBe("suppress");
+  });
+
+  test("normalizeReviewConfig defaults acknowledgements to empty array", () => {
+    const config = normalizeReviewConfig({});
+    expect(config.acknowledgements).toEqual([]);
+  });
+});
 
 describe("project conventions normalization", () => {
   test("trims, drops invalid, truncates, and caps conventions", () => {

@@ -76,6 +76,23 @@ export const reviewConfigSchema = {
       maxItems: 50,
       items: { type: "string", maxLength: 500 },
     },
+    acknowledgements: {
+      type: "array",
+      maxItems: 100,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          path: { type: "string", maxLength: 500 },
+          category: { type: "string", maxLength: 200 },
+          stableFindingId: { type: "string", maxLength: 100 },
+          mode: { type: "string", enum: ["acknowledge", "suppress"] },
+          reason: { type: "string", maxLength: 500 },
+          expires: { type: "string", maxLength: 200 },
+        },
+        required: ["path", "mode", "reason"],
+      },
+    },
     extra: {
       type: "object",
       additionalProperties: true,

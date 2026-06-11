@@ -59,6 +59,7 @@ export function createDefaultReviewConfig(): ReviewConfig {
       },
     },
     conventions: [],
+    acknowledgements: [],
     extra: {},
   };
 }

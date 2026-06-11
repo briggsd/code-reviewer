@@ -13,6 +13,25 @@ describe("contract exports", () => {
     expect("required" in (reviewConfigSchema.properties?.modelRouting ?? {})).toBe(false);
   });
 
+  test("acknowledgements schema property exists with correct shape", () => {
+    const ackSchema = reviewConfigSchema.properties?.acknowledgements;
+    expect(ackSchema).toBeDefined();
+    expect(ackSchema?.type).toBe("array");
+    expect(ackSchema?.maxItems).toBe(100);
+    const items = ackSchema?.items as { type?: string; required?: readonly string[]; properties?: Record<string, unknown> } | undefined;
+    expect(items?.type).toBe("object");
+    expect(items?.required).toContain("path");
+    expect(items?.required).toContain("mode");
+    // reason is non-optional in the Acknowledgement TS type — the schema must require it too.
+    expect(items?.required).toContain("reason");
+    expect(items?.properties?.["path"]).toBeDefined();
+    expect(items?.properties?.["mode"]).toBeDefined();
+    expect(items?.properties?.["reason"]).toBeDefined();
+    expect(items?.properties?.["category"]).toBeDefined();
+    expect(items?.properties?.["stableFindingId"]).toBeDefined();
+    expect(items?.properties?.["expires"]).toBeDefined();
+  });
+
   test("quotedCode contract (#54.2 prereq): finding output schema includes quotedCode property and it is not required", () => {
     const findingSchema = reviewOutputSchemas.finding;
     const quotedCodeSchema = findingSchema.properties?.quotedCode;

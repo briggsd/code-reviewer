@@ -1,6 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ModelRoutingConfig, ReviewConfig } from "../contracts/index.ts";
+import type { Acknowledgement, ModelRoutingConfig, ReviewConfig } from "../contracts/index.ts";
 import { createDefaultReviewConfig } from "./default-config.ts";
 
 const DEFAULT_CONFIG_FILENAMES = [".ai-review.json", "ai-review.json"];
@@ -57,6 +57,7 @@ export function normalizeReviewConfig(
     ...base,
     ...override,
     conventions: normalizeConventions(override.conventions, base.conventions ?? []),
+    acknowledgements: normalizeAcknowledgements(override.acknowledgements, base.acknowledgements ?? []),
     failOn: Array.isArray(override.failOn) ? (override.failOn as ReviewConfig["failOn"]) : base.failOn,
     sensitivePaths: Array.isArray(override.sensitivePaths)
       ? (override.sensitivePaths as string[])
@@ -111,6 +112,82 @@ export function normalizeConventions(value: unknown, fallback: string[]): string
 
     normalized.push(trimmed.length > 500 ? trimmed.slice(0, 500) : trimmed);
     if (normalized.length === 50) {
+      break;
+    }
+  }
+
+  return normalized;
+}
+
+export function normalizeAcknowledgements(value: unknown, fallback: Acknowledgement[]): Acknowledgement[] {
+  if (value === undefined) {
+    return [...fallback];
+  }
+
+  const entries = Array.isArray(value) ? value : [];
+  const normalized: Acknowledgement[] = [];
+
+  for (const entry of entries) {
+    // Entry must be a non-null object.
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      continue;
+    }
+
+    const obj = entry as Record<string, unknown>;
+
+    // path is required: must be a non-empty string.
+    if (typeof obj["path"] !== "string") {
+      continue;
+    }
+    const path = obj["path"].trim();
+    if (path.length === 0) {
+      continue;
+    }
+
+    // reason: string trimmed + truncated to 500 chars; missing/non-string → "".
+    const reason = typeof obj["reason"] === "string"
+      ? obj["reason"].trim().slice(0, 500)
+      : "";
+
+    // mode: keep only "acknowledge"/"suppress"; anything else → default "acknowledge".
+    const mode: "acknowledge" | "suppress" =
+      obj["mode"] === "acknowledge" || obj["mode"] === "suppress"
+        ? obj["mode"]
+        : "acknowledge";
+
+    const ack: Acknowledgement = {
+      path: path.slice(0, 500),
+      mode,
+      reason,
+    };
+
+    // category: optional, keep only non-empty string, bounded to 200 chars.
+    if (typeof obj["category"] === "string") {
+      const category = obj["category"].trim().slice(0, 200);
+      if (category.length > 0) {
+        ack.category = category;
+      }
+    }
+
+    // stableFindingId: optional, keep only non-empty string, bounded to 100 chars.
+    if (typeof obj["stableFindingId"] === "string") {
+      const stableFindingId = obj["stableFindingId"].trim().slice(0, 100);
+      if (stableFindingId.length > 0) {
+        ack.stableFindingId = stableFindingId;
+      }
+    }
+
+    // expires: optional, keep only non-empty string, bounded to 200 chars.
+    if (typeof obj["expires"] === "string") {
+      const expires = obj["expires"].trim().slice(0, 200);
+      if (expires.length > 0) {
+        ack.expires = expires;
+      }
+    }
+
+    normalized.push(ack);
+
+    if (normalized.length === 100) {
       break;
     }
   }
