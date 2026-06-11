@@ -36,6 +36,7 @@ import { classifyReviewError } from "./error-classifier.ts";
 import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
 import { classifyRisk } from "./risk-classifier.ts";
 import { findUnsupportedReviewerPolicyEntries, selectTrustedReviewerDefinitions } from "./reviewer-definitions.ts";
+import { assessFindingGrounding } from "./evidence-grounding.ts";
 import { classifyReReviewFindings } from "./re-review.ts";
 import { assignStableFindingIds } from "./stable-finding-id.ts";
 
@@ -212,7 +213,38 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     });
     const coordinatorCompletedAt = clock();
     const coordinatorMs = elapsedMs(coordinatorStartedAt, coordinatorCompletedAt);
-    const summary = classifyReReviewFindings(assignStableFindingIds(runtimeResult.summary), context.priorState);
+    const grounding = assessFindingGrounding(runtimeResult.summary.findings, context.diff);
+    const groundingDroppedCount = grounding.dropped.length;
+    let groundedSummary = runtimeResult.summary;
+    if (groundingDroppedCount > 0) {
+      const highestSeverity = getHighestSeverity(grounding.grounded);
+      const decision = chooseDecision(grounding.grounded, highestSeverity);
+      const hasBlockingFinding = highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
+      const outcome = context.config.mode === "blocking" && hasBlockingFinding ? "fail" : "pass";
+      groundedSummary = {
+        ...runtimeResult.summary,
+        findings: grounding.grounded,
+        decision,
+        outcome,
+        ...(decision !== runtimeResult.summary.decision
+          ? { title: createSummaryTitle(decision, grounding.grounded) }
+          : {}),
+        body: `${runtimeResult.summary.body}\n\n_${groundingDroppedCount} finding(s) withheld: the code they cited could not be found in the changed files._`,
+      };
+      await emitTrace(options.traceSink, {
+        type: "grounding.applied",
+        runId,
+        role: "coordinator",
+        timestamp: clock().toISOString(),
+        data: {
+          droppedFindingCount: groundingDroppedCount,
+          dropped: grounding.dropped.map((f) => ({
+            reviewer: f.reviewer, severity: f.severity, category: f.category, title: f.title,
+          })),
+        },
+      });
+    }
+    const summary = classifyReReviewFindings(assignStableFindingIds(groundedSummary), context.priorState);
 
     await emitTrace(options.traceSink, {
       type: "coordinator.completed",
@@ -273,6 +305,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         status: "completed",
         runtime: runtimeKind,
         ...(jobKind !== undefined ? { jobKind } : {}),
+        ...(groundingDroppedCount > 0 ? { groundingDroppedCount } : {}),
       }),
     });
 
@@ -551,6 +584,7 @@ function createRunMetricsTelemetryEvent(input: {
   status: "completed" | "failed";
   runtime: string;
   jobKind?: string;
+  groundingDroppedCount?: number;
   summary?: ReviewSummary;
   errorClassification?: ReviewErrorClassification;
 }): TelemetryEvent {
@@ -616,6 +650,9 @@ function createRunMetricsTelemetryEvent(input: {
       recurringFindingCount: input.summary.reReview.recurringFindingIds.length,
       fixedFindingCount: input.summary.reReview.fixedFindingIds.length,
     };
+  }
+  if (input.groundingDroppedCount !== undefined && input.groundingDroppedCount > 0) {
+    data.grounding = { droppedFindingCount: input.groundingDroppedCount };
   }
   if (input.errorClassification !== undefined) {
     data.errorClassification = {

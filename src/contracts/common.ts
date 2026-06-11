@@ -48,6 +48,7 @@ export type TraceEventType =
   | "agent.failed"
   | "agent.completed"
   | "coordinator.completed"
+  | "grounding.applied"
   | "publisher.completed"
   | "review.timeout"
   | "review.failed"
