@@ -10,6 +10,7 @@ import {
   JsonlTraceSink,
   loadReviewFixture,
   NonBlockingTelemetrySink,
+  RedactingTraceSink,
   runReview,
 } from "../src/index.ts";
 import type {
@@ -28,6 +29,7 @@ import type {
   TelemetryFlushResult,
   TelemetrySink,
   TelemetryTransport,
+  TraceSink,
 } from "../src/index.ts";
 
 class FailingRuntime implements AgentRuntime {
@@ -509,6 +511,219 @@ describe("JSONL trace and filesystem state", () => {
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Helpers for RedactingTraceSink tests
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `RuntimeEvent` of type "runtime.event" whose inner `data.event`
+ * is a Pi `message_start` event.
+ *
+ * Shape derived from `forwardPiEvent` in pi-agent-runtime.ts (~line 442) and
+ * the Anthropic streaming API: the Pi process emits
+ *   { type: "message_start", message: { role: "user", content: [...] } }
+ * as a JSON line; `forwardPiEvent` wraps it in the RuntimeEvent envelope with
+ * `data: { runtime: "pi", event: <sanitized Pi event> }`.
+ */
+function makeMessageStartEvent(): RuntimeEvent {
+  return {
+    type: "runtime.event",
+    runId: "run-test",
+    agentRunId: "agent-1",
+    role: "security",
+    timestamp: "2026-06-10T00:00:00.000Z",
+    data: {
+      runtime: "pi",
+      event: {
+        type: "message_start",
+        message: {
+          role: "user",
+          content: [
+            { type: "text", text: "You are a trusted reviewer. SYSTEM PROMPT TEXT HERE." },
+          ],
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Build a `RuntimeEvent` wrapping a Pi `message_end` event.
+ *
+ * Shape derived from `extractFinalAssistantText` (~line 1467) and
+ * `extractUsage` (~line 1499) in pi-agent-runtime.ts:
+ *   { type: "message_end", message: { role: "assistant",
+ *       content: [{ type: "text", text: "..." }],
+ *       usage: { input: 100, output: 50, cacheRead: 10, cacheWrite: 5,
+ *                cost: { total: 0.002 } } } }
+ */
+function makeMessageEndEvent(): RuntimeEvent {
+  return {
+    type: "runtime.event",
+    runId: "run-test",
+    agentRunId: "agent-1",
+    role: "security",
+    timestamp: "2026-06-10T00:00:01.000Z",
+    data: {
+      runtime: "pi",
+      event: {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "ASSISTANT REPLY TEXT HERE." }],
+          usage: {
+            input: 100,
+            output: 50,
+            cacheRead: 10,
+            cacheWrite: 5,
+            cost: { total: 0.002 },
+          },
+        },
+      },
+    },
+  };
+}
+
+/** Build a non-message runtime.event (agent.started) that must pass through unchanged. */
+function makeAgentStartedEvent(): RuntimeEvent {
+  return {
+    type: "agent.started",
+    runId: "run-test",
+    agentRunId: "agent-1",
+    role: "security",
+    timestamp: "2026-06-10T00:00:00.000Z",
+    data: { sensitiveKey: "should-not-be-touched" },
+  };
+}
+
+describe("RedactingTraceSink", () => {
+  test("redacts message_start content to marker while preserving envelope", async () => {
+    const inner = new RecordingTraceSink();
+    const sink = new RedactingTraceSink(inner);
+
+    await sink.write(makeMessageStartEvent());
+
+    expect(inner.events).toHaveLength(1);
+    const written = inner.events[0];
+
+    // Envelope preserved
+    expect(written?.type).toBe("runtime.event");
+    expect(written?.runId).toBe("run-test");
+    expect(written?.agentRunId).toBe("agent-1");
+    expect(written?.role).toBe("security");
+    expect(written?.timestamp).toBe("2026-06-10T00:00:00.000Z");
+
+    // data.runtime preserved
+    expect(written?.data?.runtime).toBe("pi");
+
+    // Inner Pi event type preserved
+    const piEvent = written?.data?.event as Record<string, unknown>;
+    expect(piEvent.type).toBe("message_start");
+
+    // content is redacted
+    const message = piEvent.message as Record<string, unknown>;
+    expect(message.content).toBe("[redacted]");
+
+    // role preserved inside message
+    expect(message.role).toBe("user");
+  });
+
+  test("redacts message_end content to marker while preserving envelope and token-usage metadata", async () => {
+    const inner = new RecordingTraceSink();
+    const sink = new RedactingTraceSink(inner);
+
+    await sink.write(makeMessageEndEvent());
+
+    expect(inner.events).toHaveLength(1);
+    const written = inner.events[0];
+
+    // Envelope preserved
+    expect(written?.type).toBe("runtime.event");
+    expect(written?.runId).toBe("run-test");
+    expect(written?.timestamp).toBe("2026-06-10T00:00:01.000Z");
+
+    // Inner Pi event type preserved
+    const piEvent = written?.data?.event as Record<string, unknown>;
+    expect(piEvent.type).toBe("message_end");
+
+    // content is redacted
+    const message = piEvent.message as Record<string, unknown>;
+    expect(message.content).toBe("[redacted]");
+
+    // usage metadata preserved (numeric counts survive redaction)
+    const usage = message.usage as Record<string, unknown>;
+    expect(usage.input).toBe(100);
+    expect(usage.output).toBe(50);
+    expect(usage.cacheRead).toBe(10);
+    expect(usage.cacheWrite).toBe(5);
+    expect((usage.cost as Record<string, unknown>).total).toBe(0.002);
+
+    // role preserved
+    expect(message.role).toBe("assistant");
+  });
+
+  test("passes non-message events through unchanged", async () => {
+    const inner = new RecordingTraceSink();
+    const sink = new RedactingTraceSink(inner);
+    const original = makeAgentStartedEvent();
+
+    await sink.write(original);
+
+    expect(inner.events).toHaveLength(1);
+    expect(inner.events[0]).toEqual(original);
+  });
+
+  test("passes runtime.event with unrelated Pi event type through unchanged", async () => {
+    const inner = new RecordingTraceSink();
+    const sink = new RedactingTraceSink(inner);
+
+    const agentStartPiEvent: RuntimeEvent = {
+      type: "runtime.event",
+      runId: "run-test",
+      agentRunId: "agent-1",
+      role: "security",
+      timestamp: "2026-06-10T00:00:00.000Z",
+      data: {
+        runtime: "pi",
+        event: { type: "agent_start" },
+      },
+    };
+
+    await sink.write(agentStartPiEvent);
+
+    expect(inner.events).toHaveLength(1);
+    expect(inner.events[0]).toEqual(agentStartPiEvent);
+  });
+
+  test("without redaction, events reach inner sink byte-identical (passthrough by default)", async () => {
+    const inner = new RecordingTraceSink();
+    // Using inner sink directly without RedactingTraceSink
+    const originalEnd = makeMessageEndEvent();
+    await inner.write(originalEnd);
+
+    const written = inner.events[0];
+    const piEvent = written?.data?.event as Record<string, unknown>;
+    const message = piEvent.message as Record<string, unknown>;
+    // Content is untouched — the full assistant reply text is present
+    expect(message.content).toEqual([{ type: "text", text: "ASSISTANT REPLY TEXT HERE." }]);
+  });
+
+  test("delegates close() to the inner sink", async () => {
+    let closed = false;
+    const inner: TraceSink = {
+      async write(_event: RuntimeEvent): Promise<void> {},
+      async close(): Promise<void> {
+        closed = true;
+      },
+    };
+
+    const sink = new RedactingTraceSink(inner);
+    await sink.close();
+
+    expect(closed).toBe(true);
   });
 });
 
