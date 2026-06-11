@@ -1,11 +1,18 @@
-# Continue — AI Code Review Factory / #54 precision gate + #60 conventions/acknowledgements both COMPLETE & CLOSED (8 PRs this session); next = GitLab parity / #28 eval / #46 / #57
+# Continue — AI Code Review Factory / #54 precision gate + #60 conventions/acknowledgements COMPLETE & CLOSED (9 PRs this session); next = #73 (grounding false-drop fix) / GitLab parity / #28 eval
 
 ## Last action
 
-Mapped the **cross-cutting plan** across the top-4 backlog (#57/#60/#54/#46) into three shared
-foundations (see "Cross-cutting plan" below), then shipped **Slice 1** via the duo:
-**PR #64 = #54-P1 precision prompts** (`ee66927`, `main` synced, gate **209/0**). Sonnet subagent
-implemented cleanly (208→209, reconciled, no confab); coordinator fixed one comment mislabel.
+**Big session: 9 PRs merged** (#64/#66/#68/#70/#71/#72/#75 + the #67 fix). Two whole feature lines
+shipped — the **#54 precision gate** (prompts + quotedCode contract + evidence-grounding) and **#60
+conventions/acknowledgements** (P1+P2+P3, issue CLOSED). `main` @ `60a77a8`, synced, gate **293/0**,
+working tree CLEAN.
+
+**The very last thing:** answering "what were the 4 withheld findings on #71/#72?" — inspected the
+`grounding.applied` traces and discovered my #54.2 grounding filter **false-dropped LEGITIMATE
+findings** (doc-staleness + a markdown-escape concern — they quote *unchanged* code, so the quote
+isn't in the diff). Fixed the real doc/comment ones (**PR #75**), and filed the root causes:
+**#73** (scope grounding to changed-file findings — the fix) + **#74** (renderer escapes no finding
+text). **#73 is the natural next pickup.** Everything below is session history (read top-down).
 
 - **#54-P1 (PR #64):** prompt-only half of #54 — coordinator "validate, don't just fuse"
   directive (3 lines in `buildCoordinatorPrompt`: validate-evidence / **asymmetric skepticism** /
@@ -41,8 +48,8 @@ implemented cleanly (208→209, reconciled, no confab); coordinator fixed one co
   recomputes gate over NON-acknowledged findings, annotates summary (`— acknowledged: <reason>`),
   trace `acknowledgements.applied` + counts-only telemetry. Review found a real stale-title-count bug
   (fixed in BOTH grounding + ack blocks: always refresh title when the shown set changes) + doc gaps
-  (configuration.md entries added). **#54.2 grounding withheld 4 fabricated findings on #72's own
-  review** — the precision gate working in production.
+  (configuration.md entries added). **#54.2 grounding withheld 4 findings on #72's own review — they
+  turned out LEGITIMATE, not fabricated (false-drop; see #73 + the "Last action" note).**
 - **#60-P2 conventions trust guard SHIPPED (PR #70, `ea4eeb0`, gate 246/0).** In the VCS provider
   path, `conventions` are now read from the **base/target branch**, not the PR head (principle #6: a
   PR can't grant itself an exception). New `VcsAdapter.readBaseBranchFile?` (GitHub: contents API at
@@ -143,8 +150,12 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## Next action
 
-0. **No single obvious next — pick by priority.** #54 (precision gate) and #60 (conventions+acks)
-   are both COMPLETE. Candidate threads:
+0. **#73 (recommended next) — fix #54.2's false-drop of legitimate findings.** The grounding filter
+   drops findings whose `quotedCode` isn't in the diff, which wrongly hides staleness / "you forgot to
+   update X" / cross-file findings (it hid 4 real ones on #72 — that's how this was found). Fix: only
+   ground a finding whose `location.path` is a CHANGED file; keep the rest; still catch fabricated
+   quotes on changed files. Sibling: **#74** (renderer escapes no finding text). Both well-scoped.
+1. **Other candidate threads** (#54 + #60 are COMPLETE):
    - **GitLab parity** (small, high-coherence): implement `readBaseBranchFile` on the GitLab adapter
      so #60-P2/P3 trust guard applies to GitLab too (currently degrades to P1 advisory). Mirror the
      GitHub impl (GitLab files API at `?ref=<targetBranch>`). Not yet filed as an issue.
