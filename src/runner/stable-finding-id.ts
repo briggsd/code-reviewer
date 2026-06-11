@@ -132,6 +132,11 @@ function normalizeText(value: string): string {
   return value.trim().toLowerCase().replaceAll(/\s+/g, " ");
 }
 
-function normalizePath(path: string): string {
+function normalizePath(path: string | undefined): string {
+  // Defensive: fixture / prior-state findings do not pass through validateFinding, so a
+  // location object missing a string `path` could otherwise crash here (`undefined.trim()`).
+  if (typeof path !== "string") {
+    return "unknown-path";
+  }
   return path.trim().replaceAll("\\", "/").replace(/^\.\//, "");
 }

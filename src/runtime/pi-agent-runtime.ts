@@ -795,7 +795,8 @@ function buildReviewerPrompt(input: ReviewerRunInput): string {
     formatReviewerDefinitionForPrompt(input.reviewerDefinition),
     "Return ONLY valid JSON with this exact shape: {\"findings\": Finding[]}.",
     "Do not wrap the JSON in prose unless impossible.",
-    "Finding fields: reviewer, severity, category, title, body, location, confidence, evidence, recommendation.",
+    "Finding fields: reviewer, severity, category, title, body, location, confidence, evidence, quotedCode, recommendation.",
+    "quotedCode (optional): when a finding points at specific changed code, copy the exact line(s) verbatim from the diff into this array — it is used to verify the finding. Omit it for findings about missing or absent code.",
     "Allowed confidence values: high, medium, low.",
     "Return at most 5 findings; choose the highest-impact, highest-confidence issues.",
     "Omit low-confidence nitpicks.",
@@ -910,6 +911,7 @@ function buildCoordinatorPrompt(
     "Allowed decisions: approved, approved_with_comments, minor_issues, significant_concerns, review_failed.",
     "Allowed outcomes: pass, fail, neutral, skipped.",
     "Prefer silence over generic review spam.",
+    "Preserve each finding's quotedCode array verbatim when carrying a finding forward; do not invent, alter, or drop it.",
     "",
     "Context and reviewer results:",
     stringifyPromptData({
@@ -1183,6 +1185,7 @@ function parseCoordinatorOutput(text: string, allowedReviewerRoles: readonly str
 function validateFinding(value: unknown): Finding {
   const finding = getRecord(value);
   const evidence = normalizeEvidence(finding.evidence);
+  const quotedCode = normalizeQuotedCode(finding.quotedCode);
   if (
     typeof finding.reviewer !== "string" ||
     !isSeverity(finding.severity) ||
@@ -1208,11 +1211,12 @@ function validateFinding(value: unknown): Finding {
     category: finding.category,
     title: finding.title,
     body: finding.body,
-    ...(typeof finding.location === "object" && finding.location !== null
-      ? { location: finding.location as NonNullable<Finding["location"]> }
+    ...(isValidFindingLocation(finding.location)
+      ? { location: finding.location }
       : {}),
     confidence: finding.confidence,
     evidence,
+    ...(quotedCode !== undefined ? { quotedCode } : {}),
     recommendation: finding.recommendation,
   };
 }
@@ -1228,6 +1232,36 @@ function normalizeEvidence(value: unknown): string[] | undefined {
 
   if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
     return value;
+  }
+
+  return undefined;
+}
+
+// A model may emit a `location` object missing a string `path` (or with a non-string path).
+// Honoring it would crash stable-id computation (`normalizePath` -> `path.trim()`). Untrusted
+// model output is validated here (principle #6), so require a string `path` before passing it
+// through; otherwise drop the location and keep the finding.
+function isValidFindingLocation(value: unknown): value is NonNullable<Finding["location"]> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).path === "string"
+  );
+}
+
+function normalizeQuotedCode(value: unknown): string[] | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? [trimmed] : undefined;
+  }
+
+  if (Array.isArray(value)) {
+    // Trim kept entries so both branches store canonically-trimmed strings (the future #54.2
+    // grounding step matches these against diff lines; padded entries would fail that match).
+    const trimmed = value.flatMap((item) =>
+      typeof item === "string" && item.trim().length > 0 ? [item.trim()] : [],
+    );
+    return trimmed.length > 0 ? trimmed : undefined;
   }
 
   return undefined;

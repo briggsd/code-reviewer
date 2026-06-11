@@ -19,6 +19,16 @@ const baseFinding: Finding = {
 };
 
 describe("stable finding IDs", () => {
+  test("does not crash when a finding location is missing a string path", () => {
+    // Defensive regression: fixture / prior-state findings bypass validateFinding, so a
+    // location object without a string `path` reaching normalizePath used to throw.
+    const id = createStableFindingId({
+      ...baseFinding,
+      location: { line: 5 } as unknown as NonNullable<Finding["location"]>,
+    });
+    expect(id).toMatch(/^fnd_[a-f0-9]{16}$/);
+  });
+
   test("generates deterministic IDs from reviewer, category, and location", () => {
     const first = createStableFindingId(baseFinding);
     const second = createStableFindingId({

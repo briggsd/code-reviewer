@@ -47,6 +47,11 @@ export const findingOutputSchema = {
       minItems: 1,
       items: { type: "string" },
     },
+    quotedCode: {
+      type: "array",
+      minItems: 1,
+      items: { type: "string" },
+    },
     recommendation: { type: "string" },
   },
   required: [

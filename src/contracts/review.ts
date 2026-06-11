@@ -129,6 +129,13 @@ export interface Finding {
   location?: FindingLocation;
   confidence: Confidence;
   evidence: string[];
+  /**
+   * The exact changed line(s) the finding flags, copied verbatim from the diff.
+   * Optional; present only for line-specific findings; omit for absence/architectural
+   * findings. Reserved for the #54.2 grounding slice (which will deterministically verify
+   * it against the diff); no grounding/verification is performed in this version.
+   */
+  quotedCode?: string[];
   recommendation: string;
 }
 

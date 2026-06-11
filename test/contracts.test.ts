@@ -13,6 +13,17 @@ describe("contract exports", () => {
     expect("required" in (reviewConfigSchema.properties?.modelRouting ?? {})).toBe(false);
   });
 
+  test("quotedCode contract (#54.2 prereq): finding output schema includes quotedCode property and it is not required", () => {
+    const findingSchema = reviewOutputSchemas.finding;
+    const quotedCodeSchema = findingSchema.properties?.quotedCode;
+    expect(quotedCodeSchema).toBeDefined();
+    expect(quotedCodeSchema?.type).toBe("array");
+    expect(quotedCodeSchema?.items).toEqual({ type: "string" });
+    // minItems mirrors `evidence`: an empty array is invalid (the model omits the field instead).
+    expect(quotedCodeSchema?.minItems).toBe(1);
+    expect(findingSchema.required).not.toContain("quotedCode");
+  });
+
   test("core types can describe a normalized review result", () => {
     const metadata: ChangeMetadata = {
       provider: "github",

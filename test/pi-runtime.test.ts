@@ -1471,7 +1471,234 @@ describe("PiAgentRuntime", () => {
     // Edit 2 — reviewer confidence discipline (#54.3)
     expect(securityPrompt).toContain("Set confidence honestly");
   });
+
+  test("quotedCode contract (#54.2 prereq): reviewer finding with quotedCode is preserved through validateFinding", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new QuotedCodeReviewerPiProcessRunner();
+    const runtime = new PiAgentRuntime({ processRunner: runner });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const securityResult = result.coordinatorResult?.reviewerResults.find((r) => r.role === "security");
+    expect(securityResult?.findings[0]?.quotedCode).toEqual(["return db.accounts.findById(accountId);"]);
+  });
+
+  test("quotedCode contract (#54.2 prereq): finding without quotedCode is valid and has no quotedCode field", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new FakePiProcessRunner();
+    const runtime = new PiAgentRuntime({ processRunner: runner });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const securityResult = result.coordinatorResult?.reviewerResults.find((r) => r.role === "security");
+    expect(securityResult?.findings[0]).toBeDefined();
+    expect(securityResult?.findings[0]?.quotedCode).toBeUndefined();
+  });
+
+  test("quotedCode contract (#54.2 prereq): invalid quotedCode (number) is dropped without rejecting the finding", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new InvalidQuotedCodePiProcessRunner();
+    const runtime = new PiAgentRuntime({ processRunner: runner });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const securityResult = result.coordinatorResult?.reviewerResults.find((r) => r.role === "security");
+    expect(securityResult?.findings[0]).toBeDefined();
+    expect(securityResult?.findings[0]?.quotedCode).toBeUndefined();
+  });
+
+  test("finding with a location missing a string path is accepted but its location is dropped (no stable-id crash)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new InvalidLocationPiProcessRunner();
+    const runtime = new PiAgentRuntime({ processRunner: runner });
+
+    // Regression: a model location object lacking a string `path` used to crash
+    // assignStableFindingIds (`normalizePath` -> `undefined.trim()`). runReview must complete.
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const securityResult = result.coordinatorResult?.reviewerResults.find((r) => r.role === "security");
+    expect(securityResult?.findings[0]).toBeDefined();
+    expect(securityResult?.findings[0]?.location).toBeUndefined();
+    // a stable id was still computed for the surviving summary finding
+    expect(result.summary.findings[0]?.id).toMatch(/^fnd_[a-f0-9]{16}$/);
+  });
+
+  test("quotedCode contract (#54.2 prereq): reviewer prompt contains copy the exact line(s) verbatim", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new FakePiProcessRunner();
+    const runtime = new PiAgentRuntime({ processRunner: runner });
+
+    await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const securityPrompt = runner.calls.find((call) => call.role === "security")?.prompt;
+    expect(securityPrompt).toContain("copy the exact line(s) verbatim");
+  });
+
+  test("quotedCode contract (#54.2 prereq): coordinator prompt contains Preserve each finding's quotedCode", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new FakePiProcessRunner();
+    const runtime = new PiAgentRuntime({ processRunner: runner });
+
+    await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const coordinatorPrompt = runner.calls.find((call) => call.role === "coordinator")?.prompt;
+    expect(coordinatorPrompt).toContain("Preserve each finding's quotedCode");
+  });
+
+  test("quotedCode contract (#54.2 prereq): coordinator preserves quotedCode through fusion into summary.findings", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new QuotedCodeCoordinatorPiProcessRunner();
+    const runtime = new PiAgentRuntime({ processRunner: runner });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    expect(result.summary.findings[0]?.quotedCode).toEqual(["return db.accounts.findById(accountId);"]);
+  });
 });
+
+class QuotedCodeReviewerPiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    const findingWithQuotedCode = {
+      ...securityFinding(),
+      quotedCode: ["return db.accounts.findById(accountId);"],
+    };
+    const output = input.role === "coordinator"
+      ? {
+        decision: "significant_concerns",
+        outcome: "fail",
+        title: "AI review found significant concerns",
+        body: "Coordinator consolidated one critical finding.",
+        findings: [findingWithQuotedCode],
+        risk: {
+          tier: "lite",
+          reason: "Fake coordinator fallback risk.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      }
+      : { findings: input.role === "security" ? [findingWithQuotedCode] : [] };
+    const finalText = JSON.stringify(output);
+
+    return { finalText, events: [], rawOutput: finalText };
+  }
+}
+
+class InvalidQuotedCodePiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    const findingWithInvalidQuotedCode = {
+      ...securityFinding(),
+      quotedCode: 42,
+    };
+    const output = input.role === "coordinator"
+      ? {
+        decision: "significant_concerns",
+        outcome: "fail",
+        title: "AI review found significant concerns",
+        body: "Coordinator consolidated one critical finding.",
+        findings: [findingWithInvalidQuotedCode],
+        risk: {
+          tier: "lite",
+          reason: "Fake coordinator fallback risk.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      }
+      : { findings: input.role === "security" ? [findingWithInvalidQuotedCode] : [] };
+    const finalText = JSON.stringify(output);
+
+    return { finalText, events: [], rawOutput: finalText };
+  }
+}
+
+class InvalidLocationPiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    const findingWithInvalidLocation = {
+      ...securityFinding(),
+      location: { line: 23 },
+    };
+    const output = input.role === "coordinator"
+      ? {
+        decision: "significant_concerns",
+        outcome: "fail",
+        title: "AI review found significant concerns",
+        body: "Coordinator consolidated one critical finding.",
+        findings: [findingWithInvalidLocation],
+        risk: {
+          tier: "lite",
+          reason: "Fake coordinator fallback risk.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      }
+      : { findings: input.role === "security" ? [findingWithInvalidLocation] : [] };
+    const finalText = JSON.stringify(output);
+
+    return { finalText, events: [], rawOutput: finalText };
+  }
+}
+
+class QuotedCodeCoordinatorPiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    const findingWithQuotedCode = {
+      ...securityFinding(),
+      quotedCode: ["return db.accounts.findById(accountId);"],
+    };
+    const output = input.role === "coordinator"
+      ? {
+        decision: "significant_concerns",
+        outcome: "fail",
+        title: "AI review found significant concerns",
+        body: "Coordinator consolidated one critical finding.",
+        findings: [findingWithQuotedCode],
+        risk: {
+          tier: "lite",
+          reason: "Fake coordinator fallback risk.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      }
+      : { findings: input.role === "security" ? [securityFinding()] : [] };
+    const finalText = JSON.stringify(output);
+
+    return { finalText, events: [], rawOutput: finalText };
+  }
+}
 
 function parseLastPromptJson(prompt: string): unknown {
   const jsonStart = prompt.lastIndexOf("\n{");
