@@ -5,6 +5,7 @@ const SHARED_MANDATORY_RULES = [
   "Flag only concrete issues supported by changed code, review metadata, or prior-state evidence.",
   "Prefer silence over speculative, generic, or style-only feedback.",
   "Keep findings actionable and scoped to this change.",
+  "Reporting zero findings is a correct and common result; never invent, inflate, or pad with low-confidence findings to meet a perceived quota.",
 ];
 
 export const TRUSTED_REVIEWER_DEFINITIONS: ReviewerDefinition[] = [

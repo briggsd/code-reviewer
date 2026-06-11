@@ -799,6 +799,7 @@ function buildReviewerPrompt(input: ReviewerRunInput): string {
     "Allowed confidence values: high, medium, low.",
     "Return at most 5 findings; choose the highest-impact, highest-confidence issues.",
     "Omit low-confidence nitpicks.",
+    "Set confidence honestly; a finding you cannot ground in the changed code, metadata, or prior state should be dropped, not emitted at low confidence.",
     "",
     ...formatReviewerContextPrompt(input),
   ];
@@ -901,6 +902,9 @@ function buildCoordinatorPrompt(
     "Consolidate reviewer findings, remove duplicates and speculative items, and return ONLY valid JSON matching ReviewSummary.",
     "Deduplicate by root cause and changed location; keep the clearest highest-severity finding when reviewers report the same issue.",
     "Keep only findings with specific evidence from changed files, metadata, or prior state; discard generic advice and unsupported speculation.",
+    "Validate each finding before including it: confirm its stated evidence and location correspond to the actual changed code in your context; drop or demote any finding whose evidence you cannot substantiate from the diff, metadata, or prior state.",
+    "Apply asymmetric skepticism: bias against low-confidence and low-severity findings, but preserve well-evidenced high-severity and critical findings — do not suppress real high-impact issues in the name of precision.",
+    "A reviewer under recall pressure may emit plausible-sounding but fabricated findings; filtering these out is part of your job, not just deduplicating them.",
     "Decision rubric: no findings -> approved; suggestions only -> approved_with_comments; a single warning without production-safety risk -> approved_with_comments; multiple warnings indicating a risk pattern -> minor_issues; any critical or production-safety risk -> significant_concerns.",
     "ReviewSummary fields: decision, outcome, title, body, findings, risk.",
     "Allowed decisions: approved, approved_with_comments, minor_issues, significant_concerns, review_failed.",

@@ -17,6 +17,10 @@ describe("M009 prompt quality sweep", () => {
       expect(definition?.source).toBe("trusted_operator");
       expect(definition?.version).toContain("m009-s04");
       expect(definition?.guidance.sharedMandatoryRules.length).toBeGreaterThanOrEqual(4);
+      // #54.3: shared mandatory rules include zero-findings discipline
+      expect(definition?.guidance.sharedMandatoryRules.join("\n")).toContain(
+        "Reporting zero findings is a correct and common result",
+      );
       expect(definition?.guidance.flag.length).toBeGreaterThanOrEqual(4);
       expect(definition?.guidance.doNotFlag.length).toBeGreaterThanOrEqual(4);
       expect(definition?.guidance.severityCalibration.length).toBeGreaterThanOrEqual(2);

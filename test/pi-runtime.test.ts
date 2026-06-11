@@ -1443,6 +1443,34 @@ describe("PiAgentRuntime", () => {
 
     expect(runner.calls.filter((call) => call.role === "security")).toHaveLength(1);
   });
+
+  test("#54 precision directives: coordinator prompt contains validation/skepticism anchors; reviewer prompt contains confidence-honesty anchor", async () => {
+    // Verify that the three coordinator precision directives (#54.1) and the reviewer
+    // confidence discipline (#54.3) are present in the assembled Pi prompts end-to-end.
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new FakePiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const coordinatorPrompt = runner.calls.find((call) => call.role === "coordinator")?.prompt;
+    const securityPrompt = runner.calls.find((call) => call.role === "security")?.prompt;
+
+    // Edit 3 — coordinator precision/validation directive (#54.1)
+    expect(coordinatorPrompt).toContain("Validate each finding before including it");
+    expect(coordinatorPrompt).toContain("asymmetric skepticism");
+    expect(coordinatorPrompt).toContain("not just deduplicat");
+
+    // Edit 2 — reviewer confidence discipline (#54.3)
+    expect(securityPrompt).toContain("Set confidence honestly");
+  });
 });
 
 function parseLastPromptJson(prompt: string): unknown {
