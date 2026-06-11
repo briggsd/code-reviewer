@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+  buildPiProcessArgs,
   BunPiProcessRunner,
   createStableFindingId,
   FileSystemReviewStateStore,
@@ -445,6 +446,93 @@ describe("PiAgentRuntime", () => {
     expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("source: trusted_operator");
     expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain("What NOT to flag");
     expect(runner.calls.find((call) => call.role === "documentation")?.prompt).toContain("Allowed severities:\n- warning\n- suggestion");
+  });
+
+  test("preserves the configured thinking bound through the default-model swap for every role (#45)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new FakePiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      // Real-Pi runs swap each role's dummy placeholder model for this default model;
+      // the per-role `thinking` bound must survive that swap.
+      defaultModel: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    for (const role of ["code_quality", "security", "performance", "documentation", "coordinator"]) {
+      const call = runner.calls.find((entry) => entry.role === role);
+      expect(call?.model).toEqual({ provider: "anthropic", model: "claude-sonnet-4-6", thinking: "medium" });
+    }
+  });
+
+  test("inherits modelRouting.default.thinking for a role override that omits it, keeping its own model identity (#45)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    // A role override that picks a different model but omits `thinking` still inherits the
+    // default's bound, so the convergence guard cannot be lost by accident.
+    fixture.config.modelRouting.roles.coordinator = { provider: "anthropic", model: "claude-opus-4", tier: "top" };
+    const runner = new FakePiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    const coordinator = runner.calls.find((entry) => entry.role === "coordinator");
+    expect(coordinator?.model).toEqual({ provider: "anthropic", model: "claude-opus-4", thinking: "medium" });
+  });
+
+  test("a role override with its own thinking wins over the default (#45)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    fixture.config.modelRouting.roles.coordinator = { provider: "anthropic", model: "claude-opus-4", tier: "top", thinking: "high" };
+    const runner = new FakePiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    expect(runner.calls.find((entry) => entry.role === "coordinator")?.model?.thinking).toBe("high");
+  });
+
+  test("drops the model (and any thinking bound) for a dummy placeholder with no default model (#45)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new FakePiProcessRunner();
+    // No defaultModel: the dummy placeholders resolve to no model at all — locks the
+    // documented degenerate-setup behavior so it stays visible and intentional.
+    const runtime = new PiAgentRuntime({ processRunner: runner, timestamp: "2026-06-09T00:00:00.000Z" });
+
+    await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    expect(runner.calls.find((entry) => entry.role === "security")?.model).toBeUndefined();
+  });
+
+  test("buildPiProcessArgs emits --thinking only when the resolved model carries a bound", () => {
+    const base = ["--mode", "json"];
+    const toolPolicy = { allowRead: true, allowShell: false, allowWrite: false, allowedTools: [], deniedTools: [] };
+    const common = { runId: "r", agentRunId: "r:pi:security", role: "security", cwd: "/tmp", timeoutMs: 1000, toolPolicy };
+
+    const withThinking = buildPiProcessArgs(base, {
+      ...common,
+      prompt: "review",
+      model: { provider: "anthropic", model: "claude-sonnet-4-6", thinking: "medium" },
+    });
+    expect(withThinking).toContain("--thinking");
+    expect(withThinking[withThinking.indexOf("--thinking") + 1]).toBe("medium");
+    // prompt stays last so the runtime's positional arg is never displaced by the flag.
+    expect(withThinking[withThinking.length - 1]).toBe("review");
+
+    const withoutThinking = buildPiProcessArgs(base, {
+      ...common,
+      prompt: "review",
+      model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    });
+    expect(withoutThinking).not.toContain("--thinking");
   });
 
   test("clamps reviewer findings to trusted allowed severities", async () => {

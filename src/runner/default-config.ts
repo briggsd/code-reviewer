@@ -33,10 +33,17 @@ export function createDefaultReviewConfig(): ReviewConfig {
       overallMs: 900_000,
     },
     modelRouting: {
+      // `thinking: "medium"` bounds reasoning effort below the runtime default to force
+      // convergence on full-tier diffs (#45): unbounded, an agent can exhaust its whole
+      // budget deliberating without emitting output. Set ONCE on `default` so it applies
+      // uniformly to every role via `selectModel` inheritance — role entries omit it and
+      // inherit, so a single change here re-tunes all roles. Tune per role/repo via
+      // `.ai-review.json` (a role override that sets its own `thinking` wins).
       default: {
         provider: "dummy",
         model: "dummy-standard",
         tier: "standard",
+        thinking: "medium",
       },
       roles: {
         coordinator: {

@@ -1,3 +1,4 @@
+import { THINKING_LEVELS } from "../contracts/common.ts";
 import type { JsonSchema } from "./review-output.ts";
 
 const severitySchema = {
@@ -14,6 +15,7 @@ const modelSelectionSchema = {
     tier: { type: "string", enum: ["top", "standard", "light"] },
     temperature: { type: "number" },
     maxOutputTokens: { type: "number", minimum: 1 },
+    thinking: { type: "string", enum: THINKING_LEVELS },
   },
   required: ["provider", "model"],
 } as const satisfies JsonSchema;

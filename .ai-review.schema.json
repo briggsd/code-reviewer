@@ -93,6 +93,17 @@
             "maxOutputTokens": {
               "type": "number",
               "minimum": 1
+            },
+            "thinking": {
+              "type": "string",
+              "enum": [
+                "off",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ]
             }
           },
           "required": [
@@ -126,6 +137,17 @@
               "maxOutputTokens": {
                 "type": "number",
                 "minimum": 1
+              },
+              "thinking": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             },
             "required": [

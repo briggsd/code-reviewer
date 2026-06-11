@@ -13,6 +13,7 @@ import type {
   Severity,
   RuntimeEventSubscription,
   RuntimeToolPolicy,
+  ThinkingLevel,
   TokenUsage,
 } from "../contracts/index.ts";
 import { classifyReviewError } from "../runner/error-classifier.ts";
@@ -33,6 +34,7 @@ export interface PiProcessRunInput {
   model?: {
     provider: string;
     model: string;
+    thinking?: ThinkingLevel;
   };
   onEvent?: (event: unknown) => void;
 }
@@ -413,12 +415,22 @@ export class PiAgentRuntime implements AgentRuntime {
     await this.processRunner.cancel?.(runId);
   }
 
-  private modelArgs(inputModel: { provider: string; model: string }): { model?: { provider: string; model: string } } {
+  private modelArgs(
+    inputModel: { provider: string; model: string; thinking?: ThinkingLevel },
+  ): { model?: { provider: string; model: string; thinking?: ThinkingLevel } } {
+    // `thinking` is a task property (reasoning bound for this role), not part of the
+    // model identity — so it is preserved even when the dummy placeholder model is
+    // swapped for the runtime's real default model (#45).
+    const thinking = inputModel.thinking !== undefined ? { thinking: inputModel.thinking } : {};
     if (inputModel.provider === "dummy") {
-      return this.defaultModel === undefined ? {} : { model: this.defaultModel };
+      // Dummy placeholder with no configured default model = no real model to run, so we
+      // emit nothing (and the `thinking` bound is necessarily dropped). This path is only
+      // reachable in a degenerate setup with no model at all; real-Pi runs always supply a
+      // defaultModel via `--pi-model`, which carries the bound through. Locked by a test.
+      return this.defaultModel === undefined ? {} : { model: { ...this.defaultModel, ...thinking } };
     }
 
-    return { model: inputModel };
+    return { model: { provider: inputModel.provider, model: inputModel.model, ...thinking } };
   }
 
   private forwardPiEvents(runId: string, agentRunId: string, role: AgentRole | string, events: unknown[]): void {
@@ -499,12 +511,7 @@ export class BunPiProcessRunner implements PiProcessRunner {
   }
 
   async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
-    const args = [
-      ...this.baseArgs,
-      ...toolPolicyArgs(input.toolPolicy),
-      ...(input.model !== undefined ? ["--provider", input.model.provider, "--model", input.model.model] : []),
-      input.prompt,
-    ];
+    const args = buildPiProcessArgs(this.baseArgs, input);
     const process = Bun.spawn([this.command, ...args], {
       cwd: input.cwd,
       stdout: "pipe",
@@ -1512,6 +1519,19 @@ function toolPolicyArgs(policy: RuntimeToolPolicy): string[] {
   }
 
   return tools.size === 0 ? ["--no-tools"] : ["--tools", [...tools].join(",")];
+}
+
+// Pure, testable construction of the `pi` argv. `--thinking` is emitted only when the
+// resolved model carries a reasoning bound (#45): omitting it leaves Pi at its default
+// level, which is the full-tier reviewer non-convergence we are bounding.
+export function buildPiProcessArgs(baseArgs: string[], input: PiProcessRunInput): string[] {
+  return [
+    ...baseArgs,
+    ...toolPolicyArgs(input.toolPolicy),
+    ...(input.model !== undefined ? ["--provider", input.model.provider, "--model", input.model.model] : []),
+    ...(input.model?.thinking !== undefined ? ["--thinking", input.model.thinking] : []),
+    input.prompt,
+  ];
 }
 
 function processEnv(): Record<string, string> {

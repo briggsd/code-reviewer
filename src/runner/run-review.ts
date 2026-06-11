@@ -733,7 +733,17 @@ function createReviewerContextReferences(context: ReviewContext, assignedFiles: 
 }
 
 export function selectModel(context: ReviewContext, role: string): ModelSelection {
-  return context.config.modelRouting.roles[role] ?? context.config.modelRouting.default;
+  const routing = context.config.modelRouting;
+  const selected = routing.roles[role] ?? routing.default;
+  // `thinking` is a task-level reasoning bound, not part of model identity. We resolve its
+  // inheritance here, in the runtime-agnostic orchestration layer, so the convergence guard
+  // (#45) applies consistently for every agent runtime (pi, opencode, ...) — each adapter
+  // just translates the already-resolved value. A role override that omits `thinking` inherits
+  // modelRouting.default.thinking; model identity (provider/model/tier) stays object-level.
+  if (selected.thinking === undefined && routing.default.thinking !== undefined) {
+    return { ...selected, thinking: routing.default.thinking };
+  }
+  return selected;
 }
 
 export function getEffectiveTimeouts(context: ReviewContext): ReviewConfig["timeouts"] {
