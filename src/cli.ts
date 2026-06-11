@@ -78,6 +78,7 @@ async function runCommand(args: string[]): Promise<void> {
   const source = await loadReviewSource(args);
   const outputDirectory = readFlag(args, "--output-dir");
   const runtimeName = readFlag(args, "--runtime");
+  const jobKind = readFlag(args, "--job-kind");
   const outputFormat = readFlag(args, "--format") ?? "json";
   const piProvider = readFlag(args, "--pi-provider");
   const piModel = readFlag(args, "--pi-model");
@@ -126,6 +127,7 @@ async function runCommand(args: string[]): Promise<void> {
         ...(tracePath !== undefined ? { tracePath } : {}),
         ...(telemetrySink !== undefined ? { telemetrySink } : {}),
         ...(runtime !== undefined ? { runtime } : {}),
+        ...(jobKind !== undefined ? { jobKind } : {}),
       })
       : await runReviewFromChange({
         runId,
@@ -140,6 +142,7 @@ async function runCommand(args: string[]): Promise<void> {
         ...(tracePath !== undefined ? { tracePath } : {}),
         ...(telemetrySink !== undefined ? { telemetrySink } : {}),
         ...(runtime !== undefined ? { runtime } : {}),
+        ...(jobKind !== undefined ? { jobKind } : {}),
       });
 
     if (publishOptions.publishInline) {
@@ -331,16 +334,16 @@ function printHelp(): void {
   console.log("Commands:");
   console.log("  schemas                              Print reviewer/coordinator output schemas");
   console.log("  run --fixture <path> [--config <path>] [--output-dir] [--runtime dummy|pi]");
-  console.log("      [--format json|markdown] [--ci-exit] [--pi-provider <name> --pi-model <id>]");
+  console.log("      [--format json|markdown] [--ci-exit] [--job-kind <string>] [--pi-provider <name> --pi-model <id>]");
   console.log("  run --git-diff [--base <ref>] [--change-id <id>] [--config <path>] [--seed-fixture <path>]");
   console.log("      [--runtime dummy|pi] [--output-dir <path>] [--format json|markdown] [--ci-exit]");
-  console.log("      [--pi-provider <name> --pi-model <id>]");
+  console.log("      [--job-kind <string>] [--pi-provider <name> --pi-model <id>]");
   console.log("                                       Review local git changes; no publish.");
   console.log("                                       --base default HEAD = uncommitted changes only; pass --base <branch>");
   console.log("                                       for committed branch work. Untracked files need `git add -N` first.");
   console.log("  run --provider github|gitlab --repo <owner/name> --change-id <id>");
   console.log("      [--head-sha <sha>] [--api-base-url <url>] [--seed-fixture <path>] [--config <path>] [--runtime dummy|pi]");
   console.log("      [--output-dir <path>] [--format json|markdown] [--publish-summary] [--publish-inline] [--ci-exit]");
-  console.log("      [--pi-provider <name> --pi-model <id>]");
+  console.log("      [--job-kind <string>] [--pi-provider <name> --pi-model <id>]");
   console.log("                                       Run deterministic local review");
 }

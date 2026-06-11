@@ -318,6 +318,43 @@ describe("JSONL trace and filesystem state", () => {
     });
   });
 
+  test("runner includes jobKind in run_metrics when option is set", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new DummyAgentRuntime({
+      defaultFindings: fixture.fakeFindings ?? [],
+    });
+    const telemetrySink = new RecordingTelemetrySink();
+
+    await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+      runtime,
+      telemetrySink,
+      jobKind: "dry-run",
+    });
+
+    expect(telemetrySink.events).toHaveLength(1);
+    expect(telemetrySink.events[0]?.data?.jobKind).toBe("dry-run");
+  });
+
+  test("runner omits jobKind from run_metrics when option is absent", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new DummyAgentRuntime({
+      defaultFindings: fixture.fakeFindings ?? [],
+    });
+    const telemetrySink = new RecordingTelemetrySink();
+
+    await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+      runtime,
+      telemetrySink,
+    });
+
+    expect(telemetrySink.events).toHaveLength(1);
+    expect(Object.prototype.hasOwnProperty.call(telemetrySink.events[0]?.data, "jobKind")).toBe(false);
+  });
+
   test("runner tags failed run metrics with runtime", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
     const telemetrySink = new RecordingTelemetrySink();
@@ -337,6 +374,28 @@ describe("JSONL trace and filesystem state", () => {
       data: {
         status: "failed",
         runtime: "failing",
+      },
+    });
+  });
+
+  test("runner includes jobKind in failed run_metrics when option is set", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const telemetrySink = new RecordingTelemetrySink();
+    const runtime = new FailingRuntime();
+
+    await expect(runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+      runtime,
+      telemetrySink,
+      jobKind: "dry-run",
+    })).rejects.toThrow("synthetic runtime failure");
+
+    expect(telemetrySink.events[0]).toMatchObject({
+      type: "ai_review.run_metrics",
+      data: {
+        status: "failed",
+        jobKind: "dry-run",
       },
     });
   });

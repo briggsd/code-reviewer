@@ -41,6 +41,7 @@ jobs:
             --change-id "${{ github.event.pull_request.number }}" \
             --head-sha "${{ github.event.pull_request.head.sha }}" \
             --runtime dummy \
+            --job-kind dry-run \
             --output-dir .ai-review \
             --ci-exit
 
@@ -82,6 +83,7 @@ jobs:
             --change-id "${{ github.event.pull_request.number }}" \
             --head-sha "${{ github.event.pull_request.head.sha }}" \
             --runtime dummy \
+            --job-kind publish \
             --publish-summary \
             --output-dir .ai-review \
             --ci-exit
@@ -132,6 +134,7 @@ jobs:
             --change-id "${{ github.event.pull_request.number }}" \
             --head-sha "${{ github.event.pull_request.head.sha }}" \
             --runtime pi \
+            --job-kind real-review \
             --pi-provider "${AI_REVIEW_PI_PROVIDER:-anthropic}" \
             --pi-model "${AI_REVIEW_PI_MODEL:-claude-sonnet-4-6}" \
             --publish-summary \

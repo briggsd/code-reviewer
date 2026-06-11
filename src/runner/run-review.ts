@@ -29,7 +29,7 @@ import type {
   TokenUsage,
   TraceSink,
 } from "../contracts/index.ts";
-import { resolveRuntimeKind } from "../runtime/runtime-kind.ts";
+import { resolveRuntimeKind, sanitizeJobKind } from "../runtime/runtime-kind.ts";
 import { writeReviewContextArtifacts } from "./context-artifacts.ts";
 import { filterDiff } from "./diff-filter.ts";
 import { classifyReviewError } from "./error-classifier.ts";
@@ -48,6 +48,7 @@ export interface RunReviewOptions {
   tracePath?: string;
   telemetrySink?: TelemetrySink;
   runtime?: AgentRuntime;
+  jobKind?: string;
 }
 
 export interface RunReviewResult {
@@ -94,6 +95,7 @@ export async function runReviewFromChange(options: RunReviewFromChangeOptions): 
     ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
     ...(options.telemetrySink !== undefined ? { telemetrySink: options.telemetrySink } : {}),
     ...(options.runtime !== undefined ? { runtime: options.runtime } : {}),
+    ...(options.jobKind !== undefined ? { jobKind: options.jobKind } : {}),
   });
 }
 
@@ -104,6 +106,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
   const timestamp = startedAt.toISOString();
   const runId = fixture.runId ?? createRunId(startedAt);
   const runtimeKind = resolveRuntimeKind(options.runtime?.name);
+  const jobKind = sanitizeJobKind(options.jobKind);
 
   await emitTrace(options.traceSink, {
     type: "review.started",
@@ -269,6 +272,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         metrics,
         status: "completed",
         runtime: runtimeKind,
+        ...(jobKind !== undefined ? { jobKind } : {}),
       }),
     });
 
@@ -350,6 +354,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         metrics,
         status: "failed",
         runtime: runtimeKind,
+        ...(jobKind !== undefined ? { jobKind } : {}),
         errorClassification,
       }),
     });
@@ -545,6 +550,7 @@ function createRunMetricsTelemetryEvent(input: {
   metrics: ReviewRunMetrics;
   status: "completed" | "failed";
   runtime: string;
+  jobKind?: string;
   summary?: ReviewSummary;
   errorClassification?: ReviewErrorClassification;
 }): TelemetryEvent {
@@ -569,6 +575,10 @@ function createRunMetricsTelemetryEvent(input: {
     decision: input.summary?.decision ?? "review_failed",
     outcome: input.summary?.outcome ?? "fail",
   };
+
+  if (input.jobKind !== undefined) {
+    data.jobKind = input.jobKind;
+  }
 
   if (input.metrics.context !== undefined) {
     data.context = toJsonRecord(input.metrics.context);
