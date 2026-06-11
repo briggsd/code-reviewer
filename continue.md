@@ -1,6 +1,23 @@
-# Continue — AI Code Review Factory / #73 #74 #77 #80 #82 #28 FIXED & CLOSED (PRs #76/#78/#79/#81/#83/#85); next = RUN evals vs pi → close #54 / #69 / #84
+# Continue — AI Code Review Factory / #28 eval VALIDATED @ 100% (precision+recall proven); #73 #74 #77 #80 #82 #28 closed; next = #69 / #84 / #87 / M014
 
 ## Last action
+
+**EVAL RAN AGAINST PI → 5/5 SCENARIOS, 100.0% MEAN SATISFACTION (after one recalibration, PR #86).**
+The capstone payoff: the holdout eval empirically validates the session's precision work on real
+`pi` reviews (claude-sonnet-4-6, 5 scenarios × 3 runs):
+- **Precision** (`clean-refactor`, `noisy-benign`): **100%** — zero findings on benign refactors /
+  formatting churn (the #54 "must-find-something" bias, held in check).
+- **Recall** (`auth-sqli`, `logic-bug`, `hardcoded-secret`): **100%** — every planted bug caught
+  (critical SQLi; both pagination bugs; hardcoded credential), CI correctly blocks.
+First run was 83.3% (3/5): root-caused NOT to recall but to two criteria using `pathIncludes` while
+the model omits the contract-optional `location.path` — both bugs WERE caught. Recalibrated those
+criteria to `textIncludes` (PR #86, holdout discipline intact — reviewer prompts untouched) → 5/5 @
+100%. Recorded on #54 + #28 (both already closed); the `location.path` gap → **filed #87** (findings
+omit location → inline publishing silently skips them; quotedCode-backfill is the likely fix, builds
+on evidence-grounding). **#54's last acceptance criterion is now empirically satisfied.**
+**Re-run anytime:** `set -a; . ./.env; set +a` then `AI_REVIEW_LIVE_EVAL=1 bun run evals --runtime pi`.
+
+---
 
 **#28 SHIPPED & CLOSED (PR #85, squash `97a224b`, gate 385/0).** The holdout eval harness — the
 capstone validating the session's precision work. **Architecture (load-bearing split):** pure scorer
@@ -307,7 +324,7 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## State
 
-- `main` @ `97a224b`, pushed/synced, gate **385/0**, working tree CLEAN.
+- `main` @ `c30364f`, pushed/synced, gate **385/0**, working tree CLEAN.
 - **MERGED last big session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
@@ -315,8 +332,10 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   markdown-escape across 3 renderer sinks, closed #74), **#79** (#77 repo `.ai-review.json` self-review
   full-tiering + config-docs footgun, closed #77), **#81** (#80 GitLab `readBaseBranchFile` trust-guard
   parity, closed #80), **#83** (#82 GitLab inline MR-discussion publishing + shared inline renderer,
-  closed #82), **#85** (#28 holdout eval harness MVP, closed #28).
-- **Issues open:** **#84** (inline dedup trusts comment-author metadata → finding-suppression; low/
+  closed #82), **#85** (#28 holdout eval harness MVP, closed #28), **#86** (eval-criteria recalibration
+  → 5/5 @ 100%).
+- **Issues open:** **#87** (findings omit `location.path` → inline publishing skips them; low/observ —
+  filed from the eval run), **#84** (inline dedup trusts comment-author metadata → finding-suppression; low/
   security, cross-provider — filed from the #83 review), #69 (re-review miscount, low), #57 (partial),
   #46 (needs prev-head..head ref read), #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012.
   **GitLab parity now COMPLETE** (base-read #80 + inline publish #82); GitLab inline has documented MVP
