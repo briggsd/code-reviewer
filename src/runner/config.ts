@@ -92,7 +92,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function normalizeConventions(value: unknown, fallback: string[]): string[] {
+export function normalizeConventions(value: unknown, fallback: string[]): string[] {
   if (value === undefined) {
     return [...fallback];
   }

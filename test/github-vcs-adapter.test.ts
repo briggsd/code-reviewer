@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
 import { GitHubVcsAdapter, loadReviewFixture, runReview } from "../src/index.ts";
-import type { ChangeRef, FetchLike, Finding } from "../src/index.ts";
+import type { ChangeMetadata, ChangeRef, FetchLike, Finding } from "../src/index.ts";
 
 const changeRef: ChangeRef = {
   provider: "github",
@@ -13,6 +13,24 @@ const changeRef: ChangeRef = {
   },
   changeId: "42",
   headSha: "headsha123",
+};
+
+// ChangeMetadata used by readBaseBranchFile tests (includes targetBranch).
+const changeMetadata: ChangeMetadata = {
+  provider: "github",
+  repository: {
+    provider: "github",
+    owner: "example",
+    name: "payments-api",
+    slug: "example/payments-api",
+  },
+  changeId: "42",
+  headSha: "headsha123",
+  baseSha: "basesha456",
+  targetBranch: "main",
+  title: "Test PR",
+  author: { username: "octo-dev" },
+  labels: [],
 };
 
 describe("GitHubVcsAdapter", () => {
@@ -529,6 +547,72 @@ describe("GitHubVcsAdapter", () => {
     });
 
     await expect(adapter.getChange(changeRef)).rejects.toThrow("GitHub API request failed: 401 Unauthorized");
+  });
+
+  test("readBaseBranchFile returns decoded UTF-8 content from base64 contents API response", async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const fileContent = '{"conventions":["no direct db access in controllers"]}';
+    const base64Content = Buffer.from(fileContent).toString("base64");
+    const adapter = new GitHubVcsAdapter({
+      token: "test-token",
+      fetch: async (input, init) => {
+        const url = String(input);
+        fetchCalls.push({ url, ...(init !== undefined ? { init } : {}) });
+        return jsonResponse({ content: base64Content, encoding: "base64", type: "file" });
+      },
+    });
+
+    const result = await adapter.readBaseBranchFile(changeMetadata, ".ai-review.json");
+
+    expect(result).toBe(fileContent);
+    // URL must include ?ref=main (the base branch), not the head sha
+    const contentsUrl = fetchCalls[0]?.url ?? "";
+    expect(contentsUrl).toContain("?ref=main");
+    expect(contentsUrl).toContain("/contents/.ai-review.json");
+    expect(contentsUrl).not.toContain(changeMetadata.headSha);
+    // Authorization header must be set
+    expect((fetchCalls[0]?.init?.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
+  });
+
+  test("readBaseBranchFile returns undefined on a 404 (file absent on base branch)", async () => {
+    const adapter = new GitHubVcsAdapter({
+      fetch: async () => new Response(JSON.stringify({ message: "Not Found" }), {
+        status: 404,
+        statusText: "Not Found",
+      }),
+    });
+
+    const result = await adapter.readBaseBranchFile(changeMetadata, ".ai-review.json");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("readBaseBranchFile returns undefined (does not throw) on a non-404 error — best-effort read", async () => {
+    const adapter = new GitHubVcsAdapter({
+      fetch: async () => new Response("upstream boom", { status: 500, statusText: "Internal Server Error" }),
+    });
+
+    // A transient/auth error must degrade to "no base conventions", never fail the review.
+    const result = await adapter.readBaseBranchFile(changeMetadata, ".ai-review.json");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("readBaseBranchFile uses targetBranch as the ref query param", async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        fetchCalls.push({ url, ...(init !== undefined ? { init } : {}) });
+        return jsonResponse({ content: Buffer.from("{}").toString("base64"), encoding: "base64" });
+      },
+    });
+    const metaWithSlashBranch = { ...changeMetadata, targetBranch: "release/v2" };
+
+    await adapter.readBaseBranchFile(metaWithSlashBranch, ".ai-review.json");
+
+    const url = fetchCalls[0]?.url ?? "";
+    expect(url).toContain("?ref=release%2Fv2");
   });
 });
 

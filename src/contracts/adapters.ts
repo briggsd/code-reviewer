@@ -87,6 +87,13 @@ export interface VcsAdapter {
   publishSummary(input: PublishSummaryInput): Promise<PublishSummaryResult>;
 
   publishInlineFindings?(input: PublishInlineFindingsInput): Promise<PublishInlineFindingsResult>;
+
+  // Read a UTF-8 text file from the change's BASE/target branch (not the PR head). Used to read
+  // trust-sensitive config (conventions) from a ref the PR author cannot modify in the same diff.
+  // Best-effort: returns undefined if the file is absent OR cannot be fetched (transient/auth
+  // errors included) — a read hiccup must degrade to "no base config", never fail the review.
+  // First of the base-ref reads (Foundation B; #46's prev-head..head diff will be a sibling later).
+  readBaseBranchFile?(change: ChangeMetadata, path: string): Promise<string | undefined>;
 }
 
 export interface ReviewStateStore {

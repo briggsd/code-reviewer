@@ -186,6 +186,35 @@ export class GitHubVcsAdapter implements VcsAdapter {
     };
   }
 
+  async readBaseBranchFile(change: ChangeMetadata, path: string): Promise<string | undefined> {
+    // Prefer the target-branch tip (the protected branch P2 trusts). `baseSha` is a committed base
+    // ancestor — not PR-authored, so still trust-safe — used only when no branch name is available;
+    // it may be slightly behind the branch tip.
+    const baseRef = change.targetBranch ?? change.baseSha;
+    if (baseRef === undefined) {
+      return undefined;
+    }
+
+    const owner = change.repository.owner ?? ownerFromSlug(change.repository.slug);
+    const repo = repoNameFromSlug(change.repository.slug, change.repository.name);
+    const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+    const url = `${this.apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}?ref=${encodeURIComponent(baseRef)}`;
+    const response = await this.fetchImpl(url, { headers: this.headers() });
+
+    // Best-effort read: any non-2xx (404 absent, 5xx transient, 401/403 auth) yields undefined so a
+    // conventions-read hiccup degrades to "no base conventions" rather than failing the whole review.
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const data = await response.json() as { content?: unknown; encoding?: unknown };
+    if (data.encoding !== "base64" || typeof data.content !== "string") {
+      return undefined;
+    }
+
+    return Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8");
+  }
+
   async publishInlineFindings(input: PublishInlineFindingsInput): Promise<PublishInlineFindingsResult> {
     const outcomes: PublishInlineFindingsResult["findings"] = [];
     const existingInlineComments = await this.findExistingInlineComments(input.change);

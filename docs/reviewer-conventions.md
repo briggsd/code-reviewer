@@ -1,6 +1,7 @@
 # Per-repo reviewer conventions & acknowledged findings
 
-> Status: design (issue [#60]). Phase 1 (`conventions`) prototyped; phases 2–3 pending.
+> Status: design (issue [#60]). P1 (`conventions`) + P2 (base-branch read, GitHub) shipped; P3
+> (`acknowledgements`) pending. GitLab P2 deferred (degrades to P1 advisory).
 > Pairs with the coordinator precision gate (#54) and mechanized boundary rules (#27).
 
 ## Problem
@@ -130,11 +131,21 @@ a required reason. What none of them defend against — and what this design mus
 - **P1 — `conventions` field + sanitized injection** *(prototyped here).* Config field,
   schema, and rendering through `stringifyPromptData` into the reviewer + coordinator prompts.
   Safe by construction via defense (1); high value (kills the threat-model-mismatch class).
-- **P2 — base-branch read** for `conventions` (and later `acknowledgements`): the trust guard
-  (defense 2). Until P2, conventions are *advisory context the reviewer may weigh*, not an
-  authority to silence findings.
-- **P3 — structured `acknowledgements`** + downgrade semantics + gate integration, landed
-  with #54. Adds `acknowledged` finding state + reason to the finding contract.
+- **P2 — base-branch read** for `conventions` *(IMPLEMENTED for GitHub).* In the VCS provider
+  path, `conventions` are read from the change's **base/target branch** via
+  `VcsAdapter.readBaseBranchFile` (GitHub: contents API at `?ref=<targetBranch>`), resolved by
+  `src/runner/base-conventions.ts` (`resolveBaseConventions`) and applied in `src/cli.ts`. A PR
+  cannot grant itself an exception: only conventions already on the protected branch count.
+  - **Trust rule:** base file present → its conventions are authoritative (head ignored); base file
+    absent → **empty** (not the head's); read error → empty (best-effort, never fails the review).
+  - **⚠️ Migration:** after upgrading, conventions that live **only on a feature branch / PR head**
+    stop taking effect on GitHub — **commit `.ai-review.json` (with its `conventions`) to the base
+    branch** for them to apply. The `--git-diff` and `--fixture` (local/trusted) paths are unchanged.
+  - **GitLab:** not yet implemented — its adapter lacks `readBaseBranchFile`, so it **degrades to P1
+    advisory behavior** (conventions still read from the head config; the base-branch trust guard
+    does not yet apply). Tracked as a follow-up.
+- **P3 — structured `acknowledgements`** + downgrade semantics + gate integration. Builds on P2's
+  trust boundary + #54 (the precision gate, now shipped). Adds an `acknowledged` finding state + reason.
 
 ## Implementation map (P1)
 
