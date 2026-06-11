@@ -112,6 +112,10 @@ describe("GitHubVcsAdapter", () => {
         const url = String(input);
         calls.push({ url, ...(init !== undefined ? { init } : {}) });
 
+        if (url === "https://api.github.com/user") {
+          return jsonResponse({ id: 99, login: "ai-review-bot" });
+        }
+
         if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100") {
           return jsonResponse([]);
         }
@@ -140,12 +144,13 @@ describe("GitHubVcsAdapter", () => {
       },
     });
 
-    const requestBody = JSON.parse(String(calls[1]?.init?.body)) as { body: string };
-    expect(calls[0]?.url).toBe("https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100");
-    expect(calls[1]?.url).toBe("https://api.github.com/repos/example/payments-api/issues/17/comments");
-    expect(calls[1]?.init?.method).toBe("POST");
-    expect((calls[1]?.init?.headers as Record<string, string>).Authorization).toBe("Bearer write-token");
-    expect((calls[1]?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    // No existing summary → a fresh comment is POSTed. Look up by method (the /user + comments-GET
+    // calls run concurrently, so positional indexing is non-deterministic).
+    const postCall = calls.find((c) => c.url.endsWith("/issues/17/comments") && c.init?.method === "POST");
+    const requestBody = JSON.parse(String(postCall?.init?.body)) as { body: string };
+    expect(postCall).toBeDefined();
+    expect((postCall?.init?.headers as Record<string, string>).Authorization).toBe("Bearer write-token");
+    expect((postCall?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
     expect(requestBody.body).toContain("Account lookup misses authorization");
     expect(requestBody.body).toContain("<!-- ai-code-review-factory");
     expect(requestBody.body).toContain("fixture-auth-pr");
@@ -165,6 +170,11 @@ describe("GitHubVcsAdapter", () => {
       fetch: async (input, init) => {
         const url = String(input);
         calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        // Bot identity endpoint (#84)
+        if (url === "https://api.github.com/user") {
+          return jsonResponse({ id: 99, login: "bot-user" });
+        }
 
         if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
           return jsonResponse([]);
@@ -207,11 +217,14 @@ describe("GitHubVcsAdapter", () => {
       runId: "run-inline-polish",
     });
 
-    const requestBody = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
-    expect(calls[0]?.url).toBe("https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100");
-    expect(calls[1]?.url).toBe("https://api.github.com/repos/example/payments-api/pulls/17/comments");
-    expect(calls[1]?.init?.method).toBe("POST");
-    expect((calls[1]?.init?.headers as Record<string, string>).Authorization).toBe("Bearer write-token");
+    // Use URL/method-based lookup rather than positional index since GET /user is now
+    // fetched concurrently with the comments list (Promise.all in findExistingInlineComments).
+    const postCall = calls.find((c) => c.url === "https://api.github.com/repos/example/payments-api/pulls/17/comments" && c.init?.method === "POST");
+    const requestBody = JSON.parse(String(postCall?.init?.body)) as Record<string, unknown>;
+    expect(calls.map((c) => c.url)).toContain("https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100");
+    expect(postCall?.url).toBe("https://api.github.com/repos/example/payments-api/pulls/17/comments");
+    expect(postCall?.init?.method).toBe("POST");
+    expect((postCall?.init?.headers as Record<string, string>).Authorization).toBe("Bearer write-token");
     expect(requestBody).toMatchObject({
       commit_id: "abc123",
       path: "src/auth/accounts.ts",
@@ -309,11 +322,18 @@ describe("GitHubVcsAdapter", () => {
         const url = String(input);
         calls.push({ url, ...(init !== undefined ? { init } : {}) });
 
+        // Bot identity endpoint — must return the same id as the comment's user.id (#84)
+        if (url === "https://api.github.com/user") {
+          return jsonResponse({ id: 99, login: "bot-user" });
+        }
+
         if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
           return jsonResponse([
             {
               id: 456,
               html_url: "https://github.com/example/payments-api/pull/17#discussion_r456",
+              // Author id must match the bot id returned by GET /user (#84)
+              user: { id: 99, login: "bot-user" },
               body: [
                 "### AI review: Account lookup misses authorization",
                 "",
@@ -359,9 +379,11 @@ describe("GitHubVcsAdapter", () => {
       ],
     });
 
-    expect(calls.map((call) => call.url)).toEqual([
+    // Both GET /user and the comments list are fetched; order may vary due to Promise.all.
+    expect(calls.map((call) => call.url)).toContain("https://api.github.com/user");
+    expect(calls.map((call) => call.url)).toContain(
       "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100",
-    ]);
+    );
     expect(result).toEqual({
       provider: "github",
       attemptedInlineCount: 1,
@@ -441,10 +463,11 @@ describe("GitHubVcsAdapter", () => {
       ],
     });
 
-    expect(calls.map((call) => call.url)).toEqual([
-      "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100",
-      "https://api.github.com/repos/example/payments-api/pulls/17/comments",
-    ]);
+    // GET /user is now fetched alongside the comments list; use contains checks rather than
+    // an exact ordered list (#84). The /user call returns 404 here → botId undefined → dedup
+    // map is empty (safe-on-failure); the finding is still posted.
+    expect(calls.map((call) => call.url)).toContain("https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100");
+    expect(calls.map((call) => call.url)).toContain("https://api.github.com/repos/example/payments-api/pulls/17/comments");
     expect(result.postedInlineCount).toBe(1);
     expect(result.skippedInlineCount).toBe(0);
     expect(result.findings[0]).toMatchObject({
@@ -503,10 +526,15 @@ describe("GitHubVcsAdapter", () => {
         const url = String(input);
         calls.push({ url, ...(init !== undefined ? { init } : {}) });
 
+        if (url === "https://api.github.com/user") {
+          return jsonResponse({ id: 99, login: "ai-review-bot" });
+        }
+
         if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100") {
           return jsonResponse([
-            { id: 111, body: "unrelated comment" },
-            { id: 222, body: "<!-- ai-code-review-factory\n{}\n-->" },
+            { id: 111, body: "unrelated comment", user: { id: 99, login: "ai-review-bot" } },
+            // The existing summary comment must be BOT-authored (id 99) to be recognized.
+            { id: 222, body: "<!-- ai-code-review-factory\n{}\n-->", user: { id: 99, login: "ai-review-bot" } },
           ]);
         }
 
@@ -531,11 +559,46 @@ describe("GitHubVcsAdapter", () => {
       summary: review.summary,
     });
 
-    const requestBody = JSON.parse(String(calls[1]?.init?.body)) as { body: string };
-    expect(calls[1]?.url).toBe("https://api.github.com/repos/example/payments-api/issues/comments/222");
-    expect(calls[1]?.init?.method).toBe("PATCH");
+    // The bot-authored summary comment is updated in place (PATCH to comment 222), not duplicated.
+    const patchCall = calls.find((c) => c.url.endsWith("/issues/comments/222") && c.init?.method === "PATCH");
+    const requestBody = JSON.parse(String(patchCall?.init?.body)) as { body: string };
+    expect(patchCall).toBeDefined();
     expect(requestBody.body).toContain("<!-- ai-code-review-factory");
     expect(result.summaryCommentId).toBe("222");
+  });
+
+  test("ignores a planted non-bot summary marker and posts a fresh comment (#84)", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const adapter = new GitHubVcsAdapter({
+      token: "write-token",
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        if (url === "https://api.github.com/user") {
+          return jsonResponse({ id: 99, login: "ai-review-bot" });
+        }
+        if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100") {
+          // An attacker (user id 42, NOT the bot 99) planted a comment carrying our marker.
+          return jsonResponse([
+            { id: 999, body: "<!-- ai-code-review-factory\n{}\n-->", user: { id: 42, login: "attacker" } },
+          ]);
+        }
+        if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments") {
+          return jsonResponse({ id: 987, html_url: "https://github.com/example/payments-api/pull/17#issuecomment-987" }, {}, 201);
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const review = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    const result = await adapter.publishSummary({ change: fixture.metadata, summary: review.summary });
+
+    // The planted comment must NOT be edited (no PATCH to comments/999); a fresh comment is POSTed.
+    expect(calls.some((c) => c.url.endsWith("/issues/comments/999"))).toBe(false);
+    expect(calls.some((c) => c.url.endsWith("/issues/17/comments") && c.init?.method === "POST")).toBe(true);
+    expect(result.summaryCommentId).toBe("987");
   });
 
   test("throws a clear error on GitHub API failures", async () => {
@@ -613,6 +676,208 @@ describe("GitHubVcsAdapter", () => {
 
     const url = fetchCalls[0]?.url ?? "";
     expect(url).toContain("?ref=release%2Fv2");
+  });
+
+  // --- Author-trust / dedup security tests (#84) ---
+
+  test("planted marker from a non-bot author does NOT suppress the finding (finding is posted)", async () => {
+    // A comment with valid dedup metadata but authored by a different user (id 42) must not
+    // suppress the finding even though the metadata matches — only bot-authored markers count.
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        // Bot user id is 99; the existing comment was authored by user 42 (not the bot).
+        if (url === "https://api.github.com/user") {
+          return jsonResponse({ id: 99, login: "bot-user" });
+        }
+
+        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+          return jsonResponse([
+            {
+              id: 456,
+              html_url: "https://github.com/example/payments-api/pull/17#discussion_r456",
+              user: { id: 42, login: "attacker" },
+              body: [
+                "### AI review: planted",
+                "",
+                "<!-- ai-code-review-factory-inline",
+                JSON.stringify({ schemaVersion: 1, findingId: "fnd_auth_missing_owner_check", headSha: "abc123" }),
+                "-->",
+              ].join("\n"),
+            },
+          ]);
+        }
+
+        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments") {
+          return jsonResponse({ id: 789, html_url: "https://github.com/example/payments-api/pull/17#discussion_r789" }, {}, 201);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+
+    const result = await adapter.publishInlineFindings({
+      change: fixture.metadata,
+      findings: [
+        {
+          id: "fnd_auth_missing_owner_check",
+          reviewer: "security",
+          severity: "critical",
+          category: "authorization",
+          title: "Account lookup misses authorization",
+          body: "The changed account lookup returns records without verifying ownership.",
+          location: { path: "src/auth/accounts.ts", line: 27, side: "RIGHT" },
+          confidence: "high",
+          evidence: ["The handler reads accountId and returns data without an ownership check."],
+          recommendation: "Verify account ownership before returning account data.",
+        },
+      ],
+    });
+
+    // Finding must be posted despite the planted marker — the planted author (42) ≠ bot (99).
+    expect(result.postedInlineCount).toBe(1);
+    expect(result.skippedInlineCount).toBe(0);
+    expect(result.findings[0]).toMatchObject({
+      findingId: "fnd_auth_missing_owner_check",
+      disposition: "posted",
+      providerCommentId: "789",
+    });
+    // The POST must have been issued.
+    const postCalls = calls.filter((c) => c.init?.method === "POST");
+    expect(postCalls).toHaveLength(1);
+  });
+
+  test("bot-authored duplicate is still skipped (no regression on existing dedup)", async () => {
+    // Existing comment has the same findingId+headSha AND is authored by the bot (id 99) —
+    // the finding must still be suppressed to avoid duplicate inline comments.
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+
+        if (url === "https://api.github.com/user") {
+          return jsonResponse({ id: 99, login: "bot-user" });
+        }
+
+        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+          return jsonResponse([
+            {
+              id: 456,
+              html_url: "https://github.com/example/payments-api/pull/17#discussion_r456",
+              user: { id: 99, login: "bot-user" },
+              body: [
+                "### AI review: existing bot comment",
+                "",
+                "<!-- ai-code-review-factory-inline",
+                JSON.stringify({ schemaVersion: 1, findingId: "fnd_auth_missing_owner_check", headSha: "abc123" }),
+                "-->",
+              ].join("\n"),
+            },
+          ]);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+
+    const result = await adapter.publishInlineFindings({
+      change: fixture.metadata,
+      findings: [
+        {
+          id: "fnd_auth_missing_owner_check",
+          reviewer: "security",
+          severity: "critical",
+          category: "authorization",
+          title: "Account lookup misses authorization",
+          body: "The changed account lookup returns records without verifying ownership.",
+          location: { path: "src/auth/accounts.ts", line: 27, side: "RIGHT" },
+          confidence: "high",
+          evidence: ["The handler reads accountId and returns data without an ownership check."],
+          recommendation: "Verify account ownership before returning account data.",
+        },
+      ],
+    });
+
+    expect(result.postedInlineCount).toBe(0);
+    expect(result.skippedInlineCount).toBe(1);
+    expect(result.findings[0]).toMatchObject({
+      findingId: "fnd_auth_missing_owner_check",
+      disposition: "skipped",
+      reason: "duplicate_inline_comment",
+      providerCommentId: "456",
+    });
+  });
+
+  test("bot-identity resolution failure → no suppression (safe-on-failure)", async () => {
+    // GET /user returns non-2xx → botId = undefined → dedup map is empty → finding is posted
+    // even if an existing comment has matching metadata. This is the safe direction: a duplicate
+    // comment is always preferable to silently suppressing a real finding (#84).
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        // Simulate a 401 on GET /user — identity cannot be resolved.
+        if (url === "https://api.github.com/user") {
+          return new Response(JSON.stringify({ message: "Bad credentials" }), { status: 401, statusText: "Unauthorized" });
+        }
+
+        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+          return jsonResponse([
+            {
+              id: 456,
+              html_url: "https://github.com/example/payments-api/pull/17#discussion_r456",
+              user: { id: 99, login: "bot-user" },
+              body: [
+                "### AI review: would-be duplicate",
+                "",
+                "<!-- ai-code-review-factory-inline",
+                JSON.stringify({ schemaVersion: 1, findingId: "fnd_auth_missing_owner_check", headSha: "abc123" }),
+                "-->",
+              ].join("\n"),
+            },
+          ]);
+        }
+
+        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments") {
+          return jsonResponse({ id: 789, html_url: "https://github.com/example/payments-api/pull/17#discussion_r789" }, {}, 201);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+
+    const result = await adapter.publishInlineFindings({
+      change: fixture.metadata,
+      findings: [
+        {
+          id: "fnd_auth_missing_owner_check",
+          reviewer: "security",
+          severity: "critical",
+          category: "authorization",
+          title: "Account lookup misses authorization",
+          body: "The changed account lookup returns records without verifying ownership.",
+          location: { path: "src/auth/accounts.ts", line: 27, side: "RIGHT" },
+          confidence: "high",
+          evidence: ["The handler reads accountId and returns data without an ownership check."],
+          recommendation: "Verify account ownership before returning account data.",
+        },
+      ],
+    });
+
+    // Identity unknown → dedup map empty → finding posted (not suppressed).
+    expect(result.postedInlineCount).toBe(1);
+    expect(result.skippedInlineCount).toBe(0);
+    expect(result.findings[0]).toMatchObject({
+      findingId: "fnd_auth_missing_owner_check",
+      disposition: "posted",
+    });
   });
 });
 

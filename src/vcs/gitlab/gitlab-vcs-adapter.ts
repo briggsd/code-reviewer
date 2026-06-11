@@ -73,10 +73,12 @@ interface GitLabNoteResponse {
   id: number;
   body?: string;
   web_url?: string;
+  author?: GitLabUserResponse;
+  system?: boolean;
 }
 
 // Inline diff-discussion types — GitLab discussion IDs are hashes (strings), note IDs are numbers.
-interface GitLabDiscussionNote { id: number; body?: string; web_url?: string }
+interface GitLabDiscussionNote { id: number; body?: string; web_url?: string; author?: GitLabUserResponse; system?: boolean }
 interface GitLabDiscussionResponse { id: string; notes?: GitLabDiscussionNote[] }
 
 export class GitLabVcsAdapter implements VcsAdapter {
@@ -86,10 +88,38 @@ export class GitLabVcsAdapter implements VcsAdapter {
   private readonly apiBaseUrl: string;
   private readonly fetchImpl: GitLabFetchLike;
 
+  // Memoized promise for the bot's own user id — resolved once per adapter instance.
+  // Undefined means the identity could not be fetched; safe-on-failure: an unresolved
+  // identity causes the dedup map to remain empty (no suppression) rather than trusting
+  // author-blind metadata (which is the unsafe direction — see #84).
+  private botUserIdPromise: Promise<number | undefined> | undefined;
+
   constructor(options: GitLabVcsAdapterOptions = {}) {
     this.token = options.token;
     this.apiBaseUrl = (options.apiBaseUrl ?? "https://gitlab.com/api/v4").replace(/\/$/, "");
     this.fetchImpl = options.fetch ?? fetch;
+  }
+
+  // Resolves the numeric id of the authenticated token's user via GET /user.
+  // Best-effort via direct fetchImpl (NOT this.request which throws): any non-2xx response
+  // or network error yields undefined — a dedup-identity hiccup must never fail publish.
+  // Memoized so repeated calls in one publish cycle are free.
+  private resolveBotUserId(): Promise<number | undefined> {
+    if (this.botUserIdPromise === undefined) {
+      this.botUserIdPromise = (async () => {
+        try {
+          const response = await this.fetchImpl(`${this.apiBaseUrl}/user`, { headers: this.headers() });
+          if (!response.ok) {
+            return undefined;
+          }
+          const data = await response.json() as { id?: unknown };
+          return typeof data.id === "number" ? data.id : undefined;
+        } catch {
+          return undefined;
+        }
+      })();
+    }
+    return this.botUserIdPromise;
   }
 
   async getChange(ref: ChangeRef): Promise<ChangeMetadata> {
@@ -237,15 +267,31 @@ export class GitLabVcsAdapter implements VcsAdapter {
 
     const { base_sha: baseSha, start_sha: startSha, head_sha: headSha } = diffRefs;
 
-    // Fetch existing discussions once and build a dedup map keyed by inlineCommentKey(findingId, headSha).
+    // Fetch existing discussions and the bot user id concurrently, then build a dedup map
+    // keyed by inlineCommentKey(findingId, headSha).
     // Single-page fetch — mirrors findExistingSummaryNote (no pagination; acceptable MVP limit).
-    const discussions = await this.request<GitLabDiscussionResponse[]>(`${this.mergeRequestPath(input.change)}/discussions`);
+    // Safe-on-failure: if botId is undefined the filter matches nothing and the map stays
+    // empty — worst case is a duplicate comment, which is the safe direction; suppression
+    // (skipping a real finding) is the unsafe one (#84).
+    const [discussions, botId] = await Promise.all([
+      this.request<GitLabDiscussionResponse[]>(`${this.mergeRequestPath(input.change)}/discussions`),
+      this.resolveBotUserId(),
+    ]);
     const existingByKey = new Map<string, GitLabDiscussionNote>();
 
     for (const discussion of discussions) {
       for (const note of discussion.notes ?? []) {
+        // Skip system notes (e.g. "force pushed") — they never carry our metadata.
+        if (note.system === true) {
+          continue;
+        }
         const metadata = parseInlineCommentMetadata(note.body);
-        if (metadata?.findingId !== undefined && metadata.headSha !== undefined) {
+        if (
+          metadata?.findingId !== undefined &&
+          metadata.headSha !== undefined &&
+          botId !== undefined &&
+          note.author?.id === botId
+        ) {
           existingByKey.set(inlineCommentKey(metadata.findingId, metadata.headSha), note);
         }
       }
@@ -338,9 +384,21 @@ export class GitLabVcsAdapter implements VcsAdapter {
   }
 
   private async findExistingSummaryNote(change: ChangeMetadata): Promise<GitLabNoteResponse | undefined> {
-    const notes = await this.request<GitLabNoteResponse[]>(this.mergeRequestNotesPath(change));
+    // Only treat a BOT-authored note as the existing summary to update (#84). A planted
+    // `<!-- ai-code-review-factory` marker from another author would otherwise be picked as the
+    // "existing" summary and make publishSummary PUT a note the bot can't edit → the summary post
+    // fails (suppression). Safe-on-failure: an unresolved botId matches nothing → a fresh note is
+    // POSTed (possible duplicate, the safe direction) rather than editing an unverified one.
+    const [notes, botId] = await Promise.all([
+      this.request<GitLabNoteResponse[]>(this.mergeRequestNotesPath(change)),
+      this.resolveBotUserId(),
+    ]);
 
-    return notes.findLast((note) => note.body?.includes("<!-- ai-code-review-factory") === true);
+    return notes.findLast((note) =>
+      note.system !== true &&
+      note.body?.includes("<!-- ai-code-review-factory") === true &&
+      botId !== undefined &&
+      note.author?.id === botId);
   }
 
   private async request<T>(pathOrUrl: string, options: { method?: string; body?: unknown } = {}): Promise<T> {

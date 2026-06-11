@@ -135,6 +135,10 @@ describe("GitLabVcsAdapter", () => {
         const url = String(input);
         calls.push({ url, ...(init !== undefined ? { init } : {}) });
 
+        if (url === "https://gitlab.com/api/v4/user") {
+          return jsonResponse({ id: 55, username: "ai-review-bot" });
+        }
+
         if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" && init?.method === undefined) {
           return jsonResponse([]);
         }
@@ -168,12 +172,13 @@ describe("GitLabVcsAdapter", () => {
       },
     });
 
-    const requestBody = JSON.parse(String(calls[1]?.init?.body)) as { body: string };
-    expect(calls[0]?.url).toBe("https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes");
-    expect(calls[1]?.url).toBe("https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes");
-    expect(calls[1]?.init?.method).toBe("POST");
-    expect((calls[1]?.init?.headers as Record<string, string>)["PRIVATE-TOKEN"]).toBe("write-token");
-    expect((calls[1]?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    // No existing summary → a fresh note is POSTed. Look up by method (the /user + notes-GET
+    // calls run concurrently, so positional indexing is non-deterministic).
+    const postCall = calls.find((c) => c.url.endsWith("/notes") && c.init?.method === "POST");
+    const requestBody = JSON.parse(String(postCall?.init?.body)) as { body: string };
+    expect(postCall).toBeDefined();
+    expect((postCall?.init?.headers as Record<string, string>)["PRIVATE-TOKEN"]).toBe("write-token");
+    expect((postCall?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
     expect(requestBody.body).toContain("Account lookup misses authorization");
     expect(requestBody.body).toContain("<!-- ai-code-review-factory");
     expect(requestBody.body).toContain("fixture-auth-pr");
@@ -235,10 +240,15 @@ describe("GitLabVcsAdapter", () => {
         const url = String(input);
         calls.push({ url, ...(init !== undefined ? { init } : {}) });
 
+        if (url === "https://gitlab.com/api/v4/user") {
+          return jsonResponse({ id: 55, username: "ai-review-bot" });
+        }
+
         if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" && init?.method === undefined) {
           return jsonResponse([
-            { id: 111, body: "unrelated note" },
-            { id: 222, body: "<!-- ai-code-review-factory\n{}\n-->" },
+            { id: 111, body: "unrelated note", author: { id: 55 } },
+            // The existing summary note must be BOT-authored (id 55) to be recognized.
+            { id: 222, body: "<!-- ai-code-review-factory\n{}\n-->", author: { id: 55 } },
           ]);
         }
 
@@ -268,11 +278,49 @@ describe("GitLabVcsAdapter", () => {
       summary: review.summary,
     });
 
-    const requestBody = JSON.parse(String(calls[1]?.init?.body)) as { body: string };
-    expect(calls[1]?.url).toBe("https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes/222");
-    expect(calls[1]?.init?.method).toBe("PUT");
+    // The bot-authored summary note is updated in place (PUT to note 222), not duplicated.
+    const putCall = calls.find((c) => c.url.endsWith("/notes/222") && c.init?.method === "PUT");
+    const requestBody = JSON.parse(String(putCall?.init?.body)) as { body: string };
+    expect(putCall).toBeDefined();
     expect(requestBody.body).toContain("<!-- ai-code-review-factory");
     expect(result.summaryCommentId).toBe("222");
+  });
+
+  test("ignores a planted non-bot summary marker and posts a fresh note (#84)", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const adapter = new GitLabVcsAdapter({
+      token: "write-token",
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        if (url === "https://gitlab.com/api/v4/user") {
+          return jsonResponse({ id: 55, username: "ai-review-bot" });
+        }
+        if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" && init?.method === undefined) {
+          // An attacker (author id 42, NOT the bot 55) planted a note carrying our marker.
+          return jsonResponse([
+            { id: 999, body: "<!-- ai-code-review-factory\n{}\n-->", author: { id: 42 } },
+          ]);
+        }
+        if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" && init?.method === "POST") {
+          return jsonResponse({ id: 654, web_url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_654" }, 201);
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const review = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    const result = await adapter.publishSummary({
+      change: { ...fixture.metadata, provider: "gitlab", repository: changeRef.repository, changeId: "7" },
+      summary: review.summary,
+    });
+
+    // The planted note must NOT be edited (no PUT to /notes/999); a fresh note is POSTed instead.
+    expect(calls.some((c) => c.url.endsWith("/notes/999"))).toBe(false);
+    expect(calls.some((c) => c.url.endsWith("/notes") && c.init?.method === "POST")).toBe(true);
+    expect(result.summaryCommentId).toBe("654");
   });
 
   test("throws a clear error on GitLab API failures", async () => {
@@ -510,12 +558,25 @@ describe("GitLabVcsAdapter", () => {
         const url = String(input);
         calls.push({ url, ...(init !== undefined ? { init } : {}) });
 
+        // Bot identity endpoint — must return the same id as the note's author.id (#84)
+        if (url === "https://gitlab.com/api/v4/user") {
+          return jsonResponse({ id: 55, username: "bot-user" });
+        }
+
         if (url === mrPath && init?.method === undefined) {
           return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
         }
 
         if (url === `${mrPath}/discussions` && init?.method === undefined) {
-          return jsonResponse([{ id: "disc-existing", notes: [{ id: 777, body: existingNoteBody }] }]);
+          return jsonResponse([{
+            id: "disc-existing",
+            notes: [{
+              id: 777,
+              body: existingNoteBody,
+              // Author id must match the bot id returned by GET /user (#84)
+              author: { id: 55, username: "bot-user" },
+            }],
+          }]);
         }
 
         return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
@@ -730,6 +791,194 @@ describe("GitLabVcsAdapter", () => {
       findingId: "fnd_inline_test",
       disposition: "skipped",
       reason: "missing_diff_refs",
+    });
+  });
+
+  // --- Author-trust / dedup security tests (#84) ---
+
+  test("planted marker from a non-bot author does NOT suppress the finding (finding is posted)", async () => {
+    // A note with valid dedup metadata but authored by a different user (id 42, not the bot 55)
+    // must not suppress the finding — only bot-authored notes count (#84).
+    const mrPath = "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7";
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    const plantedNoteBody = [
+      "### AI review: planted",
+      "",
+      "<!-- ai-code-review-factory-inline",
+      JSON.stringify({ schemaVersion: 1, findingId: "fnd_inline_test", headSha: "head-abc" }),
+      "-->",
+    ].join("\n");
+
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        // Bot user id is 55; the existing note was authored by user 42 (not the bot).
+        if (url === "https://gitlab.com/api/v4/user") {
+          return jsonResponse({ id: 55, username: "bot-user" });
+        }
+
+        if (url === mrPath && init?.method === undefined) {
+          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+        }
+
+        if (url === `${mrPath}/discussions` && init?.method === undefined) {
+          return jsonResponse([{
+            id: "disc-planted",
+            notes: [{
+              id: 777,
+              body: plantedNoteBody,
+              author: { id: 42, username: "attacker" },
+            }],
+          }]);
+        }
+
+        if (url === `${mrPath}/discussions` && init?.method === "POST") {
+          return jsonResponse({ id: "disc-new", notes: [{ id: 888, web_url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_888" }] }, 201);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: inlineChangeMetadata,
+      findings: [readyFinding],
+    });
+
+    // Finding must be posted despite the planted marker — planted author (42) ≠ bot (55).
+    expect(result.postedInlineCount).toBe(1);
+    expect(result.skippedInlineCount).toBe(0);
+    expect(result.findings[0]).toMatchObject({
+      findingId: "fnd_inline_test",
+      disposition: "posted",
+      providerCommentId: "888",
+    });
+    const postCalls = calls.filter((c) => c.init?.method === "POST");
+    expect(postCalls).toHaveLength(1);
+  });
+
+  test("bot-authored duplicate is still skipped (no regression on existing dedup)", async () => {
+    // Existing note has the same findingId+headSha AND is authored by the bot (id 55) —
+    // the finding must still be suppressed to avoid duplicate inline comments.
+    const mrPath = "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7";
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    const existingNoteBody = [
+      "### AI review: existing bot note",
+      "",
+      "<!-- ai-code-review-factory-inline",
+      JSON.stringify({ schemaVersion: 1, findingId: "fnd_inline_test", headSha: "head-abc" }),
+      "-->",
+    ].join("\n");
+
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        if (url === "https://gitlab.com/api/v4/user") {
+          return jsonResponse({ id: 55, username: "bot-user" });
+        }
+
+        if (url === mrPath && init?.method === undefined) {
+          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+        }
+
+        if (url === `${mrPath}/discussions` && init?.method === undefined) {
+          return jsonResponse([{
+            id: "disc-existing",
+            notes: [{
+              id: 777,
+              body: existingNoteBody,
+              author: { id: 55, username: "bot-user" },
+            }],
+          }]);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: inlineChangeMetadata,
+      findings: [readyFinding],
+    });
+
+    expect(result.postedInlineCount).toBe(0);
+    expect(result.skippedInlineCount).toBe(1);
+    expect(result.findings[0]).toMatchObject({
+      findingId: "fnd_inline_test",
+      disposition: "skipped",
+      reason: "duplicate_inline_comment",
+      providerCommentId: "777",
+    });
+    const postCalls = calls.filter((c) => c.init?.method === "POST");
+    expect(postCalls).toHaveLength(0);
+  });
+
+  test("bot-identity resolution failure → no suppression (safe-on-failure)", async () => {
+    // GET /user returns non-2xx → botId = undefined → dedup map is empty → finding is posted
+    // even if an existing note has matching metadata and looks like a bot note. This is the
+    // safe direction: a duplicate comment is always preferable to suppressing a real finding (#84).
+    const mrPath = "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7";
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    const existingNoteBody = [
+      "### AI review: would-be duplicate",
+      "",
+      "<!-- ai-code-review-factory-inline",
+      JSON.stringify({ schemaVersion: 1, findingId: "fnd_inline_test", headSha: "head-abc" }),
+      "-->",
+    ].join("\n");
+
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        // Simulate a 401 on GET /user — identity cannot be resolved.
+        if (url === "https://gitlab.com/api/v4/user") {
+          return new Response(JSON.stringify({ message: "401 Unauthorized" }), { status: 401, statusText: "Unauthorized" });
+        }
+
+        if (url === mrPath && init?.method === undefined) {
+          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+        }
+
+        if (url === `${mrPath}/discussions` && init?.method === undefined) {
+          return jsonResponse([{
+            id: "disc-existing",
+            notes: [{
+              id: 777,
+              body: existingNoteBody,
+              author: { id: 55, username: "bot-user" },
+            }],
+          }]);
+        }
+
+        if (url === `${mrPath}/discussions` && init?.method === "POST") {
+          return jsonResponse({ id: "disc-new", notes: [{ id: 888 }] }, 201);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: inlineChangeMetadata,
+      findings: [readyFinding],
+    });
+
+    // Identity unknown → dedup map empty → finding posted (not suppressed).
+    expect(result.postedInlineCount).toBe(1);
+    expect(result.skippedInlineCount).toBe(0);
+    expect(result.findings[0]).toMatchObject({
+      findingId: "fnd_inline_test",
+      disposition: "posted",
+      providerCommentId: "888",
     });
   });
 });

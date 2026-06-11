@@ -95,6 +95,21 @@ embedded JSON are unicode-escaped so a finding field can never prematurely close
 
 Duplicate suppression is intentionally scoped to the exact same head SHA and stable finding ID. Older comments without `headSha`, malformed hidden metadata, or comments from a different head are ignored for duplicate matching so they do not block a fresh, fully tagged inline comment.
 
+### Author verification (anti-suppression)
+
+Dedup metadata is only trusted on comments/notes **authored by the review bot itself**. Both adapters
+resolve the bot identity once via `GET /user` (the token's own user, memoized) and ignore any
+comment whose author id is not the bot's. Without this, anyone able to comment on the PR/MR could
+plant a comment carrying a matching `findingId`+`headSha` (or, for the summary, the
+`<!-- ai-code-review-factory` marker) to make the bot treat a finding as already-posted — silently
+suppressing it — or, for the summary, target a comment the bot cannot edit so the update fails. The
+same author check guards the **summary**-comment dedup (`findExistingSummaryComment` /
+`findExistingSummaryNote`), not just inline.
+
+**Safe-on-failure:** if the bot identity cannot be resolved (a non-2xx `GET /user`), no comment is
+trusted for dedup — the worst case becomes a *duplicate* comment (the safe direction), never
+suppression. (System notes on GitLab are also skipped — they never carry our metadata.)
+
 ## Trace output
 
 Inline publishing writes a `publisher.completed` trace event with:

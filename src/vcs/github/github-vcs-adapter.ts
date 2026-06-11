@@ -74,12 +74,14 @@ interface GitHubIssueCommentResponse {
   id: number;
   body?: string;
   html_url?: string;
+  user?: GitHubUserResponse | null;
 }
 
 interface GitHubPullReviewCommentResponse {
   id: number;
   body?: string;
   html_url?: string;
+  user?: GitHubUserResponse | null;
 }
 
 export class GitHubVcsAdapter implements VcsAdapter {
@@ -90,11 +92,38 @@ export class GitHubVcsAdapter implements VcsAdapter {
   private readonly userAgent: string;
   private readonly fetchImpl: FetchLike;
 
+  // Memoized promise for the bot's own user id — resolved once per adapter instance.
+  // Undefined means the identity could not be fetched; safe-on-failure: an unresolved
+  // identity causes the dedup map to remain empty (no suppression) rather than trusting
+  // author-blind metadata (which is the unsafe direction — see #84).
+  private botUserIdPromise: Promise<number | undefined> | undefined;
+
   constructor(options: GitHubVcsAdapterOptions = {}) {
     this.token = options.token;
     this.apiBaseUrl = (options.apiBaseUrl ?? "https://api.github.com").replace(/\/$/, "");
     this.userAgent = options.userAgent ?? "ai-code-review-factory";
     this.fetchImpl = options.fetch ?? fetch;
+  }
+
+  // Resolves the numeric id of the authenticated token's user via GET /user.
+  // Best-effort: any non-2xx response or network error yields undefined — a dedup-identity
+  // hiccup must never fail publish. Memoized so repeated calls in one publish cycle are free.
+  private resolveBotUserId(): Promise<number | undefined> {
+    if (this.botUserIdPromise === undefined) {
+      this.botUserIdPromise = (async () => {
+        try {
+          const response = await this.fetchImpl(`${this.apiBaseUrl}/user`, { headers: this.headers() });
+          if (!response.ok) {
+            return undefined;
+          }
+          const data = await response.json() as { id?: unknown };
+          return typeof data.id === "number" ? data.id : undefined;
+        } catch {
+          return undefined;
+        }
+      })();
+    }
+    return this.botUserIdPromise;
   }
 
   async getChange(ref: ChangeRef): Promise<ChangeMetadata> {
@@ -309,18 +338,42 @@ export class GitHubVcsAdapter implements VcsAdapter {
   }
 
   private async findExistingSummaryComment(change: ChangeMetadata): Promise<GitHubIssueCommentResponse | undefined> {
-    const comments = await this.requestAllPages<GitHubIssueCommentResponse>(this.issueCommentsPath(change));
+    // Only treat a BOT-authored comment as the existing summary to update (#84). An attacker who
+    // can comment could otherwise plant a `<!-- ai-code-review-factory` marker, get picked as the
+    // "existing" summary, and make publishSummary PATCH a comment the bot can't edit → 403 → the
+    // whole summary post fails (suppression). Safe-on-failure: if botId is unresolved the filter
+    // matches nothing → publishSummary POSTs a fresh comment (a possible duplicate, the safe
+    // direction) rather than editing an unverified one.
+    const [comments, botId] = await Promise.all([
+      this.requestAllPages<GitHubIssueCommentResponse>(this.issueCommentsPath(change)),
+      this.resolveBotUserId(),
+    ]);
 
-    return comments.findLast((comment) => comment.body?.includes("<!-- ai-code-review-factory") === true);
+    return comments.findLast((comment) =>
+      comment.body?.includes("<!-- ai-code-review-factory") === true &&
+      botId !== undefined &&
+      comment.user?.id === botId);
   }
 
   private async findExistingInlineComments(change: ChangeMetadata): Promise<Map<string, GitHubPullReviewCommentResponse>> {
-    const comments = await this.requestAllPages<GitHubPullReviewCommentResponse>(this.pullCommentsPath(change));
+    // Resolve the bot's own user id before scanning comments so we can reject planted
+    // markers from other authors. Safe-on-failure: if botId is undefined the filter matches
+    // nothing and the map stays empty — worst case is a duplicate comment, which is the
+    // safe direction; suppression (skipping a real finding) is the unsafe one (#84).
+    const [comments, botId] = await Promise.all([
+      this.requestAllPages<GitHubPullReviewCommentResponse>(this.pullCommentsPath(change)),
+      this.resolveBotUserId(),
+    ]);
     const byFindingAndHead = new Map<string, GitHubPullReviewCommentResponse>();
 
     for (const comment of comments) {
       const metadata = parseInlineCommentMetadata(comment.body);
-      if (metadata?.findingId !== undefined && metadata.headSha !== undefined) {
+      if (
+        metadata?.findingId !== undefined &&
+        metadata.headSha !== undefined &&
+        botId !== undefined &&
+        comment.user?.id === botId
+      ) {
         byFindingAndHead.set(inlineCommentKey(metadata.findingId, metadata.headSha), comment);
       }
     }
