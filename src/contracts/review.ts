@@ -83,7 +83,7 @@ export interface Acknowledgement {
   stableFindingId?: string;
   mode: "acknowledge" | "suppress";           // acknowledge = downgrade+annotate; suppress = hide
   reason: string;
-  expires?: string;                           // ISO date (YYYY-MM-DD); applied in P3-b
+  expires?: string;                           // ISO date (YYYY-MM-DD); a past date deactivates the entry
 }
 
 export interface ReviewConfig {

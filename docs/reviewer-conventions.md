@@ -1,7 +1,7 @@
 # Per-repo reviewer conventions & acknowledged findings
 
-> Status: design (issue [#60]). P1 (`conventions`) + P2 (base-branch read, GitHub) shipped; P3
-> (`acknowledgements`) pending. GitLab P2 deferred (degrades to P1 advisory).
+> Status: **all phases shipped for GitHub** (issue [#60] closed). P1 (`conventions`) + P2
+> (base-branch read) + P3 (`acknowledgements`). GitLab P2/P3 deferred (degrades to P1 advisory).
 > Pairs with the coordinator precision gate (#54) and mechanized boundary rules (#27).
 
 ## Problem
@@ -58,8 +58,10 @@ config:
 }
 ```
 
-> **`acknowledgements` (Mechanism B) is NOT yet implemented** — it is phase 3 below. Adding
-> it to `.ai-review.json` today does nothing (the field is ignored). Its proposed shape:
+> **`acknowledgements` (Mechanism B) is IMPLEMENTED (phase 3).** Read from the base branch and
+> applied as a deterministic post-review transform (`src/runner/acknowledgements.ts`): `acknowledge`
+> keeps + annotates the finding but excludes it from the gate; `suppress` removes it (except a
+> security-reviewer finding, which is downgraded to `acknowledge`); `expires` deactivates it. Shape:
 >
 > ```jsonc
 > "acknowledgements": [
@@ -134,7 +136,7 @@ a required reason. What none of them defend against — and what this design mus
 - **P2 — base-branch read** for `conventions` *(IMPLEMENTED for GitHub).* In the VCS provider
   path, `conventions` are read from the change's **base/target branch** via
   `VcsAdapter.readBaseBranchFile` (GitHub: contents API at `?ref=<targetBranch>`), resolved by
-  `src/runner/base-conventions.ts` (`resolveBaseConventions`) and applied in `src/cli.ts`. A PR
+  `src/runner/base-conventions.ts` (`resolveBaseConfig`) and applied in `src/cli.ts`. A PR
   cannot grant itself an exception: only conventions already on the protected branch count.
   - **Trust rule:** base file present → its conventions are authoritative (head ignored); base file
     absent → **empty** (not the head's); read error → empty (best-effort, never fails the review).
@@ -144,8 +146,9 @@ a required reason. What none of them defend against — and what this design mus
   - **GitLab:** not yet implemented — its adapter lacks `readBaseBranchFile`, so it **degrades to P1
     advisory behavior** (conventions still read from the head config; the base-branch trust guard
     does not yet apply). Tracked as a follow-up.
-- **P3 — structured `acknowledgements`** + downgrade semantics + gate integration. Builds on P2's
-  trust boundary + #54 (the precision gate, now shipped). Adds an `acknowledged` finding state + reason.
+- **P3 — structured `acknowledgements`** *(SHIPPED).* Downgrade/annotate (`acknowledge`) or hide
+  (`suppress`, never for security findings) + gate integration, on P2's trust boundary + #54. Adds the
+  `acknowledged` finding state (`src/runner/acknowledgements.ts`; `expires` deactivation).
 
 ## Implementation map (P1)
 
