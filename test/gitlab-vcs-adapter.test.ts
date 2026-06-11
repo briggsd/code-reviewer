@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
 import { GitLabVcsAdapter, loadReviewFixture, runReview } from "../src/index.ts";
-import type { ChangeRef, GitLabFetchLike } from "../src/index.ts";
+import type { ChangeMetadata, ChangeRef, GitLabFetchLike } from "../src/index.ts";
 
 const changeRef: ChangeRef = {
   provider: "gitlab",
@@ -15,6 +15,27 @@ const changeRef: ChangeRef = {
   },
   changeId: "7",
   headSha: "headsha123",
+};
+
+// ChangeMetadata used by readBaseBranchFile tests (includes targetBranch).
+const changeMetadata: ChangeMetadata = {
+  provider: "gitlab",
+  repository: {
+    provider: "gitlab",
+    owner: "example",
+    name: "payments-api",
+    slug: "example/payments-api",
+    webUrl: "https://gitlab.com/example/payments-api",
+    defaultBranch: "main",
+  },
+  changeId: "7",
+  headSha: "headsha123",
+  baseSha: "basesha456",
+  targetBranch: "main",
+  sourceBranch: "feature/account-lookup",
+  title: "Harden account lookup",
+  author: { username: "gitlab-dev" },
+  labels: [],
 };
 
 describe("GitLabVcsAdapter", () => {
@@ -260,6 +281,73 @@ describe("GitLabVcsAdapter", () => {
     });
 
     await expect(adapter.getChange(changeRef)).rejects.toThrow("GitLab API request failed: 401 Unauthorized");
+  });
+
+  test("readBaseBranchFile returns decoded UTF-8 content from base64 repository-files API response", async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const fileContent = '{"conventions":["no direct db access in controllers"]}';
+    const base64Content = Buffer.from(fileContent).toString("base64");
+    const adapter = new GitLabVcsAdapter({
+      token: "test-token",
+      fetch: async (input, init) => {
+        const url = String(input);
+        fetchCalls.push({ url, ...(init !== undefined ? { init } : {}) });
+        return jsonResponse({ content: base64Content, encoding: "base64" });
+      },
+    });
+
+    const result = await adapter.readBaseBranchFile(changeMetadata, ".ai-review.json");
+
+    expect(result).toBe(fileContent);
+    // URL must use GitLab repository-files path and encode the ref — not the head sha
+    const filesUrl = fetchCalls[0]?.url ?? "";
+    expect(filesUrl).toContain("/repository/files/");
+    expect(filesUrl).toContain("?ref=main");
+    expect(filesUrl).not.toContain(changeMetadata.headSha);
+    // PRIVATE-TOKEN auth header must be set
+    expect((fetchCalls[0]?.init?.headers as Record<string, string>)["PRIVATE-TOKEN"]).toBe("test-token");
+  });
+
+  test("readBaseBranchFile returns undefined on a 404 (file absent on base branch)", async () => {
+    const adapter = new GitLabVcsAdapter({
+      fetch: async () => new Response(JSON.stringify({ message: "404 File Not Found" }), {
+        status: 404,
+        statusText: "Not Found",
+      }),
+    });
+
+    const result = await adapter.readBaseBranchFile(changeMetadata, ".ai-review.json");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("readBaseBranchFile returns undefined (does not throw) on a non-404 error — best-effort read", async () => {
+    const adapter = new GitLabVcsAdapter({
+      fetch: async () => new Response("upstream boom", { status: 500, statusText: "Internal Server Error" }),
+    });
+
+    // A transient/auth error must degrade to "no base conventions", never fail the review.
+    const result = await adapter.readBaseBranchFile(changeMetadata, ".ai-review.json");
+
+    expect(result).toBeUndefined();
+  });
+
+  test("readBaseBranchFile uses targetBranch as the ref query param, URL-encoded", async () => {
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        fetchCalls.push({ url, ...(init !== undefined ? { init } : {}) });
+        return jsonResponse({ content: Buffer.from("{}").toString("base64"), encoding: "base64" });
+      },
+    });
+    const metaWithSlashBranch = { ...changeMetadata, targetBranch: "release/v2" };
+
+    await adapter.readBaseBranchFile(metaWithSlashBranch, ".ai-review.json");
+
+    // Slashes in branch names must be percent-encoded in the ref param
+    const url = fetchCalls[0]?.url ?? "";
+    expect(url).toContain("?ref=release%2Fv2");
   });
 });
 

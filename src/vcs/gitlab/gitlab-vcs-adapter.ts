@@ -169,6 +169,34 @@ export class GitLabVcsAdapter implements VcsAdapter {
     };
   }
 
+  async readBaseBranchFile(change: ChangeMetadata, path: string): Promise<string | undefined> {
+    // Prefer the target-branch tip (the protected branch P2 trusts). `baseSha` is a committed base
+    // ancestor — not MR-authored, so still trust-safe — used only when no branch name is available;
+    // it may be slightly behind the branch tip.
+    const baseRef = change.targetBranch ?? change.baseSha;
+    if (baseRef === undefined) {
+      return undefined;
+    }
+
+    // GitLab repository-files API requires the full file path URL-encoded (slashes become %2F),
+    // so encodeURIComponent is applied to the whole path — unlike GitHub which keeps the slashes.
+    const url = `${this.apiBaseUrl}/projects/${encodeURIComponent(change.repository.slug)}/repository/files/${encodeURIComponent(path)}?ref=${encodeURIComponent(baseRef)}`;
+    const response = await this.fetchImpl(url, { headers: this.headers() });
+
+    // Best-effort read: any non-2xx (404 absent, 5xx transient, 401/403 auth) yields undefined so a
+    // conventions-read hiccup degrades to "no base conventions" rather than failing the whole review.
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const data = await response.json() as { content?: unknown; encoding?: unknown };
+    if (data.encoding !== "base64" || typeof data.content !== "string") {
+      return undefined;
+    }
+
+    return Buffer.from(data.content, "base64").toString("utf8");
+  }
+
   async publishInlineFindings(_input: PublishInlineFindingsInput): Promise<PublishInlineFindingsResult> {
     throw new Error("GitLab inline finding publishing is not implemented in the metadata/diff MVP adapter");
   }
