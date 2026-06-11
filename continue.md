@@ -1,6 +1,26 @@
-# Continue — AI Code Review Factory / 8 issues closed this session (incl. #28 eval VALIDATED @ 100%, #84 + #87 security/UX); next = #69 / M014 (#50/#57) / M013
+# Continue — AI Code Review Factory / 8 issues closed + eval VALIDATED 5/5@100% + first telemetry analysis; next = #90 telemetry:analyze / #69 / M014
 
 ## Last action
+
+**SESSION-END: first organized telemetry analysis of our own self-reviews (9 real-`pi` runs, #76–#89).**
+Pulled `ai_review.run_metrics` from the CI artifacts and segmented by tier — the numbers are the
+durable baseline (saved to memory `telemetry-baseline-2026-06`). Headlines: **full tier ≈ 5.8
+findings/run vs lite 1.5** (the #77 effect, measured, ~4× yield for ~3× cost); **documentation reviewer
+= 52% of all findings** (docs go stale fastest); thin-review is cleanly bimodal (empty passes ~150
+out-tok vs engaged 1.5K–16K); **zero criticals / never blocked** on self-review (the #28 eval is what
+exercises critical-blocking); grounding dropped 0 in 9 runs (precision filters are latent insurance);
+cost $1.62/9 runs (non-issue), duration is the budget pressure (#83 hit 569s). **Filed 3 issues from
+the patterns:** **#90** (`telemetry:analyze` — tier-segmented analyzer, the durable version of this
+manual pull; broader than #20's acceptance slice), **#91** (contextual thin-review flag — now
+data-backed, #65/#76 lineage), **#92** (cheaper doc-staleness detection — docs are 52% of findings).
+**Reproduce:** `gh run download <runId> -n ai-review-real-<PR>` → parse `runs/*/telemetry.jsonl`.
+
+**Recommended next:** **#90** (build `telemetry:analyze` — makes this repeatable, real start on #20) /
+**#69** (re-review miscount, low/quick) / **M014** #50/#57 (telemetry egress).
+
+---
+
+**Earlier last action:**
 
 **#84 + #87 SHIPPED & CLOSED (PRs #88 + #89).** Two final fixes this session, both improved by their
 full-tier reviews:
@@ -355,9 +375,10 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   parity, closed #80), **#83** (#82 GitLab inline MR-discussion publishing + shared inline renderer,
   closed #82), **#85** (#28 holdout eval harness MVP, closed #28), **#86** (eval-criteria recalibration
   → 5/5 @ 100%), **#88** (#84 inline+summary dedup author-trust, closed #84), **#89** (#87 location backfill, closed #87).
-- **Issues open:** **#69** (re-review miscount, low — likely-quick next), #57 (partial — telemetry
-  redaction), #46 (needs prev-head..head ref read), **M014** #50/#51 (telemetry egress), **M013**
-  #26/#27/#29/#33, #41/#42/#20, **M012** parking lot #15/#16/#22/#23/#24.
+- **Issues open:** **NEW from telemetry analysis: #90** (telemetry:analyze — recommended next), **#91**
+  (thin-review flag), **#92** (doc-staleness detection). **#69** (re-review miscount, low/quick), #57
+  (partial — telemetry redaction), #46 (needs prev-head..head ref read), **M014** #50/#51 (telemetry
+  egress), **M013** #26/#27/#29/#33, #41/#42/#20, **M012** parking lot #15/#16/#22/#23/#24.
   **GitLab parity COMPLETE** (base-read #80 + inline publish #82 + dedup author-trust #84). **#77 PROVEN
   end-to-end**; eval VALIDATED 5/5@100%. **#77 option 2** (generalized self-review signal / thin-review
   full-tier review). **#77 option 2** revisit only if needed.
