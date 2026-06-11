@@ -7,3 +7,4 @@ node_modules/
 .ai-review-smoke/
 coverage/
 dist/
+telemetry-rollup.json

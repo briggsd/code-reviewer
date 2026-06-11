@@ -26,6 +26,7 @@ bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --runtime dummy
 bun run src/cli.ts run --git-diff --runtime dummy --output-dir .ai-review   # review local changes, no PR. default base HEAD = uncommitted only; --base main for committed branch work. captures telemetry/traces
 bun run src/cli.ts schemas        # emit config + structured-output JSON schemas
 bun run schema:config             # regenerate .ai-review.schema.json
+bun run telemetry:rollup --runs 20 --output telemetry-rollup.json   # aggregate run_metrics from recent CI artifacts (needs authed `gh`; targets the hardcoded .github/workflows/ai-review.yml)
 ```
 
 Smoke scripts (opt-in, network/model-gated — default tests are fake/no-network):
