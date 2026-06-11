@@ -178,9 +178,10 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 - **MERGED this session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
-- **Issues open:** #69 (low — re-review miscount), #57 (partial), #46 (needs prev-head..head ref read),
-  #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012. GitLab-P2/P3 parity not yet filed
-  (degrades safely to P1 advisory).
+- **Issues open:** **#73** (#54.2 grounding false-drops unchanged-code findings — priority:medium,
+  good next), **#74** (markdown renderer escapes no finding text — low), #69 (re-review miscount, low),
+  #57 (partial), #46 (needs prev-head..head ref read), #28 (holdout eval — validates #54),
+  #41/#42/#20 + M013/M012. GitLab-P2/P3 parity not yet filed (degrades safely to P1 advisory).
 - **Closed this session:** #60 (conventions+acks complete), #65 (no bug), #67 (location-crash, fixed
   in #66). Prior: #48/#49/#58. #54 substantially complete (open or close at will).
 - Working tree (on `main`): clean.
@@ -228,6 +229,12 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58 or merged
   PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72 unless new regressions appear. Closed
   issues #60/#65/#67 (this session) likewise stay closed.
+- Do not assume #54.2 grounding only drops *fabricated* findings — it ALSO false-drops LEGITIMATE
+  findings that quote code NOT in the diff (staleness / "you forgot to update X" / cross-file). Found
+  by inspecting `grounding.applied` traces: #72's 4 "withheld" were all real (doc-staleness + a
+  markdown-escape concern). Fix tracked in **#73** (scope grounding to changed-file findings). When a
+  PR's review shows "N withheld", check the trace (`gh run download … -n ai-review-real-<PR>`,
+  `grounding.applied` event) — some may be real. **#74** = renderer escapes no finding text.
 - Do not let `suppress` hide a `reviewer:"security"` finding (acknowledgements.ts downgrades it to
   acknowledge on purpose). Acknowledged findings stay in `summary.findings` (annotated) + are excluded
   from the gate only — never silently dropped. Acks come from the BASE branch (provider path), not head.
