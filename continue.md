@@ -1,6 +1,24 @@
-# Continue — AI Code Review Factory / #73 + #74 + #77 FIXED & CLOSED (PRs #76/#78/#79); next = GitLab parity / #28 eval / #69
+# Continue — AI Code Review Factory / #73 #74 #77 #80 FIXED & CLOSED (PRs #76/#78/#79/#81); next = #28 eval / #69 / GitLab inline publish
 
 ## Last action
+
+**#80 SHIPPED & CLOSED (PR #81, squash `c081eab`, gate 342/0, clean AI review approved/0).** GitLab
+parity for the #60-P2/P3 trust guard: added `GitLabVcsAdapter.readBaseBranchFile(change, path)`
+mirroring the GitHub impl — base-ref precedence `targetBranch ?? baseSha`; GitLab repository-files API
+`…/repository/files/{encodeURIComponent(path)}?ref=…` (full path URL-encoded, slashes→`%2F`, unlike
+GitHub's segment encoding); best-effort direct `fetchImpl` + `response.ok` (NOT `request<T>()` which
+throws); decode `{content,encoding:"base64"}`→utf8 (no newline strip). `resolveBaseConfig` is already
+adapter-agnostic (`cli.ts:307`), so GitLab now reads base-branch conventions + acknowledgements with
+**zero extra wiring** — parity complete. +4 tests mirror the GitHub suite (decoded; 404→undefined;
+500→undefined no-throw; targetBranch as `?ref=`, URL-encoded). PR self-reviewed `lite` (src/vcs/** is
+outside #77's full-tier scope — a small signal the base-read trust point isn't full-tiered; left as-is,
+the trust ENFORCEMENT is in src/runner/base-conventions.ts which IS in scope). Backend: Sonnet subagent.
+
+**Next pickup options:** **#28 holdout eval** (bigger — validates #54 precision/recall) / **#69**
+(re-review miscount, low) / **GitLab inline-finding publishing** (still the documented MVP gap —
+`publishInlineFindings` throws). #57 remaining also open.
+
+---
 
 **#77 SHIPPED & CLOSED (PR #79, squash `d751814`, gate 338/0).** Added repo-local **`.ai-review.json`**
 so the factory full-tiers changes to its OWN deterministic gate logic (the #76-audit gap: gate-file
@@ -234,17 +252,19 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## State
 
-- `main` @ `d751814`, pushed/synced, gate **338/0**, working tree CLEAN.
+- `main` @ `c081eab`, pushed/synced, gate **342/0**, working tree CLEAN.
 - **MERGED last big session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
 - **MERGED this session:** **#76** (#73 grounding changed-file scope, closed #73), **#78** (#74
   markdown-escape across 3 renderer sinks, closed #74), **#79** (#77 repo `.ai-review.json` self-review
-  full-tiering + config-docs footgun, closed #77).
+  full-tiering + config-docs footgun, closed #77), **#81** (#80 GitLab `readBaseBranchFile` trust-guard
+  parity, closed #80).
 - **Issues open:** #69 (re-review miscount, low), #57 (partial), #46 (needs prev-head..head ref read),
-  #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012. GitLab-P2/P3 parity not yet filed
-  (degrades safely to P1 advisory). **#77 option 2** (generalized self-review-critical signal / thin-
-  review observability flag) deferred — only revisit if shallow gate reviews recur despite the config.
+  #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012. **GitLab-P2/P3 base-read parity now DONE
+  (#80)**; GitLab **inline-finding publishing** still the documented MVP gap (`publishInlineFindings`
+  throws). **#77 option 2** (generalized self-review-critical signal / thin-review observability flag)
+  deferred — only revisit if shallow gate reviews recur despite the config.
 - **#76 post-merge audit (PR #76's empty AI review):** NOT a regression. Reviewers got real ~5K
   prompts (`cacheWrite≈5070`) but returned `{"findings":[]}` in 8 tokens / 0 thinking because risk
   tier = `lite` (no sensitive-path match for `src/runner/*`). Model `sonnet-4-6` is capable (#65:
@@ -303,8 +323,8 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 - Do not trust an implementer (Codex or subagent) summary's "tests added"/gate claims — verify
   vs `git diff` and re-run `bun run check`. Do not `git add -A` when committing delegated work
   (it swept `M009-SUMMARY.md` in once).
-- Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77 or
-  merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79 unless new
+- Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80
+  or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81 unless new
   regressions appear. Closed issues #60/#65/#67 likewise stay closed.
 - Do not set `sensitivePaths`/`ignoredPaths`/`failOn` in `.ai-review.json` expecting them to APPEND to
   defaults — those arrays REPLACE wholesale (`normalizeReviewConfig`); object maps (`reviewerPolicy`/
