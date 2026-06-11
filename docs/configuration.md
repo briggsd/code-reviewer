@@ -2,7 +2,12 @@
 
 The runner loads JSON config from an explicit `--config <path>` first. If no path is provided, it looks for `.ai-review.json` or `ai-review.json` in the current working directory.
 
-Config files are partial overrides over the built-in defaults. Nested objects such as `reviewerPolicy`, `timeouts`, and `modelRouting` are merged with defaults.
+Config files are partial overrides over the built-in defaults, but **the merge depth differs by field type**:
+
+- **Object maps are merged** with the defaults key-by-key: `reviewerPolicy`, `timeouts`, and `modelRouting`. You can set just one key and the rest of the object keeps its default.
+- **Arrays are replaced wholesale**, not merged: `failOn`, `sensitivePaths`, and `ignoredPaths`. If you specify one of these, your array becomes the *entire* value — the built-in defaults for that field are dropped.
+
+> **Footgun — re-list the defaults you still want.** Because `sensitivePaths` replaces rather than appends, a config that sets `sensitivePaths` to only its own project paths **silently drops the built-in `auth/**`, `crypto/**`, `migrations/**`, `.github/workflows/**`, and `.gitlab-ci.yml`** escalations. Security- and pipeline-sensitive changes would then tier as `lite` with no warning. To *add* paths, copy the defaults into your array and append yours (see the example below, which re-lists every default before adding project paths). The same applies to `ignoredPaths` and `failOn`. The built-in defaults are printed by `bun run src/cli.ts schemas` and live in `src/runner/default-config.ts`.
 
 Print the machine-readable schemas with:
 
@@ -25,7 +30,10 @@ bun run schema:config
   "sensitivePaths": [
     "auth/**",
     "crypto/**",
-    ".github/workflows/**"
+    "migrations/**",
+    ".github/workflows/**",
+    ".gitlab-ci.yml",
+    "src/billing/**"
   ],
   "ignoredPaths": [
     "**/node_modules/**",

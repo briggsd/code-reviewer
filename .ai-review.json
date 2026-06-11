@@ -1,0 +1,13 @@
+{
+  "sensitivePaths": [
+    "auth/**",
+    "crypto/**",
+    "migrations/**",
+    ".github/workflows/**",
+    ".gitlab-ci.yml",
+    "src/runner/**",
+    "src/runtime/prompt-boundary.ts",
+    "src/ci/**",
+    "src/publisher/**"
+  ]
+}
