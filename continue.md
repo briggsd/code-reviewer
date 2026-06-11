@@ -1,4 +1,4 @@
-# Continue — AI Code Review Factory / quotedCode contract shipped (PR #66, + #67 crash fix); #54.2 grounding now UNBLOCKED; next = build grounding on quotedCode
+# Continue — AI Code Review Factory / #54 precision gate COMPLETE: #54.1 prompts + quotedCode contract + #54.2 grounding all shipped (PRs #64/#66/#68); next = #54 wrap-up or Slice 3
 
 ## Last action
 
@@ -29,6 +29,24 @@ implemented cleanly (208→209, reconciled, no confab); coordinator fixed one co
   claude-sonnet-4-6 --output-dir <dir>`; inspect `runs/*/telemetry.jsonl` (per-agent
   `usage.outputTokens`) + `trace.jsonl` (`grep -c '"type":"thinking"'`).
 
+- **#54.2 evidence-grounding SHIPPED (PR #68, `03e311e`, gate 236/0).** Deterministic post-review
+  filter (`src/runner/evidence-grounding.ts`, `assessFindingGrounding`): drops a finding iff its
+  verbatim `quotedCode` has a checkable quote (≥8 chars) and NONE substring-matches the changed-file
+  corpus. No `quotedCode` → always kept (safety). Spine (`run-review.ts:215`, before stable-ids/
+  re-review) recomputes decision/outcome, appends a "N withheld" note, emits `grounding.applied`
+  trace + counts-only telemetry. **Hardened through 2 adversarial auto-review rounds:** (r1) skip
+  grounding on `diff.truncated`, reword note; (r2) **multi-line quotedCode was always false-dropped**
+  (normalize collapsed quote newlines but corpus joined with `\n` → fixed by whole-corpus normalize;
+  this could flip a blocking run fail→pass) + **reverted a deleted-line exclusion** that false-dropped
+  legitimate *deletion* findings (now all +/-/space lines in corpus; keeping a fabricated-quote-of-
+  removed-code is the safe direction). Held: no severity exemption (drop is groundability-based by
+  design — U+200B was high-confidence). **Filed #69** (low): grounding-dropped findings can be
+  miscounted as "fixed" in re-review (ordering; analytics-accuracy only).
+- **Coordinator-budget signal:** #68's auto-review **timed out once** (coordinator hit its 240s cap)
+  then converged on re-run. The #54.1 validation directives (PR #64) ask the coordinator to do MORE
+  per finding → tighter budget (the #45/#54 tension, now observed live). #54.2 grounding runs
+  POST-coordinator so doesn't relieve it. If timeouts recur, tune coordinator `thinking` (medium→low)
+  or trim the #54.1 directives — see #45/#54.
 - **quotedCode contract SHIPPED (PR #66, `0f6ce6a`, gate 218/0)** — the #54.2 prerequisite.
   Optional, contractually-verbatim `quotedCode?: string[]` on `Finding` (reviewer fills it only for
   line-specific findings, omits for absence findings); `validateFinding` normalizes it (never fails
@@ -100,16 +118,15 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## Next action
 
-0. **#54.2 evidence-grounding — NOW UNBLOCKED (recommended next).** The `quotedCode` contract
-   shipped (PR #66), so build grounding on **`quotedCode`** (contractually verbatim), NOT narrative
-   `evidence`. Post-review transform at `run-review.ts:215` (before `assignStableFindingIds`): for a
-   finding WITH `quotedCode`, normalize each quote + the changed-file corpus (`context.diff.files[].patch`,
-   strip diff markers, collapse whitespace) and drop the finding iff none of its quotes substring-match
-   the corpus. Findings WITHOUT `quotedCode` (absence/architectural) are never grounded → kept (safe).
-   Recompute decision/outcome via `chooseDecision`/`getHighestSeverity`; append "N withheld …" body
-   note; `grounding.applied` trace event; counts-only telemetry. Reusable design + the earlier
-   prototype scaffolding are in the **#54 comment** (the substring-vs-narrative trap is gone now that
-   we ground a verbatim field). **Alternatively skip to Slice 3** (ref plumbing + #60-P2, Foundation B).
+0. **#54 is substantially COMPLETE** (#54.1 prompts + quotedCode contract + #54.2 grounding shipped).
+   Remaining #54-adjacent options: (a) **#69** — fix grounding-dropped-as-"fixed" re-review miscount
+   (low, analytics polish); (b) **#28 holdout eval** — the measurement counterpart to verify #54
+   precision gains with no recall regression (the natural validation of all this work); (c) watch the
+   **coordinator-budget** signal (#45/#54) if auto-review timeouts recur.
+1. **Slice 3 (Foundation B) — ref-addressing VCS plumbing + #60-P2 base-branch conventions read.**
+   The other high-value thread: extend `VcsAdapter` (single-`ChangeRef` today) to read `.ai-review.json`
+   at the base ref → conventions become authoritative (trust guard), and design it to also cover
+   `previousHeadSha..head` diffs for #46 (Slice 4). Independent of the #54 line.
 1. **#57 remaining (stays OPEN):** (a) **enablement** — redaction is default-off, so wire
    `--redact-trace` into the `trusted-real-review` job (or scope the artifact upload paths);
    (b) **redaction completeness** — extend beyond `message_start/end` `content` to other
@@ -128,13 +145,12 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 ## State
 
 - `main` @ `ee66927`, pushed/synced, gate **209/0**.
-- **MERGED this session:** PR #64 (#54-P1 precision prompts) + PR #66 (quotedCode contract + #67
-  location-crash fix). Backend: in-harness Sonnet subagent (coordinator: Opus 4.8).
-- **Issues open:** #54 (P1 + quotedCode prereq done; **#54.2 grounding now UNBLOCKED = next**),
-  #60 (P1 landed; P2/P3 remain = Slices 3/5), #57 (partial — redaction landed; enablement +
-  completeness + path-scoping remain), #46 (Slice 4), plus #41/#42/#20 + M013/M012 backlog.
-  #28 (holdout eval) is the measurement counterpart for #54.
-- **Closed this session:** #65 (not-planned, no bug), #67 (location-crash, fixed in #66). Prior: #48/#49/#58.
+- **MERGED this session:** PR #64 (#54.1 precision prompts) + PR #66 (quotedCode contract + #67
+  crash fix) + PR #68 (#54.2 evidence-grounding). Backend: in-harness Sonnet subagent (Opus 4.8 coord).
+- **Issues open:** #54 (substantially COMPLETE — #54.1/contract/#54.2 all shipped; could close or
+  leave for #28 eval), #69 (NEW, low — re-review miscount), #60 (P1 landed; P2/P3 = Slices 3/5),
+  #57 (partial), #46 (Slice 4), #28 (holdout eval — validates #54), plus #41/#42/#20 + M013/M012.
+- **Closed this session:** #65 (no bug), #67 (location-crash, fixed in #66). Prior: #48/#49/#58.
 - Working tree (on `main`): clean.
 
 ## Open threads
@@ -178,8 +194,13 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   vs `git diff` and re-run `bun run check`. Do not `git add -A` when committing delegated work
   (it swept `M009-SUMMARY.md` in once).
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58 or merged
-  PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66 unless new regressions appear. Closed issues
+  PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68 unless new regressions appear. Closed issues
   #65/#67 (this session) likewise stay closed.
+- Do not ground/drop against narrative `evidence` — #54.2 grounds the verbatim `quotedCode` field
+  ONLY (`evidence-grounding.ts`). The corpus includes ALL changed lines (+/-/space) and is normalized
+  as ONE string (so multi-line quotes match); truncated diffs skip grounding. Don't "optimize" any of
+  these back — each guards a real false-drop class found in review (multi-line gate-flip; deletion
+  findings; partial corpus). No severity exemption (drop is groundability-based by design).
 - Do not ground/drop findings against the narrative `evidence` field (the #54.2 trap). Real
   `evidence` is prose or about-absence, not verbatim quotes → string-matching it false-drops real
   findings (violates principle #1). Grounding requires a contractually-verbatim field
