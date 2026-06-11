@@ -1,18 +1,31 @@
-# Continue — AI Code Review Factory / #54 precision gate + #60 conventions/acknowledgements COMPLETE & CLOSED (9 PRs this session); next = #73 (grounding false-drop fix) / GitLab parity / #28 eval
+# Continue — AI Code Review Factory / #73 grounding false-drop FIXED & CLOSED (PR #76); next = #74 (renderer escaping) / GitLab parity / #28 eval
 
 ## Last action
 
-**Big session: 9 PRs merged** (#64/#66/#68/#70/#71/#72/#75 + the #67 fix). Two whole feature lines
-shipped — the **#54 precision gate** (prompts + quotedCode contract + evidence-grounding) and **#60
-conventions/acknowledgements** (P1+P2+P3, issue CLOSED). `main` @ `60a77a8`, synced, gate **293/0**,
-working tree CLEAN.
+**#73 SHIPPED & CLOSED (PR #76, squash `c657d38`, gate 297/0, clean AI review approved/0).** Fixed
+the #54.2 grounding false-drop: `assessFindingGrounding` now only drops a finding whose
+`location.path` is itself a **changed file** (built a normalized `changedFilePaths` set from
+`diff.files`; scope-gate is the FIRST check in the per-finding loop — no location / no path / path
+not changed → always kept). Findings ON a changed file still run the quote-match (U+200B fabrication
+still caught). Drop semantics + "N withheld" note + `grounding.applied` trace + telemetry UNCHANGED —
+only narrowed *which* findings are eligible. Paths normalized (trim, `\`→`/`, strip `./`) on both
+sides, mirroring `stable-finding-id.ts` (local helper, not imported — kept module self-contained).
+Tests: `makeFinding` now defaults `location` to the changed file so old fabrication-drop tests still
+drop; "empty diff" test flipped (no changed files → nothing eligible → all kept); +4 new (staleness
+on unchanged file→kept, no-location→kept, fabrication on changed file→still dropped, `./`-prefix
+normalizes→dropped). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator), one clean pass.
 
-**The very last thing:** answering "what were the 4 withheld findings on #71/#72?" — inspected the
-`grounding.applied` traces and discovered my #54.2 grounding filter **false-dropped LEGITIMATE
-findings** (doc-staleness + a markdown-escape concern — they quote *unchanged* code, so the quote
-isn't in the diff). Fixed the real doc/comment ones (**PR #75**), and filed the root causes:
-**#73** (scope grounding to changed-file findings — the fix) + **#74** (renderer escapes no finding
-text). **#73 is the natural next pickup.** Everything below is session history (read top-down).
+**Next pickup options:** **#74** (renderer escapes no finding text — low, the sibling of #73) /
+**GitLab parity** (small) / **#28 holdout eval** / **#69** (re-review miscount). Everything below is
+session history (read top-down).
+
+**Prior session (9 PRs merged):** #64/#66/#68/#70/#71/#72/#75 + the #67 fix. Two whole feature lines
+shipped — the **#54 precision gate** (prompts + quotedCode contract + evidence-grounding) and **#60
+conventions/acknowledgements** (P1+P2+P3, issue CLOSED). **#73** filed when inspecting the
+`grounding.applied` traces revealed the #54.2 filter **false-dropped LEGITIMATE findings**
+(doc-staleness + a markdown-escape concern — they quote *unchanged* code, so the quote isn't in the
+diff). Fixed the real doc/comment ones (**PR #75**), filed **#73** (now fixed) + **#74** (renderer
+escapes no finding text — still open).
 
 - **#54-P1 (PR #64):** prompt-only half of #54 — coordinator "validate, don't just fuse"
   directive (3 lines in `buildCoordinatorPrompt`: validate-evidence / **asymmetric skepticism** /
@@ -150,12 +163,9 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## Next action
 
-0. **#73 (recommended next) — fix #54.2's false-drop of legitimate findings.** The grounding filter
-   drops findings whose `quotedCode` isn't in the diff, which wrongly hides staleness / "you forgot to
-   update X" / cross-file findings (it hid 4 real ones on #72 — that's how this was found). Fix: only
-   ground a finding whose `location.path` is a CHANGED file; keep the rest; still catch fabricated
-   quotes on changed files. Sibling: **#74** (renderer escapes no finding text). Both well-scoped.
-1. **Other candidate threads** (#54 + #60 are COMPLETE):
+0. **#73 DONE (PR #76).** ~~Scope grounding to changed-file findings.~~ Recommended next is its
+   sibling **#74** (markdown renderer escapes no finding text — low, well-scoped) — or any thread below.
+1. **Other candidate threads** (#54 + #60 + #73 are COMPLETE):
    - **GitLab parity** (small, high-coherence): implement `readBaseBranchFile` on the GitLab adapter
      so #60-P2/P3 trust guard applies to GitLab too (currently degrades to P1 advisory). Mirror the
      GitHub impl (GitLab files API at `?ref=<targetBranch>`). Not yet filed as an issue.
@@ -185,14 +195,22 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## State
 
-- `main` @ `ee66927`, pushed/synced, gate **209/0**.
-- **MERGED this session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
+- `main` @ `c657d38`, pushed/synced, gate **297/0**, working tree CLEAN.
+- **MERGED last big session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
-- **Issues open:** **#73** (#54.2 grounding false-drops unchanged-code findings — priority:medium,
-  good next), **#74** (markdown renderer escapes no finding text — low), #69 (re-review miscount, low),
-  #57 (partial), #46 (needs prev-head..head ref read), #28 (holdout eval — validates #54),
-  #41/#42/#20 + M013/M012. GitLab-P2/P3 parity not yet filed (degrades safely to P1 advisory).
+- **MERGED this session:** **#76** (#73 grounding changed-file scope, closed #73).
+- **Issues open:** **#74** (markdown renderer escapes no finding text — low, sibling of #73 / good
+  next), **#77** (risk classifier under-tiers the factory's OWN gate-logic changes to lite — filed
+  from the #76 post-merge audit; cheap fix = repo-local `.ai-review.json` `sensitivePaths` over
+  `src/runner/*` gate files), #69 (re-review miscount, low), #57 (partial), #46 (needs
+  prev-head..head ref read), #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012.
+  GitLab-P2/P3 parity not yet filed (degrades safely to P1 advisory).
+- **#76 post-merge audit (PR #76's empty AI review):** NOT a regression. Reviewers got real ~5K
+  prompts (`cacheWrite≈5070`) but returned `{"findings":[]}` in 8 tokens / 0 thinking because risk
+  tier = `lite` (no sensitive-path match for `src/runner/*`). Model `sonnet-4-6` is capable (#65:
+  719 thinking blocks on the auth/full-tier fixture). The gap is the under-tiering → **#77**, not the
+  reviewer. Don't re-chase #65.
 - **Closed this session:** #60 (conventions+acks complete), #65 (no bug), #67 (location-crash, fixed
   in #66). Prior: #48/#49/#58. #54 substantially complete (open or close at will).
 - Working tree (on `main`): clean.
@@ -237,15 +255,16 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 - Do not trust an implementer (Codex or subagent) summary's "tests added"/gate claims — verify
   vs `git diff` and re-run `bun run check`. Do not `git add -A` when committing delegated work
   (it swept `M009-SUMMARY.md` in once).
-- Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58 or merged
-  PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72 unless new regressions appear. Closed
-  issues #60/#65/#67 (this session) likewise stay closed.
-- Do not assume #54.2 grounding only drops *fabricated* findings — it ALSO false-drops LEGITIMATE
-  findings that quote code NOT in the diff (staleness / "you forgot to update X" / cross-file). Found
-  by inspecting `grounding.applied` traces: #72's 4 "withheld" were all real (doc-staleness + a
-  markdown-escape concern). Fix tracked in **#73** (scope grounding to changed-file findings). When a
-  PR's review shows "N withheld", check the trace (`gh run download … -n ai-review-real-<PR>`,
-  `grounding.applied` event) — some may be real. **#74** = renderer escapes no finding text.
+- Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73 or merged
+  PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76 unless new regressions appear.
+  Closed issues #60/#65/#67 likewise stay closed.
+- #54.2 grounding is now **scoped to changed-file findings (#73, PR #76)** — it only drops a finding
+  whose `location.path` is a CHANGED file (set built from `diff.files`, normalized). Findings with no
+  location / cross-file / staleness quotes are KEPT. Do not revert this scope gate (it's the first
+  check in `assessFindingGrounding`'s loop) — removing it reinstates the false-drop of legitimate
+  staleness / "you forgot to update X" findings. The fabrication guard still applies on changed files
+  (U+200B case). When a PR's review still shows "N withheld", the dropped findings DID cite changed
+  files (legitimate grounding). **#74** (renderer escapes no finding text) is the remaining sibling.
 - Do not let `suppress` hide a `reviewer:"security"` finding (acknowledgements.ts downgrades it to
   acknowledge on purpose). Acknowledged findings stay in `summary.findings` (annotated) + are excluded
   from the gate only — never silently dropped. Acks come from the BASE branch (provider path), not head.
