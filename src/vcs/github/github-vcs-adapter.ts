@@ -12,7 +12,7 @@ import type {
   PublishSummaryResult,
   VcsAdapter,
 } from "../../contracts/index.ts";
-import { escapeMarkdown } from "../../publisher/markdown-escape.ts";
+import { formatInlineFindingComment, inlineCommentKey, parseInlineCommentMetadata } from "../../publisher/inline-comment-markdown.ts";
 import { formatReviewSummaryMarkdown } from "../../publisher/summary-markdown.ts";
 import { createPriorReviewStateFromMetadata, parseSummaryHiddenMetadata } from "../../publisher/summary-metadata.ts";
 
@@ -226,7 +226,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
         outcomes.push({
           ...(finding.id !== undefined ? { findingId: finding.id } : {}),
           disposition: "skipped",
-          reason: "finding is missing GitHub inline comment coordinates",
+          reason: "missing_inline_coordinates",
         });
         continue;
       }
@@ -391,87 +391,6 @@ function githubInlineCoordinateForFinding(finding: Finding): { path: string; lin
     line,
     side: location.side,
   };
-}
-
-function formatInlineFindingComment(finding: Finding, change: ChangeMetadata, runId: string | undefined): string {
-  const metadata = JSON.stringify({
-    schemaVersion: 1,
-    provider: change.provider,
-    repository: change.repository.slug,
-    changeId: change.changeId,
-    headSha: change.headSha,
-    findingId: finding.id ?? null,
-    runId: runId ?? null,
-  });
-  // Escape each evidence item individually before embedding in a list line (#74).
-  // category is NOT in a code span in this inline format — escape it too (#74).
-  const evidence = finding.evidence.length === 0
-    ? ["- No separate evidence was provided."]
-    : finding.evidence.map((item) => `- ${escapeMarkdown(item)}`);
-
-  return [
-    // category appears outside a code span here (unlike summary-markdown) — escape it (#74).
-    `### AI review: ${formatSeverity(finding.severity)} · ${escapeMarkdown(finding.category)}`,
-    "",
-    // title/body/recommendation are LLM-produced free text — escape before embedding (#74).
-    `**${escapeMarkdown(finding.title)}**`,
-    "",
-    escapeMarkdown(finding.body),
-    "",
-    `**Confidence:** ${formatTitleCase(finding.confidence)}`,
-    "",
-    "<details>",
-    "<summary>Evidence</summary>",
-    "",
-    ...evidence,
-    "",
-    "</details>",
-    "",
-    "**Recommendation**",
-    "",
-    escapeMarkdown(finding.recommendation),
-    "",
-    "_AI review inline comment. CI status and the summary comment remain authoritative._",
-    "",
-    "<!-- ai-code-review-factory-inline",
-    metadata,
-    "-->",
-  ].join("\n");
-}
-
-function formatSeverity(severity: Finding["severity"]): string {
-  const icon = severity === "critical" ? "🚨" : severity === "warning" ? "⚠️" : "💬";
-
-  return `${icon} ${formatTitleCase(severity)}`;
-}
-
-function formatTitleCase(value: string): string {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function parseInlineCommentMetadata(body: string | undefined): { findingId?: string; headSha?: string } | undefined {
-  if (body === undefined) {
-    return undefined;
-  }
-
-  const match = /<!-- ai-code-review-factory-inline\s*\n([\s\S]*?)\n-->/m.exec(body);
-  if (match?.[1] === undefined) {
-    return undefined;
-  }
-
-  try {
-    const parsed = JSON.parse(match[1]) as { findingId?: unknown; headSha?: unknown };
-    return {
-      ...(typeof parsed.findingId === "string" && parsed.findingId.length > 0 ? { findingId: parsed.findingId } : {}),
-      ...(typeof parsed.headSha === "string" && parsed.headSha.length > 0 ? { headSha: parsed.headSha } : {}),
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-function inlineCommentKey(findingId: string, headSha: string): string {
-  return `${headSha}:${findingId}`;
 }
 
 function normalizeChangedFile(file: GitHubPullFileResponse): ChangedFile {

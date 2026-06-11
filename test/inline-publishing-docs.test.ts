@@ -6,7 +6,11 @@ describe("inline publishing documentation", () => {
     const guide = await readFile("docs/inline-publishing.md", "utf8");
     const readme = await readFile("README.md", "utf8");
 
-    expect(guide).toContain("experimental, opt-in GitHub-only");
+    expect(guide).toContain("experimental, opt-in");
+    expect(guide).toContain("GitHub and GitLab");
+    // GitLab inline is now supported (no longer "Deferred") with documented MVP limitations.
+    expect(guide).toContain("Experimental with `--publish-inline`");
+    expect(guide).toContain("GitLab MVP limitations");
     expect(guide).toContain("evaluateInlinePublishReadiness()");
     expect(guide).toContain("stale head SHA");
     expect(guide).toContain("line is not present in the provider patch hunk");

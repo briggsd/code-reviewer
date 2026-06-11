@@ -92,6 +92,10 @@ To disable write-back without removing dry-run coverage, remove or unset `GITLAB
 
 - No public npm release.
 - No package license/access change.
-- No GitLab inline discussions.
 - No privileged fork/fork-like write-back.
 - No floating refs, `main`, or `latest` install sources.
+
+GitLab inline discussions are now available (experimental) via `--publish-inline` using the same
+`GITLAB_TOKEN_WRITE` variable described above, behind the readiness gates — see
+[Inline publishing](inline-publishing.md) for the MVP limitations. A live smoke against a real beta
+MR has not been run yet, so keep it opt-in.

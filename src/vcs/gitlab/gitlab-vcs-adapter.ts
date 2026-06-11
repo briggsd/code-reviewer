@@ -4,6 +4,7 @@ import type {
   ChangedFile,
   ChangedFileStatus,
   DiffSummary,
+  Finding,
   PriorReviewState,
   PublishInlineFindingsInput,
   PublishInlineFindingsResult,
@@ -11,6 +12,7 @@ import type {
   PublishSummaryResult,
   VcsAdapter,
 } from "../../contracts/index.ts";
+import { formatInlineFindingComment, inlineCommentKey, parseInlineCommentMetadata } from "../../publisher/inline-comment-markdown.ts";
 import { formatReviewSummaryMarkdown } from "../../publisher/summary-markdown.ts";
 import { createPriorReviewStateFromMetadata, parseSummaryHiddenMetadata } from "../../publisher/summary-metadata.ts";
 
@@ -72,6 +74,10 @@ interface GitLabNoteResponse {
   body?: string;
   web_url?: string;
 }
+
+// Inline diff-discussion types — GitLab discussion IDs are hashes (strings), note IDs are numbers.
+interface GitLabDiscussionNote { id: number; body?: string; web_url?: string }
+interface GitLabDiscussionResponse { id: string; notes?: GitLabDiscussionNote[] }
 
 export class GitLabVcsAdapter implements VcsAdapter {
   readonly provider = "gitlab" as const;
@@ -197,8 +203,126 @@ export class GitLabVcsAdapter implements VcsAdapter {
     return Buffer.from(data.content, "base64").toString("utf8");
   }
 
-  async publishInlineFindings(_input: PublishInlineFindingsInput): Promise<PublishInlineFindingsResult> {
-    throw new Error("GitLab inline finding publishing is not implemented in the metadata/diff MVP adapter");
+  async publishInlineFindings(input: PublishInlineFindingsInput): Promise<PublishInlineFindingsResult> {
+    // Fetch diff_refs from the MR — these three SHAs are required to position inline comments
+    // as GitLab diff discussions.  A hard fetch failure propagates like other adapter methods
+    // (publish-inline is already inside the publish path — mirror publishSummary's request usage).
+    const mrResponse = await this.request<GitLabMergeRequestResponse>(this.mergeRequestPath(input.change));
+    const diffRefs = mrResponse.diff_refs;
+
+    // If any of the three positioning SHAs is absent we cannot place comments — skip everything
+    // rather than throw, so a single-page publish degradation never blocks CI status.
+    if (
+      diffRefs === undefined ||
+      diffRefs === null ||
+      diffRefs.base_sha === undefined ||
+      diffRefs.start_sha === undefined ||
+      diffRefs.head_sha === undefined
+    ) {
+      const outcomes: PublishInlineFindingsResult["findings"] = input.findings.map((finding) => ({
+        ...(finding.id !== undefined ? { findingId: finding.id } : {}),
+        disposition: "skipped" as const,
+        reason: "missing_diff_refs",
+      }));
+
+      return {
+        provider: "gitlab",
+        attemptedInlineCount: input.findings.length,
+        postedInlineCount: 0,
+        skippedInlineCount: input.findings.length,
+        failedInlineCount: 0,
+        findings: outcomes,
+      };
+    }
+
+    const { base_sha: baseSha, start_sha: startSha, head_sha: headSha } = diffRefs;
+
+    // Fetch existing discussions once and build a dedup map keyed by inlineCommentKey(findingId, headSha).
+    // Single-page fetch — mirrors findExistingSummaryNote (no pagination; acceptable MVP limit).
+    const discussions = await this.request<GitLabDiscussionResponse[]>(`${this.mergeRequestPath(input.change)}/discussions`);
+    const existingByKey = new Map<string, GitLabDiscussionNote>();
+
+    for (const discussion of discussions) {
+      for (const note of discussion.notes ?? []) {
+        const metadata = parseInlineCommentMetadata(note.body);
+        if (metadata?.findingId !== undefined && metadata.headSha !== undefined) {
+          existingByKey.set(inlineCommentKey(metadata.findingId, metadata.headSha), note);
+        }
+      }
+    }
+
+    const outcomes: PublishInlineFindingsResult["findings"] = [];
+
+    for (const finding of input.findings) {
+      const position = gitlabPositionForFinding(finding, { baseSha, startSha, headSha });
+      if (position === undefined) {
+        outcomes.push({
+          ...(finding.id !== undefined ? { findingId: finding.id } : {}),
+          disposition: "skipped",
+          reason: "missing_inline_coordinates",
+        });
+        continue;
+      }
+
+      const findingId = finding.id;
+      const duplicate = findingId === undefined ? undefined : existingByKey.get(inlineCommentKey(findingId, input.change.headSha));
+      if (duplicate !== undefined && findingId !== undefined) {
+        outcomes.push({
+          findingId,
+          disposition: "skipped",
+          reason: "duplicate_inline_comment",
+          providerCommentId: String(duplicate.id),
+          ...(duplicate.web_url !== undefined ? { url: duplicate.web_url } : {}),
+        });
+        continue;
+      }
+
+      try {
+        const response = await this.request<GitLabDiscussionResponse>(
+          `${this.mergeRequestPath(input.change)}/discussions`,
+          {
+            method: "POST",
+            body: {
+              body: formatInlineFindingComment(finding, input.change, input.runId),
+              position,
+            },
+          },
+        );
+        // GitLab's discussions POST returns the created discussion with its first note. If `notes`
+        // is empty/absent (unexpected API shape), don't silently record the discussion-level hash
+        // as a note id — surface it as failed so callers never get a wrong-entity id (#82 review).
+        const firstNote = response.notes?.[0];
+        if (firstNote === undefined) {
+          outcomes.push({
+            ...(finding.id !== undefined ? { findingId: finding.id } : {}),
+            disposition: "failed",
+            reason: "missing_discussion_note",
+          });
+          continue;
+        }
+        outcomes.push({
+          ...(finding.id !== undefined ? { findingId: finding.id } : {}),
+          disposition: "posted",
+          providerCommentId: String(firstNote.id),
+          ...(firstNote.web_url !== undefined ? { url: firstNote.web_url } : {}),
+        });
+      } catch (error) {
+        outcomes.push({
+          ...(finding.id !== undefined ? { findingId: finding.id } : {}),
+          disposition: "failed",
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return {
+      provider: "gitlab",
+      attemptedInlineCount: input.findings.length,
+      postedInlineCount: outcomes.filter((outcome) => outcome.disposition === "posted").length,
+      skippedInlineCount: outcomes.filter((outcome) => outcome.disposition === "skipped").length,
+      failedInlineCount: outcomes.filter((outcome) => outcome.disposition === "failed").length,
+      findings: outcomes,
+    };
   }
 
   private mergeRequestPath(ref: ChangeRef): string {
@@ -241,6 +365,37 @@ export class GitLabVcsAdapter implements VcsAdapter {
       ...(this.token !== undefined ? { "PRIVATE-TOKEN": this.token } : {}),
     };
   }
+}
+
+// Module-private helper — builds the GitLab `position` object for a diff discussion POST.
+// Returns undefined when the finding is missing a line or a valid side, so the caller can
+// push a "skipped" outcome without posting.
+function gitlabPositionForFinding(
+  finding: Finding,
+  diffRefs: { baseSha: string; startSha: string; headSha: string },
+): object | undefined {
+  const location = finding.location;
+  const line = location?.line ?? location?.startLine;
+  if (location === undefined || line === undefined || location.side === undefined) {
+    return undefined;
+  }
+
+  if (location.side !== "LEFT" && location.side !== "RIGHT") {
+    return undefined;
+  }
+
+  const { baseSha: base_sha, startSha: start_sha, headSha: head_sha } = diffRefs;
+
+  return {
+    base_sha,
+    start_sha,
+    head_sha,
+    position_type: "text",
+    old_path: location.path,
+    new_path: location.path,
+    // RIGHT = new (added) side → new_line; LEFT = old (removed) side → old_line.
+    ...(location.side === "RIGHT" ? { new_line: line } : { old_line: line }),
+  };
 }
 
 function normalizeChangedFile(change: GitLabChangeResponse): ChangedFile {

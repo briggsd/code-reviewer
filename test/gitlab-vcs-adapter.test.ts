@@ -1,7 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
 import { GitLabVcsAdapter, loadReviewFixture, runReview } from "../src/index.ts";
-import type { ChangeMetadata, ChangeRef, GitLabFetchLike } from "../src/index.ts";
+import type { ChangeMetadata, ChangeRef, Finding, GitLabFetchLike } from "../src/index.ts";
+// Imported from the direct file path (not the publisher barrel): the inline-comment renderer is
+// intentionally not part of the public API surface (#82 review).
+import { parseInlineCommentMetadata } from "../src/publisher/inline-comment-markdown.ts";
 
 const changeRef: ChangeRef = {
   provider: "gitlab",
@@ -348,6 +351,386 @@ describe("GitLabVcsAdapter", () => {
     // Slashes in branch names must be percent-encoded in the ref param
     const url = fetchCalls[0]?.url ?? "";
     expect(url).toContain("?ref=release%2Fv2");
+  });
+
+  // Inline diff-discussion tests (Part B — #82)
+
+  const inlineDiffRefs = { base_sha: "base-abc", start_sha: "start-abc", head_sha: "head-abc" };
+
+  const inlineChangeMetadata: ChangeMetadata = {
+    ...changeMetadata,
+    headSha: "head-abc",
+    baseSha: "base-abc",
+  };
+
+  const readyFinding: Finding = {
+    id: "fnd_inline_test",
+    reviewer: "security",
+    severity: "critical",
+    category: "authorization",
+    title: "Account lookup misses authorization",
+    body: "The changed account lookup returns records without verifying ownership.",
+    location: {
+      path: "src/app.ts",
+      line: 42,
+      side: "RIGHT",
+    },
+    confidence: "high",
+    evidence: ["The handler reads accountId and returns data without an ownership check."],
+    recommendation: "Verify account ownership before returning account data.",
+  };
+
+  test("posts a ready finding as a GitLab diff discussion with the correct position (RIGHT → new_line)", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const mrPath = "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7";
+
+    const adapter = new GitLabVcsAdapter({
+      token: "write-token",
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        // MR GET for diff_refs
+        if (url === mrPath && init?.method === undefined) {
+          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+        }
+
+        // Discussions GET for dedup
+        if (url === `${mrPath}/discussions` && init?.method === undefined) {
+          return jsonResponse([]);
+        }
+
+        // Discussion POST
+        if (url === `${mrPath}/discussions` && init?.method === "POST") {
+          return jsonResponse({ id: "disc-hash-1", notes: [{ id: 101, web_url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_101" }] }, 201);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: inlineChangeMetadata,
+      findings: [readyFinding],
+      runId: "run-gl-inline-1",
+    });
+
+    // Assert the POST went to the discussions endpoint
+    const postCall = calls.find((c) => c.url === `${mrPath}/discussions` && c.init?.method === "POST");
+    expect(postCall).toBeDefined();
+
+    const requestBody = JSON.parse(String(postCall?.init?.body)) as { body: string; position: Record<string, unknown> };
+
+    // Position must carry all three SHAs and the correct text position
+    expect(requestBody.position).toMatchObject({
+      position_type: "text",
+      base_sha: "base-abc",
+      start_sha: "start-abc",
+      head_sha: "head-abc",
+      old_path: "src/app.ts",
+      new_path: "src/app.ts",
+      new_line: 42,
+    });
+    // RIGHT side → new_line present, old_line absent
+    expect(requestBody.position["old_line"]).toBeUndefined();
+
+    // Body must contain escaped finding content and the dedup metadata
+    expect(requestBody.body).toContain("### AI review: 🚨 Critical · authorization");
+    expect(requestBody.body).toContain("**Account lookup misses authorization**");
+    expect(requestBody.body).toContain("<!-- ai-code-review-factory-inline");
+    expect(requestBody.body).toContain("fnd_inline_test");
+
+    // Outcome counts
+    expect(result).toMatchObject({
+      provider: "gitlab",
+      attemptedInlineCount: 1,
+      postedInlineCount: 1,
+      skippedInlineCount: 0,
+      failedInlineCount: 0,
+    });
+    expect(result.findings[0]).toMatchObject({
+      findingId: "fnd_inline_test",
+      disposition: "posted",
+      providerCommentId: "101",
+      url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_101",
+    });
+  });
+
+  test("LEFT side maps to old_line (not new_line) in the GitLab position object", async () => {
+    const mrPath = "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7";
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    const leftFinding: Finding = { ...readyFinding, id: "fnd_left_side", location: { path: "src/app.ts", line: 10, side: "LEFT" } };
+
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        if (url === mrPath && init?.method === undefined) {
+          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+        }
+
+        if (url === `${mrPath}/discussions` && init?.method === undefined) {
+          return jsonResponse([]);
+        }
+
+        if (url === `${mrPath}/discussions` && init?.method === "POST") {
+          return jsonResponse({ id: "disc-hash-2", notes: [{ id: 202 }] }, 201);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+
+    await adapter.publishInlineFindings({ change: inlineChangeMetadata, findings: [leftFinding] });
+
+    const postCall = calls.find((c) => c.init?.method === "POST");
+    const requestBody = JSON.parse(String(postCall?.init?.body)) as { position: Record<string, unknown> };
+
+    // LEFT side → old_line present, new_line absent
+    expect(requestBody.position["old_line"]).toBe(10);
+    expect(requestBody.position["new_line"]).toBeUndefined();
+  });
+
+  test("deduplicates: skips posting when the same findingId+headSha already exists in discussions", async () => {
+    const mrPath = "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7";
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    const existingNoteBody = [
+      "### AI review: existing",
+      "",
+      "<!-- ai-code-review-factory-inline",
+      JSON.stringify({ schemaVersion: 1, findingId: "fnd_inline_test", headSha: "head-abc" }),
+      "-->",
+    ].join("\n");
+
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        if (url === mrPath && init?.method === undefined) {
+          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+        }
+
+        if (url === `${mrPath}/discussions` && init?.method === undefined) {
+          return jsonResponse([{ id: "disc-existing", notes: [{ id: 777, body: existingNoteBody }] }]);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: inlineChangeMetadata,
+      findings: [readyFinding],
+    });
+
+    // No POST should have been issued
+    const postUrls = calls.filter((c) => c.init?.method === "POST").map((c) => c.url);
+    expect(postUrls).toEqual([]);
+
+    expect(result).toMatchObject({
+      provider: "gitlab",
+      postedInlineCount: 0,
+      skippedInlineCount: 1,
+    });
+    expect(result.findings[0]).toMatchObject({
+      findingId: "fnd_inline_test",
+      disposition: "skipped",
+      reason: "duplicate_inline_comment",
+      providerCommentId: "777",
+    });
+  });
+
+  test("skips a finding that is missing a side (missing GitLab inline comment coordinates)", async () => {
+    const mrPath = "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7";
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    // location has a line but no side
+    const noSideFinding: Finding = {
+      ...readyFinding,
+      id: "fnd_no_side",
+      location: { path: "src/app.ts", line: 5, side: undefined as unknown as "LEFT" },
+    };
+
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        if (url === mrPath && init?.method === undefined) {
+          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+        }
+
+        if (url === `${mrPath}/discussions` && init?.method === undefined) {
+          return jsonResponse([]);
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: inlineChangeMetadata,
+      findings: [noSideFinding],
+    });
+
+    const postUrls = calls.filter((c) => c.init?.method === "POST").map((c) => c.url);
+    expect(postUrls).toEqual([]);
+
+    expect(result.skippedInlineCount).toBe(1);
+    expect(result.findings[0]).toMatchObject({
+      findingId: "fnd_no_side",
+      disposition: "skipped",
+      reason: "missing_inline_coordinates",
+    });
+  });
+
+  test("records a failed outcome when the POST response has no notes (wrong-entity guard)", async () => {
+    const mrPath = "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7";
+
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        if (url === mrPath && init?.method === undefined) {
+          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+        }
+        if (url === `${mrPath}/discussions` && init?.method === undefined) {
+          return jsonResponse([]);
+        }
+        if (url === `${mrPath}/discussions` && init?.method === "POST") {
+          // Discussion created but with an empty notes array — we must NOT report the discussion
+          // hash as a note id; surface a failed outcome instead.
+          return jsonResponse({ id: "disc-hash-empty", notes: [] }, 201);
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+
+    const result = await adapter.publishInlineFindings({ change: inlineChangeMetadata, findings: [readyFinding] });
+
+    expect(result.postedInlineCount).toBe(0);
+    expect(result.failedInlineCount).toBe(1);
+    expect(result.findings[0]).toMatchObject({
+      findingId: "fnd_inline_test",
+      disposition: "failed",
+      reason: "missing_discussion_note",
+    });
+    // The discussion hash must NOT leak as a providerCommentId.
+    expect(result.findings[0]?.providerCommentId).toBeUndefined();
+  });
+
+  test("HTML-comment injection: a finding id containing '-->' is unicode-escaped and still round-trips", async () => {
+    const mrPath = "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7";
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const evilFinding: Finding = { ...readyFinding, id: "fnd--><script>evil" };
+
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+        if (url === mrPath && init?.method === undefined) {
+          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+        }
+        if (url === `${mrPath}/discussions` && init?.method === undefined) {
+          return jsonResponse([]);
+        }
+        if (url === `${mrPath}/discussions` && init?.method === "POST") {
+          return jsonResponse({ id: "disc-hash-evil", notes: [{ id: 303 }] }, 201);
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+
+    await adapter.publishInlineFindings({ change: inlineChangeMetadata, findings: [evilFinding] });
+
+    const postCall = calls.find((c) => c.init?.method === "POST");
+    const body = (JSON.parse(String(postCall?.init?.body)) as { body: string }).body;
+
+    // The raw '-->' from the id must NOT appear before the legitimate comment terminator — assert
+    // the metadata block does not contain the injected closer, and that '>' was unicode-escaped.
+    const metadataBlock = /<!-- ai-code-review-factory-inline\n([\s\S]*?)\n-->/.exec(body)?.[1] ?? "";
+    // Only '>' is escaped (enough to prevent the '-->' closer); '<' is harmless inside a comment.
+    expect(metadataBlock).not.toContain("-->");
+    expect(metadataBlock).toContain("fnd--\\u003e<script\\u003eevil");
+    // Dedup parsing still recovers the original id (the escape round-trips via JSON.parse).
+    expect(parseInlineCommentMetadata(body)?.findingId).toBe("fnd--><script>evil");
+  });
+
+  test("records a failed outcome when the GitLab discussions API returns an error", async () => {
+    const mrPath = "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7";
+
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+
+        if (url === mrPath && init?.method === undefined) {
+          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+        }
+
+        if (url === `${mrPath}/discussions` && init?.method === undefined) {
+          return jsonResponse([]);
+        }
+
+        // POST fails
+        return new Response(JSON.stringify({ message: "validation failed" }), { status: 422, statusText: "Unprocessable Entity" });
+      },
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: inlineChangeMetadata,
+      findings: [readyFinding],
+    });
+
+    expect(result.failedInlineCount).toBe(1);
+    expect(result.findings[0]).toMatchObject({
+      findingId: "fnd_inline_test",
+      disposition: "failed",
+    });
+    expect(result.findings[0]?.reason).toContain("GitLab API request failed: 422 Unprocessable Entity");
+  });
+
+  test("returns all findings as skipped/missing_diff_refs when the MR has no diff_refs", async () => {
+    const mrPath = "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7";
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        // MR GET returns no diff_refs
+        if (url === mrPath && init?.method === undefined) {
+          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [] });
+        }
+
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: inlineChangeMetadata,
+      findings: [readyFinding],
+    });
+
+    // No discussions GET, no POST should have been issued
+    const discussionCalls = calls.filter((c) => c.url.endsWith("/discussions"));
+    expect(discussionCalls).toHaveLength(0);
+
+    expect(result).toMatchObject({
+      provider: "gitlab",
+      attemptedInlineCount: 1,
+      postedInlineCount: 0,
+      skippedInlineCount: 1,
+      failedInlineCount: 0,
+    });
+    expect(result.findings[0]).toMatchObject({
+      findingId: "fnd_inline_test",
+      disposition: "skipped",
+      reason: "missing_diff_refs",
+    });
   });
 });
 

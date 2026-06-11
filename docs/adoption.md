@@ -51,11 +51,12 @@ Use the full raw CLI template in `examples/ci/github-actions-ai-review.yml` or t
 - **Packaged Pi runtime:** `AI_REVIEW_LIVE_PI=1 bun run smoke:pi` has run successfully through the packed CLI and Pi JSON mode, producing `run.json`, `summary.json`, and `trace.jsonl` artifacts.
 - **Failure observability:** tests simulate runtime failure and assert persisted `run.json.error` plus a terminal `review.failed` trace event.
 - **GitHub inline publishing:** unit/adapter coverage verifies readiness gating, GitHub review comment creation, skipped reasons, and duplicate suppression. Live smoke status is tracked in `docs/inline-publishing.md` and `docs/workflow-smoke-test.md`.
+- **GitLab inline publishing:** unit/adapter coverage verifies readiness gating, MR diff-discussion creation with `diff_refs` positioning (RIGHT→`new_line`, LEFT→`old_line`), skipped reasons, and duplicate suppression. Not yet live-smoke-tested; MVP limitations (renamed files, single-page discussion dedup) are documented in `docs/inline-publishing.md`.
 - **GitLab live summary publishing:** M005 smoke against `test-group-zinga/general` MR #3 verified metadata/diff fetch, summary note publish, and idempotent update of one GitLab note.
 
 ## Not yet live-tested or intentionally deferred
 
-- **GitLab inline discussions:** deferred. `evaluateInlinePublishReadiness()` exists, but GitLab diff discussion posting is not implemented yet.
+- **GitLab inline discussions — live smoke:** the adapter posts MR diff discussions (unit-tested), but a live model-backed smoke against a real GitLab MR has not been run yet. Same readiness gates as GitHub.
 - **Container image, GitHub Action wrapper, GitLab component wrapper:** deferred until the CLI/package interface and safety controls stabilize.
 - **Fork privileged write-back:** not enabled by default. Fork PRs/MRs should remain artifact/status-only unless a separate approved privileged reporter flow is designed.
 
@@ -71,4 +72,4 @@ Use the full raw CLI template in `examples/ci/github-actions-ai-review.yml` or t
 - [ ] Summary publishing updates an existing bot comment/note instead of duplicating it.
 - [ ] Pi/model credentials are only available in trusted jobs.
 - [ ] Runtime failures leave `run.json.error` and `trace.jsonl` ending in `review.failed`.
-- [ ] Inline publishing remains disabled by default; if enabled, it is GitHub-only, same-repo/trusted, and uses `--publish-inline` behind readiness gates.
+- [ ] Inline publishing remains disabled by default; if enabled (GitHub or GitLab), it is same-repo/trusted and uses `--publish-inline` behind readiness gates.

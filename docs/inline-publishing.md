@@ -1,6 +1,6 @@
 # Inline publishing
 
-Inline comments are now available as an **experimental, opt-in GitHub-only** path. Summary comments remain the default write-back UX and CI status remains the canonical merge gate.
+Inline comments are now available as an **experimental, opt-in** path on **GitHub and GitLab**. Summary comments remain the default write-back UX and CI status remains the canonical merge gate.
 
 By default, `ai-code-review run` does not publish inline comments. Provider-backed runs only attempt line-level comments when `--publish-inline` is supplied explicitly.
 
@@ -21,9 +21,34 @@ AI_REVIEW_GITHUB_TOKEN=... ai-code-review run \
 | Provider | Summary publishing | Inline publishing |
 |---|---:|---:|
 | GitHub | Supported with `--publish-summary` | Experimental with `--publish-inline` |
-| GitLab | Supported with `--publish-summary` | Deferred |
+| GitLab | Supported with `--publish-summary` | Experimental with `--publish-inline` |
 
-GitLab inline discussions are deliberately deferred because GitLab diff positions require provider-specific diff refs and discussion semantics that are separate from the GitHub review comment API.
+GitLab inline findings are posted as **MR diff discussions** positioned with the merge request's
+`diff_refs` (`base_sha`/`start_sha`/`head_sha`). The same readiness gate and duplicate-prevention
+metadata apply as on GitHub. Example (mirrors the GitHub invocation above):
+
+```bash
+AI_REVIEW_GITLAB_TOKEN=... ai-code-review run \
+  --provider gitlab \
+  --repo group/project \
+  --change-id 42 \
+  --head-sha <current-mr-head-sha> \
+  --runtime dummy \
+  --publish-summary \
+  --publish-inline \
+  --output-dir .ai-review
+```
+
+### GitLab MVP limitations
+
+Two GitLab-specific constraints are deliberately out of scope for this experimental slice:
+
+- **Renamed files are not supported.** The position sets both `old_path` and `new_path` to the
+  finding's reported path, so a finding on a renamed file may be rejected by GitLab (a `failed`
+  outcome with a 422) or placed against the wrong path. Findings on non-renamed files are unaffected.
+- **Duplicate suppression reads only the first page of MR discussions.** On a merge request with
+  many existing discussions (more than one API page), a previously posted inline comment beyond the
+  first page may not be detected, so a duplicate could be posted on a subsequent run.
 
 ## Safety gates
 
@@ -53,7 +78,8 @@ This is intentionally conservative. A blocked inline finding remains visible in 
 
 ## Duplicate prevention
 
-GitHub inline comments include hidden metadata:
+Both GitHub and GitLab inline comments embed the same hidden metadata via the shared
+`src/publisher/inline-comment-markdown.ts` renderer:
 
 ```text
 <!-- ai-code-review-factory-inline
@@ -61,7 +87,11 @@ GitHub inline comments include hidden metadata:
 -->
 ```
 
-Before posting, the GitHub adapter fetches existing pull request review comments and skips a finding when the same `findingId` has already been posted for the same `headSha`. The skipped outcome records `duplicate_inline_comment` with the existing provider comment ID/URL.
+Before posting, the adapter fetches existing comments (GitHub: pull request review comments; GitLab:
+MR diff discussion notes) and skips a finding when the same `findingId` has already been posted for
+the same `headSha` (dedup key `headSha:findingId`). The skipped outcome records
+`duplicate_inline_comment` with the existing provider comment ID/URL. The `>` characters in the
+embedded JSON are unicode-escaped so a finding field can never prematurely close the HTML comment.
 
 Duplicate suppression is intentionally scoped to the exact same head SHA and stable finding ID. Older comments without `headSha`, malformed hidden metadata, or comments from a different head are ignored for duplicate matching so they do not block a fresh, fully tagged inline comment.
 

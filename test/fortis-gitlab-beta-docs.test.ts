@@ -29,7 +29,8 @@ describe("Fortis GitLab beta onboarding documentation", () => {
     expect(guide).toContain("[GitLab live smoke](gitlab-live-smoke.md)");
     expect(guide).toContain("Secret rotation");
     expect(guide).toContain("No public npm release");
-    expect(guide).toContain("No GitLab inline discussions");
     expect(guide).toContain("No privileged fork/fork-like write-back");
+    // GitLab inline discussions are now available (experimental) — no longer a beta non-goal.
+    expect(guide).toContain("GitLab inline discussions are now available");
   });
 });
