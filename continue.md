@@ -1,6 +1,37 @@
-# Continue — AI Code Review Factory / #73 #74 #77 #80 FIXED & CLOSED (PRs #76/#78/#79/#81); next = #28 eval / #69 / GitLab inline publish
+# Continue — AI Code Review Factory / #73 #74 #77 #80 #82 FIXED & CLOSED (PRs #76/#78/#79/#81/#83); next = #28 eval / #69 / #84
 
 ## Last action
+
+**#82 SHIPPED & CLOSED (PR #83, squash `e1efa14`, gate 350/0).** GitLab inline publishing (MR diff
+discussions) — completes GitLab write-back. **Part A:** extracted the shared inline-comment renderer
+to `src/publisher/inline-comment-markdown.ts` (both adapters import it — keeps #74 escaping + dedup
+metadata in ONE place). **Part B:** `GitLabVcsAdapter.publishInlineFindings` mirrors GitHub — fetch
+`diff_refs` for the position object (missing → all skipped, not throw); dedup via discussions list;
+per finding build the GitLab text position (RIGHT→`new_line`, LEFT→`old_line`); skip/dedup/POST/catch.
+
+**This was the FIRST PR to exercise #77's full-tier escalation** (touched `src/publisher/**` → tier
+`full`, security+code_quality+documentation reviewers, 10 findings — vs the empty lite passes). The
+escalation WORKS. Triaged: **fixed 4 code + 5 docs**, deferred 1:
+- **[security] fixed** `formatInlineFindingComment` embedded metadata JSON in an HTML comment without
+  escaping `>` → a finding field with `-->` (LLM-influenced `finding.id`) could close the comment early
+  and inject Markdown. Now unicode-escapes `>` (JSON.parse round-trips, dedup unaffected). Pre-existing
+  in the GitHub copy; the shared move made it one fix for both. +injection test.
+- **[correctness] fixed** GitLab posted-outcome fell back to the discussion-hash as `providerCommentId`
+  when POST returned no notes → now `failed`/`missing_discussion_note`. +test.
+- **[compat] fixed** removed the inline-comment-markdown re-export from `publisher/index.ts` (kept the
+  wire-format + security-sensitive parser off the public API; adapters/tests import the direct path).
+- **[maint] fixed** aligned missing-coordinate reason to `missing_inline_coordinates` in BOTH adapters.
+- **[docs] fixed** inline-publishing.md / adoption.md / fortis-gitlab-beta.md all said GitLab inline was
+  deferred/unimplemented (adoption blockers) → now "experimental, available", + MVP-limitations section
+  (renamed files, single-page dedup) + both-provider dup-prevention; updated 2 doc-content tests.
+- **[security] DEFERRED → filed #84:** inline dedup trusts comment-author-controlled metadata, so a
+  planted `ai-code-review-factory-inline` marker can suppress a finding's inline echo. Pre-existing +
+  cross-provider + needs author verification on both adapters — not this PR.
+
+**Next pickup options:** **#28 holdout eval** (bigger — validates #54) / **#69** (re-review miscount,
+low) / **#84** (inline dedup author-trust, low/security). #57 remaining also open.
+
+---
 
 **#80 SHIPPED & CLOSED (PR #81, squash `c081eab`, gate 342/0, clean AI review approved/0).** GitLab
 parity for the #60-P2/P3 trust guard: added `GitLabVcsAdapter.readBaseBranchFile(change, path)`
@@ -252,19 +283,22 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## State
 
-- `main` @ `c081eab`, pushed/synced, gate **342/0**, working tree CLEAN.
+- `main` @ `e1efa14`, pushed/synced, gate **350/0**, working tree CLEAN.
 - **MERGED last big session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
 - **MERGED this session:** **#76** (#73 grounding changed-file scope, closed #73), **#78** (#74
   markdown-escape across 3 renderer sinks, closed #74), **#79** (#77 repo `.ai-review.json` self-review
   full-tiering + config-docs footgun, closed #77), **#81** (#80 GitLab `readBaseBranchFile` trust-guard
-  parity, closed #80).
-- **Issues open:** #69 (re-review miscount, low), #57 (partial), #46 (needs prev-head..head ref read),
-  #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012. **GitLab-P2/P3 base-read parity now DONE
-  (#80)**; GitLab **inline-finding publishing** still the documented MVP gap (`publishInlineFindings`
-  throws). **#77 option 2** (generalized self-review-critical signal / thin-review observability flag)
-  deferred — only revisit if shallow gate reviews recur despite the config.
+  parity, closed #80), **#83** (#82 GitLab inline MR-discussion publishing + shared inline renderer,
+  closed #82).
+- **Issues open:** **#84** (inline dedup trusts comment-author metadata → finding-suppression; low/
+  security, cross-provider — filed from the #83 review), #69 (re-review miscount, low), #57 (partial),
+  #46 (needs prev-head..head ref read), #28 (holdout eval — validates #54), #41/#42/#20 + M013/M012.
+  **GitLab parity now COMPLETE** (base-read #80 + inline publish #82); GitLab inline has documented MVP
+  limits (renamed files, single-page dedup) + a pending live smoke. **#77 option 2** (generalized
+  self-review signal / thin-review flag) deferred — but #77 is now PROVEN end-to-end (#83 got a real
+  full-tier review). **#77 option 2** revisit only if needed.
 - **#76 post-merge audit (PR #76's empty AI review):** NOT a regression. Reviewers got real ~5K
   prompts (`cacheWrite≈5070`) but returned `{"findings":[]}` in 8 tokens / 0 thinking because risk
   tier = `lite` (no sensitive-path match for `src/runner/*`). Model `sonnet-4-6` is capable (#65:
@@ -323,9 +357,13 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 - Do not trust an implementer (Codex or subagent) summary's "tests added"/gate claims — verify
   vs `git diff` and re-run `bun run check`. Do not `git add -A` when committing delegated work
   (it swept `M009-SUMMARY.md` in once).
-- Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80
-  or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81 unless new
+- Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80/#82
+  or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83 unless new
   regressions appear. Closed issues #60/#65/#67 likewise stay closed.
+- Do not re-export `src/publisher/inline-comment-markdown.ts` from `publisher/index.ts` (#82/#83 review):
+  it encodes the `ai-code-review-factory-inline` wire format + the security-sensitive dedup parser;
+  keep it off the public API. Adapters/tests import it via the direct file path. The renderer
+  unicode-escapes `>` in the embedded metadata (prevents `-->` HTML-comment breakout); don't undo that.
 - Do not set `sensitivePaths`/`ignoredPaths`/`failOn` in `.ai-review.json` expecting them to APPEND to
   defaults — those arrays REPLACE wholesale (`normalizeReviewConfig`); object maps (`reviewerPolicy`/
   `timeouts`/`modelRouting`) merge. The repo `.ai-review.json` deliberately re-lists the 5 default
