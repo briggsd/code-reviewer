@@ -122,11 +122,19 @@ This is useful for diagnosing flaky criteria (high variance between runs).
 
 | Scenario | What it tests | Key criteria |
 |---|---|---|
-| `auth-sqli` | Recall: catches SQL injection in auth path | `has_finding` minSeverity=critical, pathIncludes=auth, textIncludes=inject; outcome=fail |
+| `auth-sqli` | Recall: catches SQL injection | `has_finding` minSeverity=critical, textIncludes=inject; decision security-concern; outcome=fail |
 | `clean-refactor` | **Precision** (most important): no over-flagging of benign constant extraction | `no_findings_at_or_above` warning; decision=approved/approved_with_comments; threshold=0.9 |
 | `hardcoded-secret` | Recall: catches hardcoded credential | `has_finding` minSeverity=warning, textIncludes=secret; max 5 findings total |
 | `noisy-benign` | Signal-to-noise: quiet on formatting-only diff | `no_findings_at_or_above` warning; max 3 suggestions |
-| `logic-bug` | Recall: catches off-by-one + inverted boundary check | `has_finding` minSeverity=warning, pathIncludes=pagination; decision not approved |
+| `logic-bug` | Recall: catches off-by-one + inverted boundary check | `has_finding` minSeverity=warning, textIncludes=pagination; decision not approved |
+
+> **Criterion authoring lesson (from the first live pi run).** Prefer `textIncludes` (searches a
+> finding's title/body/recommendation/evidence/quotedCode) over `pathIncludes` to detect *whether a
+> bug was caught*. `location.path` is **optional in the finding contract and the model populates it
+> inconsistently** — a `pathIncludes` criterion can score 0% even when the reviewer raised exactly the
+> right finding (observed on the SQLi + pagination scenarios: both were caught, but the findings
+> carried no `location.path`). Use `pathIncludes` only when you specifically want to assert the
+> structured location is present.
 
 ## Adding a new scenario
 

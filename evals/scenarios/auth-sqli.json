@@ -5,9 +5,8 @@
   "criteria": [
     {
       "kind": "has_finding",
-      "label": "flags SQL injection in auth path",
+      "label": "flags SQL injection at critical severity",
       "minSeverity": "critical",
-      "pathIncludes": "auth",
       "textIncludes": "inject"
     },
     {

@@ -7,7 +7,7 @@
       "kind": "has_finding",
       "label": "flags correctness bug in pagination",
       "minSeverity": "warning",
-      "pathIncludes": "pagination"
+      "textIncludes": "pagination"
     },
     {
       "kind": "decision_in",
