@@ -1,6 +1,35 @@
-# Continue — AI Code Review Factory / Foundation A SHIPPED: tier-profile consolidation #100/#101 (PR #104); next = Foundation B (#96+#27 one toolchain decision) / C (#50 schema w/ #20+#22 events) / D (#33+#22-P1)
+# Continue — AI Code Review Factory / Foundation A (#100/#101, PR #104) + summary-dedup CI fix (PR #105) SHIPPED; next = Foundation B (#96+#27 one toolchain decision) / C (#50 schema w/ #20+#22 events) / D (#33+#22-P1)
 
 ## Last action
+
+**Summary-dedup duplicate-comment regression FIXED — PR #105 (squash `12256d0`, gate 479/0, AI review
+`approved`/0 lite).** User spotted the reviewer posting TWO separate summary comments per PR instead of
+updating one in place. Root-caused to **PR #88 (#84 author-verified dedup)**: `resolveBotUserId()` uses
+`GET /user`, but `GITHUB_TOKEN` is an installation token and `GET /user` returns **403 for installation
+tokens on every call** → botId never resolved → the deliberate safe-on-failure fallback (POST fresh,
+duplicate-over-suppression) became the steady state. Evidence nailed the timeline: every multi-round PR
+before #88 (#66/#68/#72/#83) has ONE bot comment; #94 (first after #88) has FOUR; #95/#104 two each.
+- **Fix (`github-vcs-adapter.ts`):** 403 from `GET /user` = installation-token signature → fall back to
+  the well-known `github-actions[bot]` user id (`41898282`, server-assigned/unforgeable → #84
+  planted-marker defense fully preserved, locked by test). Non-403 failures keep returning undefined
+  (safe direction). GitLab unchanged (its CI auth uses PATs/project tokens where `GET /user` works;
+  `CI_JOB_TOKEN` can't call comment APIs at all). +2 tests (PATCH-in-place on 403; planted marker by
+  other author still → fresh POST).
+- **Re-review classification was NEVER affected** — `getPriorReviewState` reads hidden metadata with NO
+  author gate (that's why #104's R2 still showed correct new/recurring/fixed). **Side observation (not
+  fixed, not filed):** that ungated prior-state read is the same #84 class on the READ side — a planted
+  metadata comment can poison re-review counts (not the CI gate). Low impact; file only if user wants.
+- **⚡ LIVE VALIDATION of #104's lite-tier coordinator short-circuit (first real CI run):** PR #105's own
+  review (lite, 2 files) → 3 specialists empty (8–13 out-tok each), `coordinatorShortCircuited:true` in
+  run_metrics, **ZERO coordinator agent entries** — no coordinator model call at all (was ~3.2K out-tok /
+  27% of spend). The #100/#101 levers work end-to-end in production. Coordinator-applied (no subagent).
+
+**Recommended next:** **Foundation B** (#96 formatter+flip-blocking AND #27 tool choice = one decision)
+/ **Foundation C** (#50 schema carrying #20+#22 events) / **Foundation D** (#33+#22-P1).
+
+---
+
+**Earlier last action (same session):**
 
 **Foundation A SHIPPED — tier-profile consolidation, PR #104 (squash `4f4ee4c`, gate 477/0, closed
 #101, progress note on #100).** This session first produced a **cross-cutting analysis of all 20 open
@@ -587,8 +616,8 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## State
 
-- `main` @ `4f4ee4c` (PR #104 tier-profile consolidation, closed #101), pushed/synced, gate **477/0**,
-  working tree CLEAN except this `continue.md` edit.
+- `main` @ `12256d0` (PR #105 summary-dedup CI fix; PR #104 tier-profile under it, closed #101),
+  pushed/synced, gate **479/0**, working tree CLEAN except this `continue.md` edit.
 - **MERGED last big session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
@@ -684,6 +713,10 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   (it swept `M009-SUMMARY.md` in once).
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80/#82/#28
   #84/#87/#69/#90/#91 or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85/#86/#88/#89/#93/#94/#95/#97/#98/#103
+- Do not remove the `GET /user` 403 → `GITHUB_ACTIONS_BOT_USER_ID` (41898282) fallback in
+  `github-vcs-adapter.ts` (PR #105) — without it every CI run duplicates the summary comment
+  (GITHUB_TOKEN always 403s on /user). 403 ONLY — non-403 failures stay undefined (the #84
+  duplicate-over-suppression direction). The planted-marker rejection test locks the security property.
 - Do not scatter new tier conditionals — ALL tier→behavior policy reads `getTierProfile()`
   (`src/runner/tier-profile.ts`, PR #104). Do not remove the trivial `["code_quality"]` roster cap or
   the coordinator zero-finding short-circuit guards (`reviewerFailures.length === 0` + every-result-
