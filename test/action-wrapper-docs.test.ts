@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 describe("GitHub Action wrapper docs", () => {
   test("document wrapper usage, immutable pinning, and safety stance", async () => {

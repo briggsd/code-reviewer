@@ -1,4 +1,10 @@
-import type { ChangeRef, Finding, JsonValue, PriorFindingState, PriorReviewState } from "../contracts/index.ts";
+import type {
+  ChangeRef,
+  Finding,
+  JsonValue,
+  PriorFindingState,
+  PriorReviewState,
+} from "../contracts/index.ts";
 
 const hiddenMetadataPattern = /<!--\s*ai-code-review-factory\s*\n([\s\S]*?)\n\s*-->/m;
 
@@ -13,7 +19,9 @@ export interface ParsedSummaryMetadata {
   raw: Record<string, JsonValue>;
 }
 
-export function parseSummaryHiddenMetadata(body: string | undefined): ParsedSummaryMetadata | undefined {
+export function parseSummaryHiddenMetadata(
+  body: string | undefined,
+): ParsedSummaryMetadata | undefined {
   if (body === undefined) {
     return undefined;
   }
@@ -57,12 +65,14 @@ export function createPriorReviewStateFromMetadata(
     ...(metadata.runId !== undefined ? { previousRunId: metadata.runId } : {}),
     previousHeadSha: lastSeenHeadSha,
     hiddenMetadata: metadata.raw,
-    findings: metadata.findingIds.map((stableId): PriorFindingState => ({
-      stableId,
-      finding: createPlaceholderFinding(stableId),
-      status: "open",
-      lastSeenHeadSha,
-    })),
+    findings: metadata.findingIds.map(
+      (stableId): PriorFindingState => ({
+        stableId,
+        finding: createPlaceholderFinding(stableId),
+        status: "open",
+        lastSeenHeadSha,
+      }),
+    ),
   };
 }
 

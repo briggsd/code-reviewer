@@ -87,30 +87,40 @@ describe("diff filtering and risk classification", () => {
       isBinary: false,
     }));
 
-    expect(classifyRisk({
-      diff: {
-        files,
-        totalAdditions: 50,
-        totalDeletions: 0,
-        truncated: false,
-      },
-      config,
-      ignoredFileCount: 0,
-    }).tier).toBe("lite");
+    expect(
+      classifyRisk({
+        diff: {
+          files,
+          totalAdditions: 50,
+          totalDeletions: 0,
+          truncated: false,
+        },
+        config,
+        ignoredFileCount: 0,
+      }).tier,
+    ).toBe("lite");
 
-    expect(classifyRisk({
-      diff: {
-        files: [
-          ...files,
-          { path: "src/file-50.ts", status: "modified", additions: 1, deletions: 0, isBinary: false },
-        ],
-        totalAdditions: 51,
-        totalDeletions: 0,
-        truncated: false,
-      },
-      config,
-      ignoredFileCount: 0,
-    }).tier).toBe("full");
+    expect(
+      classifyRisk({
+        diff: {
+          files: [
+            ...files,
+            {
+              path: "src/file-50.ts",
+              status: "modified",
+              additions: 1,
+              deletions: 0,
+              isBinary: false,
+            },
+          ],
+          totalAdditions: 51,
+          totalDeletions: 0,
+          truncated: false,
+        },
+        config,
+        ignoredFileCount: 0,
+      }).tier,
+    ).toBe("full");
   });
 
   test("still escalates sensitive paths even when the change is otherwise trivial", () => {
@@ -118,7 +128,13 @@ describe("diff filtering and risk classification", () => {
     const risk = classifyRisk({
       diff: {
         files: [
-          { path: ".github/workflows/release.yml", status: "modified", additions: 1, deletions: 0, isBinary: false },
+          {
+            path: ".github/workflows/release.yml",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            isBinary: false,
+          },
         ],
         totalAdditions: 1,
         totalDeletions: 0,

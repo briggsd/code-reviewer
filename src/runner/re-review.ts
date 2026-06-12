@@ -33,7 +33,9 @@ export function createReReviewSummary(
 ): ReReviewSummary {
   const withheld: ReadonlySet<string> = withheldStableIds ?? new Set<string>();
   const priorById = new Map(priorState.findings.map((finding) => [finding.stableId, finding]));
-  const currentFindings = summary.findings.filter((finding) => finding.id !== undefined && finding.id.length > 0);
+  const currentFindings = summary.findings.filter(
+    (finding) => finding.id !== undefined && finding.id.length > 0,
+  );
   const currentById = new Map(currentFindings.map((finding) => [finding.id as string, finding]));
 
   const newFindingIds = currentFindings
@@ -67,7 +69,9 @@ export function createReReviewSummary(
           stableId,
           status: "recurring" as const,
           finding: requireCurrentFinding(currentById, stableId),
-          ...(prior !== undefined ? { priorFinding: prior.finding, lastSeenHeadSha: prior.lastSeenHeadSha } : {}),
+          ...(prior !== undefined
+            ? { priorFinding: prior.finding, lastSeenHeadSha: prior.lastSeenHeadSha }
+            : {}),
         };
       }),
       ...fixedFindingIds.map((stableId) => {
@@ -76,7 +80,9 @@ export function createReReviewSummary(
         return {
           stableId,
           status: "fixed" as const,
-          ...(prior !== undefined ? { priorFinding: prior.finding, lastSeenHeadSha: prior.lastSeenHeadSha } : {}),
+          ...(prior !== undefined
+            ? { priorFinding: prior.finding, lastSeenHeadSha: prior.lastSeenHeadSha }
+            : {}),
         };
       }),
       ...withheldFindingIds.map((stableId) => {
@@ -85,7 +91,9 @@ export function createReReviewSummary(
         return {
           stableId,
           status: "withheld" as const,
-          ...(prior !== undefined ? { priorFinding: prior.finding, lastSeenHeadSha: prior.lastSeenHeadSha } : {}),
+          ...(prior !== undefined
+            ? { priorFinding: prior.finding, lastSeenHeadSha: prior.lastSeenHeadSha }
+            : {}),
         };
       }),
     ],

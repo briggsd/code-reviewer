@@ -22,10 +22,7 @@ module.exports = {
         path: "^src/(vcs|publisher|ci|runtime)",
         // Pure leaf utilities without adapter coupling — allowed pending relocation to a
         // shared module (triaged in #27): text escaping + telemetry-tag sanitizers.
-        pathNot: [
-          "^src/publisher/markdown-escape\\.ts$",
-          "^src/runtime/runtime-kind\\.ts$",
-        ],
+        pathNot: ["^src/publisher/markdown-escape\\.ts$", "^src/runtime/runtime-kind\\.ts$"],
       },
     },
     {

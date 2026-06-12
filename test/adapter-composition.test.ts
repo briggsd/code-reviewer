@@ -1,16 +1,16 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import type { ChangeRef, FetchLike, GitLabFetchLike } from "../src/index.ts";
 import {
   createDefaultReviewConfig,
-  decideCiOutcome,
   DummyAgentRuntime,
+  decideCiOutcome,
   formatReviewSummaryMarkdown,
   GitHubVcsAdapter,
   GitLabVcsAdapter,
   loadReviewFixture,
   runReviewFromChange,
 } from "../src/index.ts";
-import type { ChangeRef, FetchLike, GitLabFetchLike } from "../src/index.ts";
 
 describe("adapter-backed review composition", () => {
   test("GitHub adapter output feeds review runner, prior state, markdown, and CI decision", async () => {
@@ -54,7 +54,9 @@ describe("adapter-backed review composition", () => {
     expect(result.context.metadata.webUrl).toBe("https://github.com/example/payments-api/pull/42");
     expect(result.context.diff.files.map((file) => file.path)).toContain("src/auth/accounts.ts");
     expect(result.context.priorState?.previousRunId).toBe("prior-github-run");
-    expect(result.context.priorState?.findings.map((finding) => finding.stableId)).toEqual(["fnd_prior_github"]);
+    expect(result.context.priorState?.findings.map((finding) => finding.stableId)).toEqual([
+      "fnd_prior_github",
+    ]);
     expect(result.summary.decision).toBe("significant_concerns");
     expect(markdown).toContain("Account lookup misses authorization");
     expect(decision.exitCode).toBe(1);
@@ -86,7 +88,10 @@ describe("adapter-backed review composition", () => {
     };
     // The GitLab fixture diff is trivial-tier (≤5 files, ≤25 lines, no sensitive paths).
     // On trivial tier only code_quality runs, so use code_quality-labelled findings.
-    const gitlabFindings = (seed.fakeFindings ?? []).map((f) => ({ ...f, reviewer: "code_quality" as const }));
+    const gitlabFindings = (seed.fakeFindings ?? []).map((f) => ({
+      ...f,
+      reviewer: "code_quality" as const,
+    }));
     const runtime = new DummyAgentRuntime({ defaultFindings: gitlabFindings });
 
     const result = await runReviewFromChange({
@@ -101,10 +106,14 @@ describe("adapter-backed review composition", () => {
     const markdown = formatReviewSummaryMarkdown(result.summary);
     const decision = decideCiOutcome(result.summary, config);
 
-    expect(result.context.metadata.webUrl).toBe("https://gitlab.com/example/payments-api/-/merge_requests/7");
+    expect(result.context.metadata.webUrl).toBe(
+      "https://gitlab.com/example/payments-api/-/merge_requests/7",
+    );
     expect(result.context.diff.files.map((file) => file.path)).toContain("src/auth/accounts.ts");
     expect(result.context.priorState?.previousRunId).toBe("prior-gitlab-run");
-    expect(result.context.priorState?.findings.map((finding) => finding.stableId)).toEqual(["fnd_prior_gitlab"]);
+    expect(result.context.priorState?.findings.map((finding) => finding.stableId)).toEqual([
+      "fnd_prior_gitlab",
+    ]);
     expect(result.summary.decision).toBe("significant_concerns");
     expect(markdown).toContain("Account lookup misses authorization");
     expect(decision.exitCode).toBe(1);
@@ -129,20 +138,24 @@ function githubFixtureFetch(): FetchLike {
       return jsonResponse(await readFixture("github", "files-page-2.json"));
     }
 
-    if (url === "https://api.github.com/repos/example/payments-api/issues/42/comments?per_page=100") {
-      return jsonResponse([{
-        id: 123,
-        body: [
-          "<!-- ai-code-review-factory",
-          JSON.stringify({
-            schemaVersion: 1,
-            runId: "prior-github-run",
-            headSha: "old-github-head",
-            findingIds: ["fnd_prior_github"],
-          }),
-          "-->",
-        ].join("\n"),
-      }]);
+    if (
+      url === "https://api.github.com/repos/example/payments-api/issues/42/comments?per_page=100"
+    ) {
+      return jsonResponse([
+        {
+          id: 123,
+          body: [
+            "<!-- ai-code-review-factory",
+            JSON.stringify({
+              schemaVersion: 1,
+              runId: "prior-github-run",
+              headSha: "old-github-head",
+              findingIds: ["fnd_prior_github"],
+            }),
+            "-->",
+          ].join("\n"),
+        },
+      ]);
     }
 
     return notFound(url);
@@ -157,24 +170,30 @@ function gitlabFixtureFetch(): GitLabFetchLike {
       return jsonResponse(await readFixture("gitlab", "merge-request.json"));
     }
 
-    if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/changes") {
+    if (
+      url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/changes"
+    ) {
       return jsonResponse(await readFixture("gitlab", "changes.json"));
     }
 
-    if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes") {
-      return jsonResponse([{
-        id: 123,
-        body: [
-          "<!-- ai-code-review-factory",
-          JSON.stringify({
-            schemaVersion: 1,
-            runId: "prior-gitlab-run",
-            headSha: "old-gitlab-head",
-            findingIds: ["fnd_prior_gitlab"],
-          }),
-          "-->",
-        ].join("\n"),
-      }]);
+    if (
+      url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes"
+    ) {
+      return jsonResponse([
+        {
+          id: 123,
+          body: [
+            "<!-- ai-code-review-factory",
+            JSON.stringify({
+              schemaVersion: 1,
+              runId: "prior-gitlab-run",
+              headSha: "old-gitlab-head",
+              findingIds: ["fnd_prior_gitlab"],
+            }),
+            "-->",
+          ].join("\n"),
+        },
+      ]);
     }
 
     return notFound(url);

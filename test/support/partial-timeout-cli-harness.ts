@@ -10,27 +10,30 @@
 // `process.exit(code)` this exits 1; with the old deferred `process.exitCode = code`
 // Bun would force-exit 0 (green gate on a failed review). The cli-exit test
 // spawns this harness and asserts the OS exit code is 1.
+
+import { finalizeCiExit } from "../../src/cli/ci-exit.ts";
+import type { PiProcessRunInput, PiProcessRunResult } from "../../src/index.ts";
 import {
   decideCiOutcome,
   normalizeReviewFixture,
   PiAgentRuntime,
   runReview,
 } from "../../src/index.ts";
-import { finalizeCiExit } from "../../src/cli/ci-exit.ts";
-import type { PiProcessRunInput, PiProcessRunResult } from "../../src/index.ts";
 
 const findingJson = JSON.stringify({
-  findings: [{
-    reviewer: "security",
-    severity: "warning",
-    category: "correctness",
-    title: "Completed reviewer finding",
-    body: "The changed code has a concrete review finding.",
-    location: { path: "src/example.ts", line: 1, side: "RIGHT" },
-    confidence: "high",
-    evidence: ["The changed line demonstrates the issue."],
-    recommendation: "Fix it before relying on this path.",
-  }],
+  findings: [
+    {
+      reviewer: "security",
+      severity: "warning",
+      category: "correctness",
+      title: "Completed reviewer finding",
+      body: "The changed code has a concrete review finding.",
+      location: { path: "src/example.ts", line: 1, side: "RIGHT" },
+      confidence: "high",
+      evidence: ["The changed line demonstrates the issue."],
+      recommendation: "Fix it before relying on this path.",
+    },
+  ],
 });
 
 // Reviewers resolve instantly; the coordinator spawns a real child and awaits
@@ -85,7 +88,11 @@ const fixture = normalizeReviewFixture({
   },
 });
 
-const result = await runReview({ fixture, runtime: runtime as never, now: new Date("2026-06-09T00:00:00.000Z") });
+const result = await runReview({
+  fixture,
+  runtime: runtime as never,
+  now: new Date("2026-06-09T00:00:00.000Z"),
+});
 
 // Mirror cli.ts runCommand's CI-exit tail.
 console.error(`summary.title=${result.summary.title} decision=${result.summary.decision}`);

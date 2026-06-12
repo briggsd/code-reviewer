@@ -1,4 +1,9 @@
-import type { Acknowledgement, ChangeMetadata, ReviewConfig, VcsAdapter } from "../contracts/index.ts";
+import type {
+  Acknowledgement,
+  ChangeMetadata,
+  ReviewConfig,
+  VcsAdapter,
+} from "../contracts/index.ts";
 import { normalizeAcknowledgements, normalizeConventions } from "./config.ts";
 
 export interface ResolvedBaseConfig {
@@ -42,11 +47,12 @@ export async function resolveBaseConfig(input: {
     return { conventions: [], acknowledgements: [], source: "base", baseFileFound: true };
   }
 
-  const parsed = typeof raw === "object" && raw !== null && !Array.isArray(raw)
-    ? (raw as Record<string, unknown>)
-    : undefined;
+  const parsed =
+    typeof raw === "object" && raw !== null && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : undefined;
 
-  const conventions = normalizeConventions(parsed?.["conventions"], []);
-  const acknowledgements = normalizeAcknowledgements(parsed?.["acknowledgements"], []);
+  const conventions = normalizeConventions(parsed?.conventions, []);
+  const acknowledgements = normalizeAcknowledgements(parsed?.acknowledgements, []);
   return { conventions, acknowledgements, source: "base", baseFileFound: true };
 }

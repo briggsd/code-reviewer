@@ -6,16 +6,16 @@ import type {
   Confidence,
   FindingSide,
   JsonValue,
+  ModelSelection,
   ProviderKind,
   RepositoryRef,
   ReviewDecision,
+  ReviewErrorClassification,
   ReviewMode,
   RiskTier,
   SafetyMode,
   Severity,
   TimeoutPolicy,
-  ModelSelection,
-  ReviewErrorClassification,
   TokenUsage,
 } from "./common.ts";
 
@@ -39,7 +39,13 @@ export interface ChangeMetadata extends ChangeRef {
   updatedAt?: string;
 }
 
-export type ChangedFileStatus = "added" | "modified" | "renamed" | "deleted" | "copied" | "unchanged";
+export type ChangedFileStatus =
+  | "added"
+  | "modified"
+  | "renamed"
+  | "deleted"
+  | "copied"
+  | "unchanged";
 
 export interface ChangedFile {
   path: string;
@@ -78,12 +84,12 @@ export interface ModelRoutingConfig {
 }
 
 export interface Acknowledgement {
-  path: string;                               // glob, required
+  path: string; // glob, required
   category?: string;
   stableFindingId?: string;
-  mode: "acknowledge" | "suppress";           // acknowledge = downgrade+annotate; suppress = hide
+  mode: "acknowledge" | "suppress"; // acknowledge = downgrade+annotate; suppress = hide
   reason: string;
-  expires?: string;                           // ISO date (YYYY-MM-DD); a past date deactivates the entry
+  expires?: string; // ISO date (YYYY-MM-DD); a past date deactivates the entry
 }
 
 export interface ReviewConfig {

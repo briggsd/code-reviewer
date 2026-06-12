@@ -46,7 +46,9 @@ function sanitizePromptString(value: string): string {
   return value
     .normalize("NFC")
     .replace(/\r\n?/g, "\n")
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, (character) => escapeCodePoint(character.codePointAt(0) ?? 0))
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, (character) =>
+      escapeCodePoint(character.codePointAt(0) ?? 0),
+    )
     .replace(/[\u2028\u2029]/g, "\n")
     .replace(/```/g, "`\\u200b``");
 }

@@ -1,7 +1,7 @@
 import type {
   AgentPromptMetrics,
-  AgentRuntime,
   AgentRole,
+  AgentRuntime,
   CoordinatorRunInput,
   CoordinatorRunResult,
   Finding,
@@ -10,15 +10,19 @@ import type {
   ReviewerRunInput,
   ReviewerRunResult,
   RuntimeEvent,
-  Severity,
   RuntimeEventSubscription,
   RuntimeToolPolicy,
+  Severity,
   ThinkingLevel,
   TokenUsage,
 } from "../contracts/index.ts";
 import { classifyReviewError } from "../runner/error-classifier.ts";
 import { formatReviewerDefinitionForPrompt } from "../runner/reviewer-definitions.ts";
-import { getEffectiveTimeouts, scaleTimeoutForRiskTier, summarizeReview } from "../runner/run-review.ts";
+import {
+  getEffectiveTimeouts,
+  scaleTimeoutForRiskTier,
+  summarizeReview,
+} from "../runner/run-review.ts";
 import { stringifyPromptData } from "./prompt-boundary.ts";
 
 export interface PiProcessRunInput {
@@ -102,10 +106,12 @@ export class PiAgentRuntime implements AgentRuntime {
   private readonly partialCoordinatorSnapshots = new Map<string, PartialCoordinatorSnapshot>();
 
   constructor(options: PiAgentRuntimeOptions = {}) {
-    this.processRunner = options.processRunner ?? new BunPiProcessRunner({
-      ...(options.command !== undefined ? { command: options.command } : {}),
-      ...(options.baseArgs !== undefined ? { baseArgs: options.baseArgs } : {}),
-    });
+    this.processRunner =
+      options.processRunner ??
+      new BunPiProcessRunner({
+        ...(options.command !== undefined ? { command: options.command } : {}),
+        ...(options.baseArgs !== undefined ? { baseArgs: options.baseArgs } : {}),
+      });
     this.defaultModel = options.defaultModel;
     this.timestamp = options.timestamp;
     this.reviewerRetryPolicy = {
@@ -130,28 +136,34 @@ export class PiAgentRuntime implements AgentRuntime {
 
     try {
       const reviewerBudgetStartedAt = Date.now();
-      const reviewerSettled = await Promise.allSettled(input.selectedReviewers.map(async (reviewer) => {
-        this.reviewerBudgetStarts.set(reviewer, reviewerBudgetStartedAt);
-        try {
-          const result = await this.runReviewer(reviewer);
-          snapshot.reviewerResults.push(result);
-          return {
-            reviewer,
-            result,
-          };
-        } catch (error) {
-          snapshot.reviewerFailures.push(createReviewerFailure(
-            input.runId,
-            `${input.runId}:pi:${reviewer.role}`,
-            reviewer.role,
-            error,
-          ));
-          throw error;
-        } finally {
-          this.reviewerBudgetStarts.delete(reviewer);
-        }
-      }));
-      const reviewerResults = reviewerSettled.flatMap((settled) => settled.status === "fulfilled" ? [settled.value.result] : []);
+      const reviewerSettled = await Promise.allSettled(
+        input.selectedReviewers.map(async (reviewer) => {
+          this.reviewerBudgetStarts.set(reviewer, reviewerBudgetStartedAt);
+          try {
+            const result = await this.runReviewer(reviewer);
+            snapshot.reviewerResults.push(result);
+            return {
+              reviewer,
+              result,
+            };
+          } catch (error) {
+            snapshot.reviewerFailures.push(
+              createReviewerFailure(
+                input.runId,
+                `${input.runId}:pi:${reviewer.role}`,
+                reviewer.role,
+                error,
+              ),
+            );
+            throw error;
+          } finally {
+            this.reviewerBudgetStarts.delete(reviewer);
+          }
+        }),
+      );
+      const reviewerResults = reviewerSettled.flatMap((settled) =>
+        settled.status === "fulfilled" ? [settled.value.result] : [],
+      );
       const reviewerFailures = reviewerSettled.flatMap((settled, index): ReviewerRunFailure[] => {
         if (settled.status === "fulfilled") {
           return [];
@@ -162,7 +174,14 @@ export class PiAgentRuntime implements AgentRuntime {
           return [];
         }
 
-        return [createReviewerFailure(input.runId, `${input.runId}:pi:${reviewer.role}`, reviewer.role, settled.reason)];
+        return [
+          createReviewerFailure(
+            input.runId,
+            `${input.runId}:pi:${reviewer.role}`,
+            reviewer.role,
+            settled.reason,
+          ),
+        ];
       });
       snapshot.reviewerResults = reviewerResults;
       snapshot.reviewerFailures = reviewerFailures;
@@ -226,11 +245,16 @@ export class PiAgentRuntime implements AgentRuntime {
       }
 
       assertNotTruncatedOutput(processResult.events, agentRunId);
-      const parsed = parseCoordinatorOutput(
-        processResult.finalText,
-        ["coordinator", ...input.selectedReviewers.map((reviewer) => reviewer.role)],
-      );
-      const summary = parsed?.summary ?? summarizeReview(input.context, reviewerResults.flatMap((result) => result.findings));
+      const parsed = parseCoordinatorOutput(processResult.finalText, [
+        "coordinator",
+        ...input.selectedReviewers.map((reviewer) => reviewer.role),
+      ]);
+      const summary =
+        parsed?.summary ??
+        summarizeReview(
+          input.context,
+          reviewerResults.flatMap((result) => result.findings),
+        );
 
       this.emitAgentEvent("agent.output", input.runId, agentRunId, "coordinator", {
         decision: summary.decision,
@@ -240,9 +264,9 @@ export class PiAgentRuntime implements AgentRuntime {
         failedReviewerCount: reviewerFailures.length,
         ...(parsed !== undefined && parsed.reviewerRoleAdjustments.length > 0
           ? {
-            reviewerRoleAdjustmentCount: parsed.reviewerRoleAdjustments.length,
-            reviewerRoleAdjustments: parsed.reviewerRoleAdjustments,
-          }
+              reviewerRoleAdjustmentCount: parsed.reviewerRoleAdjustments.length,
+              reviewerRoleAdjustments: parsed.reviewerRoleAdjustments,
+            }
           : {}),
       });
       this.emitAgentEvent("agent.completed", input.runId, agentRunId, "coordinator", {
@@ -295,7 +319,7 @@ export class PiAgentRuntime implements AgentRuntime {
       partial: {
         reason: "overall_timeout",
       },
-      rawOutput: "{\"partial\":true,\"reason\":\"overall_timeout\"}",
+      rawOutput: '{"partial":true,"reason":"overall_timeout"}',
     };
   }
 
@@ -337,7 +361,10 @@ export class PiAgentRuntime implements AgentRuntime {
         assertNotTruncatedOutput(processResult.events, agentRunId);
         const parsedFindings = parseReviewerOutput(processResult.finalText);
         const roleEnforcement = enforceReviewerRole(parsedFindings, input.role);
-        const severityEnforcement = enforceReviewerAllowedSeverities(roleEnforcement.findings, input.reviewerDefinition.guidance.allowedSeverities);
+        const severityEnforcement = enforceReviewerAllowedSeverities(
+          roleEnforcement.findings,
+          input.reviewerDefinition.guidance.allowedSeverities,
+        );
         const findings = severityEnforcement.findings;
         const retryCount = attempt - 1;
 
@@ -347,15 +374,15 @@ export class PiAgentRuntime implements AgentRuntime {
           retryCount,
           ...(roleEnforcement.adjustments.length > 0
             ? {
-              reviewerRoleAdjustmentCount: roleEnforcement.adjustments.length,
-              reviewerRoleAdjustments: roleEnforcement.adjustments,
-            }
+                reviewerRoleAdjustmentCount: roleEnforcement.adjustments.length,
+                reviewerRoleAdjustments: roleEnforcement.adjustments,
+              }
             : {}),
           ...(severityEnforcement.adjustments.length > 0
             ? {
-              severityAdjustmentCount: severityEnforcement.adjustments.length,
-              severityAdjustments: severityEnforcement.adjustments,
-            }
+                severityAdjustmentCount: severityEnforcement.adjustments.length,
+                severityAdjustments: severityEnforcement.adjustments,
+              }
             : {}),
         });
         this.emitAgentEvent("agent.completed", input.runId, agentRunId, input.role, {
@@ -379,10 +406,17 @@ export class PiAgentRuntime implements AgentRuntime {
         };
       } catch (error) {
         const retryCount = attempt - 1;
-        const failure = createReviewerFailure(input.runId, agentRunId, input.role, error, Date.now() - startedAt, {
-          attemptCount: attempt,
-          retryCount,
-        });
+        const failure = createReviewerFailure(
+          input.runId,
+          agentRunId,
+          input.role,
+          error,
+          Date.now() - startedAt,
+          {
+            attemptCount: attempt,
+            retryCount,
+          },
+        );
         const effectiveTimeouts = getEffectiveTimeouts(input.context);
         const willRetry = shouldRetryReviewerFailure({
           classification: failure.errorClassification,
@@ -395,7 +429,10 @@ export class PiAgentRuntime implements AgentRuntime {
           // Scale the reserve by the same risk tier as the reviewer/coordinator/overall
           // budgets. Without this the unscaled floor would exceed the scaled overall
           // budget on smaller tiers and silently suppress all retries (e.g. trivial).
-          minimumRemainingMs: scaleTimeoutForRiskTier(this.reviewerRetryPolicy.minimumRemainingMs, input.context.risk.tier),
+          minimumRemainingMs: scaleTimeoutForRiskTier(
+            this.reviewerRetryPolicy.minimumRemainingMs,
+            input.context.risk.tier,
+          ),
         });
         this.emitAgentEvent("agent.failed", input.runId, agentRunId, input.role, {
           errorName: failure.errorName,
@@ -443,9 +480,9 @@ export class PiAgentRuntime implements AgentRuntime {
     await this.processRunner.cancel?.(runId);
   }
 
-  private modelArgs(
-    inputModel: { provider: string; model: string; thinking?: ThinkingLevel },
-  ): { model?: { provider: string; model: string; thinking?: ThinkingLevel } } {
+  private modelArgs(inputModel: { provider: string; model: string; thinking?: ThinkingLevel }): {
+    model?: { provider: string; model: string; thinking?: ThinkingLevel };
+  } {
     // `thinking` is a task property (reasoning bound for this role), not part of the
     // model identity — so it is preserved even when the dummy placeholder model is
     // swapped for the runtime's real default model (#45).
@@ -455,19 +492,31 @@ export class PiAgentRuntime implements AgentRuntime {
       // emit nothing (and the `thinking` bound is necessarily dropped). This path is only
       // reachable in a degenerate setup with no model at all; real-Pi runs always supply a
       // defaultModel via `--pi-model`, which carries the bound through. Locked by a test.
-      return this.defaultModel === undefined ? {} : { model: { ...this.defaultModel, ...thinking } };
+      return this.defaultModel === undefined
+        ? {}
+        : { model: { ...this.defaultModel, ...thinking } };
     }
 
     return { model: { provider: inputModel.provider, model: inputModel.model, ...thinking } };
   }
 
-  private forwardPiEvents(runId: string, agentRunId: string, role: AgentRole | string, events: unknown[]): void {
+  private forwardPiEvents(
+    runId: string,
+    agentRunId: string,
+    role: AgentRole | string,
+    events: unknown[],
+  ): void {
     for (const event of events) {
       this.forwardPiEvent(runId, agentRunId, role, event);
     }
   }
 
-  private forwardPiEvent(runId: string, agentRunId: string, role: AgentRole | string, event: unknown): void {
+  private forwardPiEvent(
+    runId: string,
+    agentRunId: string,
+    role: AgentRole | string,
+    event: unknown,
+  ): void {
     this.emit({
       type: "runtime.event",
       runId,
@@ -557,7 +606,8 @@ export class BunPiProcessRunner implements PiProcessRunner {
     const startedAt = Date.now();
     let lastOutputAt = startedAt;
     const inactivityTimeoutMs = input.inactivityTimeoutMs ?? Math.min(60_000, input.timeoutMs);
-    const heartbeatIntervalMs = input.heartbeatIntervalMs ?? defaultHeartbeatIntervalMs(input.timeoutMs);
+    const heartbeatIntervalMs =
+      input.heartbeatIntervalMs ?? defaultHeartbeatIntervalMs(input.timeoutMs);
     const timer = setTimeout(() => {
       timedOut = true;
       process.kill();
@@ -573,19 +623,20 @@ export class BunPiProcessRunner implements PiProcessRunner {
       }, inactivityTimeoutMs);
     };
     resetInactivityTimer();
-    const heartbeatTimer = heartbeatIntervalMs > 0
-      ? setInterval(() => {
-        input.onEvent?.({
-          type: "heartbeat",
-          runId: input.runId,
-          agentRunId: input.agentRunId,
-          role: input.role,
-          elapsedMs: Date.now() - startedAt,
-          silenceMs: Date.now() - lastOutputAt,
-          timeoutMs: input.timeoutMs,
-        });
-      }, heartbeatIntervalMs)
-      : undefined;
+    const heartbeatTimer =
+      heartbeatIntervalMs > 0
+        ? setInterval(() => {
+            input.onEvent?.({
+              type: "heartbeat",
+              runId: input.runId,
+              agentRunId: input.agentRunId,
+              role: input.role,
+              elapsedMs: Date.now() - startedAt,
+              silenceMs: Date.now() - lastOutputAt,
+              timeoutMs: input.timeoutMs,
+            });
+          }, heartbeatIntervalMs)
+        : undefined;
 
     try {
       const [stdout, rawError, exitCode] = await Promise.all([
@@ -599,20 +650,25 @@ export class BunPiProcessRunner implements PiProcessRunner {
       ]);
 
       if (inactivityTimedOut) {
-        throw new Error(`Pi process produced no output for ${inactivityTimeoutMs}ms for ${input.agentRunId}`);
+        throw new Error(
+          `Pi process produced no output for ${inactivityTimeoutMs}ms for ${input.agentRunId}`,
+        );
       }
 
       if (timedOut) {
         throw new Error(`Pi process timed out after ${input.timeoutMs}ms for ${input.agentRunId}`);
       }
 
-      const providerError = extractProviderRuntimeError(stdout.events) ?? extractProviderRuntimeError(rawError);
+      const providerError =
+        extractProviderRuntimeError(stdout.events) ?? extractProviderRuntimeError(rawError);
       if (providerError !== undefined) {
         throw providerError;
       }
 
       if (exitCode !== 0) {
-        throw new Error(`Pi process exited ${exitCode} for ${input.agentRunId}: ${rawError.trim()}`);
+        throw new Error(
+          `Pi process exited ${exitCode} for ${input.agentRunId}: ${rawError.trim()}`,
+        );
       }
 
       const usage = extractUsage(stdout.events);
@@ -660,7 +716,9 @@ function createReviewerFailure(
     errorMessage: serialized.message,
     errorClassification: classifyReviewError(error),
     ...(durationMs !== undefined ? { durationMs } : {}),
-    ...(retryMetadata.attemptCount !== undefined ? { attemptCount: retryMetadata.attemptCount } : {}),
+    ...(retryMetadata.attemptCount !== undefined
+      ? { attemptCount: retryMetadata.attemptCount }
+      : {}),
     ...(retryMetadata.retryCount !== undefined ? { retryCount: retryMetadata.retryCount } : {}),
   };
 }
@@ -708,7 +766,8 @@ function shouldRetryReviewerFailure(input: {
     return false;
   }
 
-  const retryReserveMs = input.nextAttemptTimeoutMs + input.coordinatorTimeoutMs + input.minimumRemainingMs;
+  const retryReserveMs =
+    input.nextAttemptTimeoutMs + input.coordinatorTimeoutMs + input.minimumRemainingMs;
   return input.overallTimeoutMs - input.elapsedMs >= retryReserveMs;
 }
 
@@ -731,8 +790,12 @@ function readRetryMetadata(error: unknown): RetryMetadata {
 
   const record = error as Record<string, unknown>;
   return {
-    ...(typeof record.aiReviewAttemptCount === "number" ? { attemptCount: record.aiReviewAttemptCount } : {}),
-    ...(typeof record.aiReviewRetryCount === "number" ? { retryCount: record.aiReviewRetryCount } : {}),
+    ...(typeof record.aiReviewAttemptCount === "number"
+      ? { attemptCount: record.aiReviewAttemptCount }
+      : {}),
+    ...(typeof record.aiReviewRetryCount === "number"
+      ? { retryCount: record.aiReviewRetryCount }
+      : {}),
   };
 }
 
@@ -776,8 +839,12 @@ function extractProviderRuntimeError(input: unknown): ProviderRuntimeError | und
   }
 
   const errorRecord = record.error as Record<string, unknown>;
-  const providerErrorType = typeof errorRecord.type === "string" ? errorRecord.type : "provider_error";
-  const message = typeof errorRecord.message === "string" ? errorRecord.message : "Provider returned an error envelope.";
+  const providerErrorType =
+    typeof errorRecord.type === "string" ? errorRecord.type : "provider_error";
+  const message =
+    typeof errorRecord.message === "string"
+      ? errorRecord.message
+      : "Provider returned an error envelope.";
   const status = typeof record.status === "number" ? record.status : undefined;
 
   return new ProviderRuntimeError({
@@ -821,7 +888,7 @@ function buildReviewerPrompt(input: ReviewerRunInput): string {
   const parts = [
     `You are the ${input.reviewerDefinition.displayName} reviewer for an AI code review factory.`,
     formatReviewerDefinitionForPrompt(input.reviewerDefinition),
-    "Return ONLY valid JSON with this exact shape: {\"findings\": Finding[]}.",
+    'Return ONLY valid JSON with this exact shape: {"findings": Finding[]}.',
     "Do not wrap the JSON in prose unless impossible.",
     "Finding fields: reviewer, severity, category, title, body, location, confidence, evidence, quotedCode, recommendation.",
     "quotedCode (optional): when a finding points at specific changed code, copy the exact line(s) verbatim from the diff into this array — it is used to verify the finding. Omit it for findings about missing or absent code.",
@@ -857,14 +924,18 @@ function createReviewerPromptMetrics(input: ReviewerRunInput, prompt: string): A
     contextReferences: input.contextReferences,
     assignedFiles: input.assignedFiles ?? [],
   });
-  const contextMode = input.toolPolicy.allowRead && input.contextReferences.changeContextPath !== undefined
-    ? "path_references"
-    : "inline_fallback";
-  const contextPayloadBytes = byteLength(contextMode === "path_references" ? referenceContextPayload : inlineContextPayload);
+  const contextMode =
+    input.toolPolicy.allowRead && input.contextReferences.changeContextPath !== undefined
+      ? "path_references"
+      : "inline_fallback";
+  const contextPayloadBytes = byteLength(
+    contextMode === "path_references" ? referenceContextPayload : inlineContextPayload,
+  );
   const inlineDiffBytes = byteLength(inlineContextPayload);
-  const estimatedInputTokensSaved = contextMode === "path_references"
-    ? Math.max(0, Math.round((inlineDiffBytes - contextPayloadBytes) / 4))
-    : 0;
+  const estimatedInputTokensSaved =
+    contextMode === "path_references"
+      ? Math.max(0, Math.round((inlineDiffBytes - contextPayloadBytes) / 4))
+      : 0;
 
   return {
     contextMode,
@@ -966,7 +1037,9 @@ function buildCoordinatorPrompt(
 function assertNotTruncatedOutput(events: unknown[], agentRunId: string): void {
   const finishReason = findLengthLimitFinishReason(events);
   if (finishReason !== undefined) {
-    throw new Error(`Pi model output truncated by length limit (${finishReason}) for ${agentRunId}`);
+    throw new Error(
+      `Pi model output truncated by length limit (${finishReason}) for ${agentRunId}`,
+    );
   }
 }
 
@@ -1018,10 +1091,12 @@ function readFinishReason(record: Record<string, unknown>): string | undefined {
 
 function isLengthLimitFinishReason(reason: string): boolean {
   const normalized = reason.toLowerCase().replaceAll(/[-\s]/g, "_");
-  return normalized === "length" ||
+  return (
+    normalized === "length" ||
     normalized === "max_tokens" ||
     normalized === "max_output_tokens" ||
-    normalized === "output_token_limit";
+    normalized === "output_token_limit"
+  );
 }
 
 function parseReviewerOutput(text: string): Finding[] {
@@ -1064,7 +1139,10 @@ interface CoordinatorRoleAdjustment {
 // to preserve a possibly-real finding) and record an adjustment so spoofing is
 // observable. (Model-emitted finding ids are dropped centrally in
 // validateFinding, so identity stays factory-owned for every path.)
-function enforceReviewerRole(findings: Finding[], dispatchedRole: string): {
+function enforceReviewerRole(
+  findings: Finding[],
+  dispatchedRole: string,
+): {
   findings: Finding[];
   adjustments: ReviewerRoleAdjustment[];
 } {
@@ -1095,7 +1173,10 @@ function enforceReviewerRole(findings: Finding[], dispatchedRole: string): {
 // roles. Preserve labels for roles that were actually dispatched for this run,
 // and normalize clearly-spoofed out-of-set labels to `coordinator` so summaries
 // and stable IDs are not keyed on attacker-chosen roles.
-function enforceCoordinatorReviewerRoles(findings: Finding[], allowedReviewerRoles: readonly string[]): {
+function enforceCoordinatorReviewerRoles(
+  findings: Finding[],
+  allowedReviewerRoles: readonly string[],
+): {
   findings: Finding[];
   adjustments: CoordinatorRoleAdjustment[];
 } {
@@ -1129,7 +1210,10 @@ function truncateTraceValue(value: string): string {
   return value.length > limit ? `${value.slice(0, limit)}…` : value;
 }
 
-function enforceReviewerAllowedSeverities(findings: Finding[], allowedSeverities: readonly Severity[]): {
+function enforceReviewerAllowedSeverities(
+  findings: Finding[],
+  allowedSeverities: readonly Severity[],
+): {
   findings: Finding[];
   adjustments: SeverityAdjustment[];
 } {
@@ -1239,9 +1323,7 @@ function validateFinding(value: unknown): Finding {
     category: finding.category,
     title: finding.title,
     body: finding.body,
-    ...(isValidFindingLocation(finding.location)
-      ? { location: finding.location }
-      : {}),
+    ...(isValidFindingLocation(finding.location) ? { location: finding.location } : {}),
     confidence: finding.confidence,
     evidence,
     ...(quotedCode !== undefined ? { quotedCode } : {}),
@@ -1408,7 +1490,7 @@ function repairUnescapedStringQuotes(candidate: string): { text: string; repairC
     const character = candidate[index] ?? "";
 
     if (!inString) {
-      if (character === "\"") {
+      if (character === '"') {
         inString = true;
       }
       repaired.push(character);
@@ -1427,12 +1509,12 @@ function repairUnescapedStringQuotes(candidate: string): { text: string; repairC
       continue;
     }
 
-    if (character === "\"") {
+    if (character === '"') {
       if (isLikelyJsonStringTerminator(candidate, index)) {
         inString = false;
         repaired.push(character);
       } else {
-        repaired.push("\\\"");
+        repaired.push('\\"');
         repairCount += 1;
       }
       continue;
@@ -1477,14 +1559,16 @@ function nextNonSpaceStartsJsonValue(candidate: string, from: number): boolean {
       continue;
     }
 
-    return character === "\""
-      || character === "{"
-      || character === "["
-      || character === "-"
-      || /[0-9]/.test(character)
-      || candidate.startsWith("true", index)
-      || candidate.startsWith("false", index)
-      || candidate.startsWith("null", index);
+    return (
+      character === '"' ||
+      character === "{" ||
+      character === "[" ||
+      character === "-" ||
+      /[0-9]/.test(character) ||
+      candidate.startsWith("true", index) ||
+      candidate.startsWith("false", index) ||
+      candidate.startsWith("null", index)
+    );
   }
 
   // Nothing but whitespace after the comma (e.g. a trailing comma before the close): treat the
@@ -1573,8 +1657,13 @@ function extractFinalAssistantText(events: unknown[]): string {
   let lastText = "";
 
   for (const event of events) {
-    const record = typeof event === "object" && event !== null ? event as Record<string, unknown> : undefined;
-    if (record?.type === "message_end" && typeof record.message === "object" && record.message !== null) {
+    const record =
+      typeof event === "object" && event !== null ? (event as Record<string, unknown>) : undefined;
+    if (
+      record?.type === "message_end" &&
+      typeof record.message === "object" &&
+      record.message !== null
+    ) {
       const content = (record.message as Record<string, unknown>).content;
       const text = extractTextContent(content);
       if (text.length > 0) {
@@ -1609,8 +1698,13 @@ function extractTextContent(content: unknown): string {
 function extractUsage(events: unknown[]): TokenUsage | undefined {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
-    const record = typeof event === "object" && event !== null ? event as Record<string, unknown> : undefined;
-    if (record?.type !== "message_end" || typeof record.message !== "object" || record.message === null) {
+    const record =
+      typeof event === "object" && event !== null ? (event as Record<string, unknown>) : undefined;
+    if (
+      record?.type !== "message_end" ||
+      typeof record.message !== "object" ||
+      record.message === null
+    ) {
       continue;
     }
 
@@ -1623,9 +1717,15 @@ function extractUsage(events: unknown[]): TokenUsage | undefined {
     return {
       ...(typeof usageRecord.input === "number" ? { inputTokens: usageRecord.input } : {}),
       ...(typeof usageRecord.output === "number" ? { outputTokens: usageRecord.output } : {}),
-      ...(typeof usageRecord.cacheRead === "number" ? { cacheReadTokens: usageRecord.cacheRead } : {}),
-      ...(typeof usageRecord.cacheWrite === "number" ? { cacheWriteTokens: usageRecord.cacheWrite } : {}),
-      ...(typeof usageRecord.cost === "object" && usageRecord.cost !== null && typeof (usageRecord.cost as Record<string, unknown>).total === "number"
+      ...(typeof usageRecord.cacheRead === "number"
+        ? { cacheReadTokens: usageRecord.cacheRead }
+        : {}),
+      ...(typeof usageRecord.cacheWrite === "number"
+        ? { cacheWriteTokens: usageRecord.cacheWrite }
+        : {}),
+      ...(typeof usageRecord.cost === "object" &&
+      usageRecord.cost !== null &&
+      typeof (usageRecord.cost as Record<string, unknown>).total === "number"
         ? { estimatedCostUsd: (usageRecord.cost as Record<string, number>).total }
         : {}),
     };
@@ -1635,7 +1735,12 @@ function extractUsage(events: unknown[]): TokenUsage | undefined {
 }
 
 function toolPolicyArgs(policy: RuntimeToolPolicy): string[] {
-  if (!policy.allowRead && !policy.allowShell && !policy.allowWrite && policy.allowedTools.length === 0) {
+  if (
+    !policy.allowRead &&
+    !policy.allowShell &&
+    !policy.allowWrite &&
+    policy.allowedTools.length === 0
+  ) {
     return ["--no-tools"];
   }
 
@@ -1663,7 +1768,9 @@ export function buildPiProcessArgs(baseArgs: string[], input: PiProcessRunInput)
   return [
     ...baseArgs,
     ...toolPolicyArgs(input.toolPolicy),
-    ...(input.model !== undefined ? ["--provider", input.model.provider, "--model", input.model.model] : []),
+    ...(input.model !== undefined
+      ? ["--provider", input.model.provider, "--model", input.model.model]
+      : []),
     ...(input.model?.thinking !== undefined ? ["--thinking", input.model.thinking] : []),
     input.prompt,
   ];
@@ -1671,16 +1778,25 @@ export function buildPiProcessArgs(baseArgs: string[], input: PiProcessRunInput)
 
 function processEnv(): Record<string, string> {
   return Object.fromEntries(
-    Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
   );
 }
 
 function sanitizeRecord(value: Record<string, unknown>): Record<string, JsonValue> {
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizeJsonValue(item)]));
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, sanitizeJsonValue(item)]),
+  );
 }
 
 function sanitizeJsonValue(value: unknown): JsonValue {
-  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return value;
   }
 
@@ -1704,11 +1820,13 @@ function isConfidence(value: unknown): value is Finding["confidence"] {
 }
 
 function isReviewDecision(value: unknown): value is ReturnType<typeof summarizeReview>["decision"] {
-  return value === "approved" ||
+  return (
+    value === "approved" ||
     value === "approved_with_comments" ||
     value === "minor_issues" ||
     value === "significant_concerns" ||
-    value === "review_failed";
+    value === "review_failed"
+  );
 }
 
 function isCiOutcome(value: unknown): value is ReturnType<typeof summarizeReview>["outcome"] {

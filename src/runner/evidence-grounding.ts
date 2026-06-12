@@ -15,8 +15,8 @@ function normalizePath(path: string): string {
 }
 
 export interface FindingGroundingAssessment {
-  grounded: Finding[];  // keep — order preserved
-  dropped: Finding[];   // fabricated-quote findings to withhold
+  grounded: Finding[]; // keep — order preserved
+  dropped: Finding[]; // fabricated-quote findings to withhold
 }
 
 /**
@@ -57,9 +57,10 @@ function buildCorpus(diff: DiffSummary): string {
       }
 
       // Strip a single leading column char (+, -, or space); keep the line content.
-      const stripped = line.length > 0 && (line[0] === "+" || line[0] === "-" || line[0] === " ")
-        ? line.slice(1)
-        : line;
+      const stripped =
+        line.length > 0 && (line[0] === "+" || line[0] === "-" || line[0] === " ")
+          ? line.slice(1)
+          : line;
 
       parts.push(stripped);
     }

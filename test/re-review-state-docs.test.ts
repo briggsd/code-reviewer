@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 describe("re-review state documentation", () => {
   test("documents stable finding IDs and hidden metadata", async () => {

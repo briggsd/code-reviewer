@@ -6,7 +6,6 @@
  * gate is recomputed excluding them, traces + telemetry emitted.
  */
 import { describe, expect, test } from "bun:test";
-import { loadReviewFixture, runReview } from "../src/index.ts";
 import type {
   Finding,
   RuntimeEvent,
@@ -15,6 +14,7 @@ import type {
   TelemetrySink,
   TraceSink,
 } from "../src/index.ts";
+import { loadReviewFixture, runReview } from "../src/index.ts";
 
 // ---------------------------------------------------------------------------
 // Minimal in-test sinks (mirrors evidence-grounding-spine.test.ts pattern)
@@ -94,7 +94,9 @@ describe("acknowledgements spine integration", () => {
     expect(summary.findings[0]?.title).toBe("Account lookup misses authorization");
 
     // (b) Finding is annotated with .acknowledged
-    expect(summary.findings[0]?.acknowledged).toEqual({ reason: "tracked in TICKET-123; under remediation" });
+    expect(summary.findings[0]?.acknowledged).toEqual({
+      reason: "tracked in TICKET-123; under remediation",
+    });
 
     // (c) Gate is recomputed without the acknowledged finding:
     //     no blocking findings remain → decision is "approved", outcome is "pass"
@@ -114,7 +116,10 @@ describe("acknowledgements spine integration", () => {
     // (f) run_metrics telemetry contains acknowledgements.acknowledgedCount
     const metrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
     expect(metrics).toBeDefined();
-    expect((metrics?.data?.acknowledgements as { acknowledgedCount: number } | undefined)?.acknowledgedCount).toBe(1);
+    expect(
+      (metrics?.data?.acknowledgements as { acknowledgedCount: number } | undefined)
+        ?.acknowledgedCount,
+    ).toBe(1);
   });
 
   test("suppress ack on non-security finding: removed from summary.findings, suppressedCount in trace + telemetry", async () => {
@@ -175,7 +180,9 @@ describe("acknowledgements spine integration", () => {
     // (e) run_metrics telemetry
     const metrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
     expect(metrics).toBeDefined();
-    expect((metrics?.data?.acknowledgements as { suppressedCount: number } | undefined)?.suppressedCount).toBe(1);
+    expect(
+      (metrics?.data?.acknowledgements as { suppressedCount: number } | undefined)?.suppressedCount,
+    ).toBe(1);
   });
 
   test("no acks in config → no acknowledgements.applied trace, no acknowledgements in telemetry", async () => {
@@ -201,7 +208,7 @@ describe("acknowledgements spine integration", () => {
     // No acknowledgements field in telemetry
     const metrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
     expect(metrics).toBeDefined();
-    expect(Object.prototype.hasOwnProperty.call(metrics?.data, "acknowledgements")).toBe(false);
+    expect(Object.hasOwn(metrics?.data ?? {}, "acknowledgements")).toBe(false);
   });
 
   test("expired ack → inactive; finding unchanged, no acknowledgements.applied trace", async () => {
@@ -216,7 +223,7 @@ describe("acknowledgements spine integration", () => {
           path: "auth/**",
           mode: "acknowledge",
           reason: "expired ack",
-          expires: "2025-01-01",  // well in the past
+          expires: "2025-01-01", // well in the past
         },
       ],
     };
@@ -243,12 +250,28 @@ describe("acknowledgements spine integration", () => {
     // decision (approved_with_comments) — so the OLD code (recompute title only on decision change)
     // would have left a stale "2 findings" title. The title must reflect the 1 finding now shown.
     fixture.fakeFindings = [
-      { reviewer: "security", severity: "warning", category: "auth", title: "Security warning",
-        body: "b", location: { path: "auth/accounts.ts", line: 1, side: "RIGHT" },
-        confidence: "high", evidence: ["e"], recommendation: "r" },
-      { reviewer: "code_quality", severity: "suggestion", category: "style", title: "Style nit",
-        body: "b", location: { path: "src/util.ts", line: 1, side: "RIGHT" },
-        confidence: "low", evidence: ["e"], recommendation: "r" },
+      {
+        reviewer: "security",
+        severity: "warning",
+        category: "auth",
+        title: "Security warning",
+        body: "b",
+        location: { path: "auth/accounts.ts", line: 1, side: "RIGHT" },
+        confidence: "high",
+        evidence: ["e"],
+        recommendation: "r",
+      },
+      {
+        reviewer: "code_quality",
+        severity: "suggestion",
+        category: "style",
+        title: "Style nit",
+        body: "b",
+        location: { path: "src/util.ts", line: 1, side: "RIGHT" },
+        confidence: "low",
+        evidence: ["e"],
+        recommendation: "r",
+      },
     ];
     fixture.config = {
       ...fixture.config,
@@ -263,6 +286,6 @@ describe("acknowledgements spine integration", () => {
     expect(result.summary.findings).toHaveLength(1);
     expect(result.summary.findings[0]?.title).toBe("Security warning");
     expect(result.summary.decision).toBe("approved_with_comments"); // unchanged
-    expect(result.summary.title).toBe("AI review found 1 finding");  // refreshed, not stale "2 findings"
+    expect(result.summary.title).toBe("AI review found 1 finding"); // refreshed, not stale "2 findings"
   });
 });

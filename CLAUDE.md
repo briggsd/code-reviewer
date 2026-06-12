@@ -25,7 +25,8 @@ Full design: **docs/architecture.md**. Project purpose & status: **README.md**.
 - **Entry point:** `src/cli.ts` (installed as the `ai-code-review` bin).
 
 ```bash
-bun run check          # bunx tsc --noEmit && bun test  ← THE verification gate. Run before any PR.
+bun run gate           # check + boundaries + lint  ← THE pre-PR verification gate (mirrors CI's blocking check job)
+bun run check          # bunx tsc --noEmit && bun test (the tsc+test core; CI blocks on gate, not just check)
 bun test               # bun:test suite (tests live in test/)
 bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --runtime dummy
 bun run src/cli.ts run --git-diff --runtime dummy --output-dir .ai-review   # review local changes, no PR. default base HEAD = uncommitted only; --base main for committed branch work. captures telemetry/traces
@@ -34,7 +35,7 @@ bun run schema:config             # regenerate .ai-review.schema.json
 bun run telemetry:rollup --runs 20 --output telemetry-rollup.json   # aggregate run_metrics from recent CI artifacts (needs authed `gh`; targets the hardcoded .github/workflows/ai-review.yml)
 bun run telemetry:analyze --runs 20 --output telemetry-analyze.json  # segmented analysis (by tier/reviewer/decision/rates) from same events; prints human table + writes JSON
 bun run boundaries     # architecture-boundary lint (dependency-cruiser; BLOCKING in CI's check job)
-bun run lint           # Biome lint+format check (advisory — NOT part of `check`)
+bun run lint           # Biome lint+format check (BLOCKING in CI's check job since #96; not in `check`)
 bun run lint:fix       # auto-apply Biome fixes
 bun run knip           # unused files/exports/deps (advisory)
 bun run dup            # jscpd copy-paste detection over src/ (advisory)
@@ -126,17 +127,21 @@ Details + diagram: **docs/architecture.md**.
 ## Conventions & known gotchas
 
 - TypeScript strict everywhere (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
-  `verbatimModuleSyntax`). No `any`. **Strict tsc is the blocking static gate** (the only
-  gate folded into `bun run check`). **Biome** (`bun run lint` / `lint:fix`), **knip**, and
-  **jscpd** (`bun run dup`) are **advisory** quality tools — run in CI's `quality` job
-  (continue-on-error) and available locally, but deliberately not part of `check`.
+  `verbatimModuleSyntax`). No `any`. `bun run check` stays exactly tsc + tests; CI's check job
+  additionally runs two BLOCKING steps: `bun run boundaries` (#27) and **Biome lint+format**
+  (`bun run lint`, blocking since #96 — formatter adopted, debt cleared; bulk-reformat commits are
+  listed in `.git-blame-ignore-revs`). **knip** and **jscpd** (`bun run dup`) stay **advisory**
+  (CI `quality` job, continue-on-error). Actions in the project's own four workflows are SHA-pinned
+  (#96); adoption templates in `examples/ci/` keep readable mutable tags by design
+  (`test/ci-templates.test.ts` locks that — don't "fix" them).
 - **Architecture boundaries are mechanized** (#27): `bun run boundaries` (dependency-cruiser,
-  `.dependency-cruiser.cjs`) blocks in CI's check job — runner/contracts must not import concrete
-  adapters (two pure leaf utilities exempted in-config: `publisher/markdown-escape.ts`,
-  `runtime/runtime-kind.ts`), no cross-VCS coupling, no cycles, Pi runtime must route
-  `prompt-boundary.ts`. Rule error messages carry the remediation; read them before working around
-  a failure. Biome `suspicious/noConsole` is also `error` for `src/` (structured trace/telemetry
-  sinks only — `src/cli.ts`, `scripts/`, `test/`, `evals/` are exempt).
+  `.dependency-cruiser.cjs`) blocks in CI's check job — runner must not import concrete adapters
+  (the runner rule alone exempts two pure leaf utilities: `publisher/markdown-escape.ts`,
+  `runtime/runtime-kind.ts`), contracts import only contracts (no exemptions), no cross-VCS
+  coupling, no cycles, Pi runtime must route `prompt-boundary.ts`. Rule error messages carry the
+  remediation; read them before working around a failure. Biome `suspicious/noConsole` is `error`
+  for `src/` (structured trace/telemetry sinks only — `src/cli.ts`, `scripts/`, `test/`, `evals/`
+  are exempt) and blocks via the Biome CI step.
 - `validateFinding` currently accepts any `reviewer` string; model self-mislabeling is a
   known backlog item, not a guarantee.
 - Context/token-savings metrics use a `bytes/4` approximation pending real provider telemetry.

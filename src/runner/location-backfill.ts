@@ -126,9 +126,7 @@ export function backfillFindingLocations(
 
   for (const finding of findings) {
     const location = finding.location;
-    const usableLine = location !== undefined
-      ? (location.line ?? location.startLine)
-      : undefined;
+    const usableLine = location !== undefined ? (location.line ?? location.startLine) : undefined;
 
     // Not a candidate if the finding already has a usable line.
     if (usableLine !== undefined) {

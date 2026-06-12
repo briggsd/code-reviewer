@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 describe("release readiness documentation", () => {
   test("documents verification, packaging, safety, and release blockers", async () => {

@@ -2,8 +2,8 @@
  * Rendering tests for acknowledged findings in formatReviewSummaryMarkdown (#60-P3b).
  */
 import { describe, expect, test } from "bun:test";
-import { formatReviewSummaryMarkdown } from "../src/index.ts";
 import type { Finding, ReviewSummary } from "../src/index.ts";
+import { formatReviewSummaryMarkdown } from "../src/index.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -4,7 +4,7 @@
 // telemetry-analyze.ts. Extracted so the per-run download loop and leaf
 // helpers are not duplicated across scripts.
 
-import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -47,7 +47,9 @@ export async function collectTelemetryEvents(runLimit: number): Promise<Collecte
       process.stderr.write(`Fetching telemetry for run ${runLabel}\n`);
 
       const artifacts = await listRunArtifacts(run.databaseId);
-      const telemetryArtifacts = artifacts.filter((artifact) => artifact.name.startsWith("ai-review") && artifact.expired !== true);
+      const telemetryArtifacts = artifacts.filter(
+        (artifact) => artifact.name.startsWith("ai-review") && artifact.expired !== true,
+      );
       if (telemetryArtifacts.length === 0) {
         process.stderr.write("  no telemetry artifacts found\n");
         continue;
@@ -55,7 +57,10 @@ export async function collectTelemetryEvents(runLimit: number): Promise<Collecte
 
       for (const artifact of telemetryArtifacts) {
         artifactCount += 1;
-        const artifactDirectory = join(tempDirectory, `${run.databaseId}-${sanitizeName(artifact.name)}`);
+        const artifactDirectory = join(
+          tempDirectory,
+          `${run.databaseId}-${sanitizeName(artifact.name)}`,
+        );
         await mkdir(artifactDirectory, { recursive: true });
         await runGhCommand([
           "run",
@@ -123,10 +128,7 @@ export async function listRunArtifacts(runId: number): Promise<WorkflowArtifact[
   // field was removed from `gh run view` (gone as of gh 2.94.0), so the JSON-field
   // form errors out. The runs/<id>/artifacts endpoint returns the same shape
   // ({ artifacts: [{ name, expired, ... }] }) and is stable across gh versions.
-  const json = await runGhCommand([
-    "api",
-    `repos/{owner}/{repo}/actions/runs/${runId}/artifacts`,
-  ]);
+  const json = await runGhCommand(["api", `repos/{owner}/{repo}/actions/runs/${runId}/artifacts`]);
 
   const parsed = JSON.parse(json) as unknown;
   if (!isPlainObject(parsed)) {

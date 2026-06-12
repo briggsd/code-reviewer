@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { Finding, ReviewSummary } from "../src/index.ts";
-import { assignStableFindingIds, createStableFindingId, loadReviewFixture, runReview } from "../src/index.ts";
+import {
+  assignStableFindingIds,
+  createStableFindingId,
+  loadReviewFixture,
+  runReview,
+} from "../src/index.ts";
 
 const baseFinding: Finding = {
   reviewer: "security",
@@ -42,14 +47,16 @@ describe("stable finding IDs", () => {
 
     expect(first).toMatch(/^fnd_[a-f0-9]{16}$/);
     expect(second).toBe(first);
-    expect(createStableFindingId({
-      ...baseFinding,
-      location: {
-        path: "auth/accounts.ts",
-        line: 24,
-        side: "RIGHT",
-      },
-    })).not.toBe(first);
+    expect(
+      createStableFindingId({
+        ...baseFinding,
+        location: {
+          path: "auth/accounts.ts",
+          line: 24,
+          side: "RIGHT",
+        },
+      }),
+    ).not.toBe(first);
   });
 
   test("ignores reworded title/body so a recurring finding keeps its ID (issue #31)", () => {
@@ -107,10 +114,12 @@ describe("stable finding IDs", () => {
   });
 
   test("disambiguates findings that collide on reviewer+category+location within a summary", () => {
-    const ids = assignStableFindingIds(collidingSummary([
-      { ...baseFinding, title: "First concern" },
-      { ...baseFinding, title: "Second concern at same spot" },
-    ])).findings.map((finding) => finding.id);
+    const ids = assignStableFindingIds(
+      collidingSummary([
+        { ...baseFinding, title: "First concern" },
+        { ...baseFinding, title: "Second concern at same spot" },
+      ]),
+    ).findings.map((finding) => finding.id);
 
     expect(new Set(ids).size).toBe(2);
     expect(ids).toContain(createStableFindingId(baseFinding));
@@ -125,18 +134,21 @@ describe("stable finding IDs", () => {
     const reversed = assignStableFindingIds(collidingSummary([b, a])).findings;
 
     // Same content → same ID regardless of which order the model emitted them.
-    const idOf = (findings: typeof forward, title: string) => findings.find((f) => f.title === title)?.id;
+    const idOf = (findings: typeof forward, title: string) =>
+      findings.find((f) => f.title === title)?.id;
     expect(idOf(forward, "Alpha concern")).toBe(idOf(reversed, "Alpha concern"));
     expect(idOf(forward, "Beta concern")).toBe(idOf(reversed, "Beta concern"));
   });
 
   test("generated collision ordinals never duplicate a pre-assigned ID", () => {
     const baseId = createStableFindingId(baseFinding);
-    const ids = assignStableFindingIds(collidingSummary([
-      { ...baseFinding, id: `${baseId}#2`, title: "Pre-assigned at the ordinal slot" },
-      { ...baseFinding, title: "Generated one" },
-      { ...baseFinding, title: "Generated two" },
-    ])).findings.map((finding) => finding.id);
+    const ids = assignStableFindingIds(
+      collidingSummary([
+        { ...baseFinding, id: `${baseId}#2`, title: "Pre-assigned at the ordinal slot" },
+        { ...baseFinding, title: "Generated one" },
+        { ...baseFinding, title: "Generated two" },
+      ]),
+    ).findings.map((finding) => finding.id);
 
     // Three distinct IDs: the reserved `#2` is skipped, so generated findings
     // take the base ID and `#3` rather than silently colliding.

@@ -1,7 +1,7 @@
+import { describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
 
 describe("CLI CI exit behavior", () => {
   test("returns a non-zero OS exit code for fail-closed review failures", async () => {
@@ -49,10 +49,7 @@ describe("CLI CI exit behavior", () => {
       stderr: "pipe",
       env: processEnvWithoutColor(),
     });
-    const [stderr, exitCode] = await Promise.all([
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
+    const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
 
     expect(stderr).toContain("decision=review_failed");
     expect(stderr).toContain("summary.title=Partial");
@@ -60,7 +57,9 @@ describe("CLI CI exit behavior", () => {
   });
 });
 
-async function runCli(args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+async function runCli(
+  args: string[],
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const process = Bun.spawn(["bun", "run", "src/cli.ts", ...args], {
     stdout: "pipe",
     stderr: "pipe",

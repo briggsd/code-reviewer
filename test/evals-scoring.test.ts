@@ -1,13 +1,9 @@
+import { describe, expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
-import type { Finding, RiskAssessment, ReviewSummary } from "../src/index.ts";
-import {
-  evaluateCriterion,
-  scoreRun,
-  scoreScenario,
-} from "../src/evals/index.ts";
 import type { EvalScenario } from "../src/evals/index.ts";
+import { evaluateCriterion, scoreRun, scoreScenario } from "../src/evals/index.ts";
+import type { Finding, ReviewSummary, RiskAssessment } from "../src/index.ts";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -67,117 +63,118 @@ const baseScenario: EvalScenario = {
 describe("evaluateCriterion — has_finding", () => {
   test("matches when a finding satisfies all filters", () => {
     const summary = makeSummary([makeFinding()]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", reviewer: "security", category: "injection" },
-      summary,
-    )).toBe(true);
+    expect(
+      evaluateCriterion(
+        { kind: "has_finding", label: "test", reviewer: "security", category: "injection" },
+        summary,
+      ),
+    ).toBe(true);
   });
 
   test("returns false when no finding matches", () => {
     const summary = makeSummary([]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", reviewer: "security" },
-      summary,
-    )).toBe(false);
+    expect(
+      evaluateCriterion({ kind: "has_finding", label: "test", reviewer: "security" }, summary),
+    ).toBe(false);
   });
 
   test("minSeverity: warning finding satisfies minSeverity warning (boundary: same level passes)", () => {
     const summary = makeSummary([makeFinding({ severity: "warning" })]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", minSeverity: "warning" },
-      summary,
-    )).toBe(true);
+    expect(
+      evaluateCriterion({ kind: "has_finding", label: "test", minSeverity: "warning" }, summary),
+    ).toBe(true);
   });
 
   test("minSeverity: warning finding does NOT satisfy minSeverity critical", () => {
     const summary = makeSummary([makeFinding({ severity: "warning" })]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", minSeverity: "critical" },
-      summary,
-    )).toBe(false);
+    expect(
+      evaluateCriterion({ kind: "has_finding", label: "test", minSeverity: "critical" }, summary),
+    ).toBe(false);
   });
 
   test("minSeverity: critical finding satisfies minSeverity warning (higher rank passes lower threshold)", () => {
     const summary = makeSummary([makeFinding({ severity: "critical" })]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", minSeverity: "warning" },
-      summary,
-    )).toBe(true);
+    expect(
+      evaluateCriterion({ kind: "has_finding", label: "test", minSeverity: "warning" }, summary),
+    ).toBe(true);
   });
 
   test("severity exact: critical finding does NOT match severity warning", () => {
     const summary = makeSummary([makeFinding({ severity: "critical" })]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", severity: "warning" },
-      summary,
-    )).toBe(false);
+    expect(
+      evaluateCriterion({ kind: "has_finding", label: "test", severity: "warning" }, summary),
+    ).toBe(false);
   });
 
   test("category filter: case-insensitive match", () => {
     const summary = makeSummary([makeFinding({ category: "Injection" })]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", category: "injection" },
-      summary,
-    )).toBe(true);
+    expect(
+      evaluateCriterion({ kind: "has_finding", label: "test", category: "injection" }, summary),
+    ).toBe(true);
   });
 
   test("reviewer filter: case-insensitive match", () => {
     const summary = makeSummary([makeFinding({ reviewer: "Security" })]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", reviewer: "security" },
-      summary,
-    )).toBe(true);
+    expect(
+      evaluateCriterion({ kind: "has_finding", label: "test", reviewer: "security" }, summary),
+    ).toBe(true);
   });
 
   test("pathIncludes: case-insensitive substring of location.path", () => {
     const summary = makeSummary([makeFinding({ location: { path: "AUTH/login.ts" } })]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", pathIncludes: "auth" },
-      summary,
-    )).toBe(true);
+    expect(
+      evaluateCriterion({ kind: "has_finding", label: "test", pathIncludes: "auth" }, summary),
+    ).toBe(true);
   });
 
   test("textIncludes: matches substring in finding.title (case-insensitive)", () => {
     const summary = makeSummary([makeFinding({ title: "SQL Injection Risk" })]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", textIncludes: "inject" },
-      summary,
-    )).toBe(true);
+    expect(
+      evaluateCriterion({ kind: "has_finding", label: "test", textIncludes: "inject" }, summary),
+    ).toBe(true);
   });
 
   test("textIncludes: matches substring in finding.body (case-insensitive)", () => {
     const summary = makeSummary([makeFinding({ body: "User input is INJECTED into query" })]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", textIncludes: "injected" },
-      summary,
-    )).toBe(true);
+    expect(
+      evaluateCriterion({ kind: "has_finding", label: "test", textIncludes: "injected" }, summary),
+    ).toBe(true);
   });
 
   test("textIncludes: matches substring in finding.evidence[] (case-insensitive)", () => {
     const summary = makeSummary([makeFinding({ evidence: ["Parameterized query missing"] })]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", textIncludes: "parameterized" },
-      summary,
-    )).toBe(true);
+    expect(
+      evaluateCriterion(
+        { kind: "has_finding", label: "test", textIncludes: "parameterized" },
+        summary,
+      ),
+    ).toBe(true);
   });
 
   test("textIncludes: matches substring found only in finding.recommendation (#85 review)", () => {
-    const summary = makeSummary([makeFinding({
-      title: "Issue", body: "see fix", evidence: ["n/a"],
-      recommendation: "Switch to a prepared statement to remediate",
-    })]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", textIncludes: "prepared statement" },
-      summary,
-    )).toBe(true);
+    const summary = makeSummary([
+      makeFinding({
+        title: "Issue",
+        body: "see fix",
+        evidence: ["n/a"],
+        recommendation: "Switch to a prepared statement to remediate",
+      }),
+    ]);
+    expect(
+      evaluateCriterion(
+        { kind: "has_finding", label: "test", textIncludes: "prepared statement" },
+        summary,
+      ),
+    ).toBe(true);
   });
 
   test("textIncludes: returns false when substring is absent", () => {
-    const summary = makeSummary([makeFinding({ title: "Missing auth check", body: "No ownership verification" })]);
-    expect(evaluateCriterion(
-      { kind: "has_finding", label: "test", textIncludes: "inject" },
-      summary,
-    )).toBe(false);
+    const summary = makeSummary([
+      makeFinding({ title: "Missing auth check", body: "No ownership verification" }),
+    ]);
+    expect(
+      evaluateCriterion({ kind: "has_finding", label: "test", textIncludes: "inject" }, summary),
+    ).toBe(false);
   });
 });
 
@@ -188,26 +185,32 @@ describe("evaluateCriterion — has_finding", () => {
 describe("evaluateCriterion — no_findings_at_or_above", () => {
   test("true when summary has only suggestions (below warning)", () => {
     const summary = makeSummary([makeFinding({ severity: "suggestion" })]);
-    expect(evaluateCriterion(
-      { kind: "no_findings_at_or_above", label: "test", severity: "warning" },
-      summary,
-    )).toBe(true);
+    expect(
+      evaluateCriterion(
+        { kind: "no_findings_at_or_above", label: "test", severity: "warning" },
+        summary,
+      ),
+    ).toBe(true);
   });
 
   test("false when summary has a warning finding (severity matches threshold)", () => {
     const summary = makeSummary([makeFinding({ severity: "warning" })]);
-    expect(evaluateCriterion(
-      { kind: "no_findings_at_or_above", label: "test", severity: "warning" },
-      summary,
-    )).toBe(false);
+    expect(
+      evaluateCriterion(
+        { kind: "no_findings_at_or_above", label: "test", severity: "warning" },
+        summary,
+      ),
+    ).toBe(false);
   });
 
   test("false when summary has a critical finding (above warning threshold)", () => {
     const summary = makeSummary([makeFinding({ severity: "critical" })]);
-    expect(evaluateCriterion(
-      { kind: "no_findings_at_or_above", label: "test", severity: "warning" },
-      summary,
-    )).toBe(false);
+    expect(
+      evaluateCriterion(
+        { kind: "no_findings_at_or_above", label: "test", severity: "warning" },
+        summary,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -218,10 +221,12 @@ describe("evaluateCriterion — no_findings_at_or_above", () => {
 describe("evaluateCriterion — max_findings", () => {
   test("passes when finding count is below cap", () => {
     const summary = makeSummary([makeFinding({ severity: "warning" })]);
-    expect(evaluateCriterion(
-      { kind: "max_findings", label: "test", count: 2, atOrAbove: "warning" },
-      summary,
-    )).toBe(true);
+    expect(
+      evaluateCriterion(
+        { kind: "max_findings", label: "test", count: 2, atOrAbove: "warning" },
+        summary,
+      ),
+    ).toBe(true);
   });
 
   test("fails when finding count exceeds cap", () => {
@@ -229,10 +234,12 @@ describe("evaluateCriterion — max_findings", () => {
       makeFinding({ severity: "warning" }),
       makeFinding({ severity: "critical" }),
     ]);
-    expect(evaluateCriterion(
-      { kind: "max_findings", label: "test", count: 1, atOrAbove: "warning" },
-      summary,
-    )).toBe(false);
+    expect(
+      evaluateCriterion(
+        { kind: "max_findings", label: "test", count: 1, atOrAbove: "warning" },
+        summary,
+      ),
+    ).toBe(false);
   });
 
   test("default atOrAbove is suggestion (counts all findings)", () => {
@@ -242,10 +249,9 @@ describe("evaluateCriterion — max_findings", () => {
       makeFinding({ severity: "suggestion" }),
       makeFinding({ severity: "suggestion" }),
     ]);
-    expect(evaluateCriterion(
-      { kind: "max_findings", label: "test", count: 2 },
-      summary,
-    )).toBe(false);
+    expect(evaluateCriterion({ kind: "max_findings", label: "test", count: 2 }, summary)).toBe(
+      false,
+    );
   });
 });
 
@@ -256,36 +262,38 @@ describe("evaluateCriterion — max_findings", () => {
 describe("evaluateCriterion — decision_in", () => {
   test("true when decision is in values", () => {
     const summary = makeSummary([], "approved");
-    expect(evaluateCriterion(
-      { kind: "decision_in", label: "test", values: ["approved", "approved_with_comments"] },
-      summary,
-    )).toBe(true);
+    expect(
+      evaluateCriterion(
+        { kind: "decision_in", label: "test", values: ["approved", "approved_with_comments"] },
+        summary,
+      ),
+    ).toBe(true);
   });
 
   test("false when decision is not in values", () => {
     const summary = makeSummary([], "significant_concerns");
-    expect(evaluateCriterion(
-      { kind: "decision_in", label: "test", values: ["approved", "approved_with_comments"] },
-      summary,
-    )).toBe(false);
+    expect(
+      evaluateCriterion(
+        { kind: "decision_in", label: "test", values: ["approved", "approved_with_comments"] },
+        summary,
+      ),
+    ).toBe(false);
   });
 });
 
 describe("evaluateCriterion — outcome_is", () => {
   test("true when outcome matches", () => {
     const summary = makeSummary([], "approved", "pass");
-    expect(evaluateCriterion(
-      { kind: "outcome_is", label: "test", value: "pass" },
-      summary,
-    )).toBe(true);
+    expect(evaluateCriterion({ kind: "outcome_is", label: "test", value: "pass" }, summary)).toBe(
+      true,
+    );
   });
 
   test("false when outcome does not match", () => {
     const summary = makeSummary([], "significant_concerns", "fail");
-    expect(evaluateCriterion(
-      { kind: "outcome_is", label: "test", value: "pass" },
-      summary,
-    )).toBe(false);
+    expect(evaluateCriterion({ kind: "outcome_is", label: "test", value: "pass" }, summary)).toBe(
+      false,
+    );
   });
 });
 
@@ -295,11 +303,7 @@ describe("evaluateCriterion — outcome_is", () => {
 
 describe("scoreRun", () => {
   test("3 of 4 criteria met → satisfaction = 0.75", () => {
-    const summary = makeSummary(
-      [makeFinding({ severity: "suggestion" })],
-      "approved",
-      "pass",
-    );
+    const summary = makeSummary([makeFinding({ severity: "suggestion" })], "approved", "pass");
     const scenario: EvalScenario = {
       ...baseScenario,
       criteria: [
@@ -377,7 +381,7 @@ describe("scoreScenario", () => {
   });
 
   test("perCriterion pass rate: criterion met in 1 of 2 runs → passRate = 0.5", () => {
-    const s1 = makeSummary([], "approved", "pass");     // both met
+    const s1 = makeSummary([], "approved", "pass"); // both met
     const s2 = makeSummary([], "significant_concerns", "pass"); // only outcome met
     const result = scoreScenario(scenarioWithTwoCriteria, [s1, s2], 0.8);
     // "pass" outcome: met in both runs → 1.0
@@ -437,9 +441,9 @@ describe("seed scenario JSON files", () => {
       expect(typeof parsed).toBe("object");
       expect(parsed).not.toBeNull();
       const scenario = parsed as Record<string, unknown>;
-      expect(typeof scenario["name"]).toBe("string");
-      expect(typeof scenario["fixture"]).toBe("string");
-      expect(Array.isArray(scenario["criteria"])).toBe(true);
+      expect(typeof scenario.name).toBe("string");
+      expect(typeof scenario.fixture).toBe("string");
+      expect(Array.isArray(scenario.criteria)).toBe(true);
     }
   });
 });

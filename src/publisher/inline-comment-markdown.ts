@@ -17,7 +17,11 @@ import { escapeMarkdown } from "./markdown-escape.ts";
  * All LLM-produced finding fields (title, body, category, evidence, recommendation) are
  * escaped with `escapeMarkdown` before interpolation (#74).
  */
-export function formatInlineFindingComment(finding: Finding, change: ChangeMetadata, runId: string | undefined): string {
+export function formatInlineFindingComment(
+  finding: Finding,
+  change: ChangeMetadata,
+  runId: string | undefined,
+): string {
   // Unicode-escape '>' in the serialized metadata so no field value (e.g. an LLM-influenced
   // finding.id containing '-->') can prematurely close the HTML comment and inject Markdown
   // into the rendered body (#82 security review). JSON.parse in parseInlineCommentMetadata
@@ -33,9 +37,10 @@ export function formatInlineFindingComment(finding: Finding, change: ChangeMetad
   }).replace(/>/g, "\\u003e");
   // Escape each evidence item individually before embedding in a list line (#74).
   // category is NOT in a code span in this inline format — escape it too (#74).
-  const evidence = finding.evidence.length === 0
-    ? ["- No separate evidence was provided."]
-    : finding.evidence.map((item) => `- ${escapeMarkdown(item)}`);
+  const evidence =
+    finding.evidence.length === 0
+      ? ["- No separate evidence was provided."]
+      : finding.evidence.map((item) => `- ${escapeMarkdown(item)}`);
 
   return [
     // category appears outside a code span here (unlike summary-markdown) — escape it (#74).
@@ -73,7 +78,9 @@ export function formatInlineFindingComment(finding: Finding, change: ChangeMetad
  * Returns `undefined` if the body is undefined, lacks the sentinel comment, or contains
  * unparseable JSON — callers treat these as "no dedup match" and post fresh.
  */
-export function parseInlineCommentMetadata(body: string | undefined): { findingId?: string; headSha?: string } | undefined {
+export function parseInlineCommentMetadata(
+  body: string | undefined,
+): { findingId?: string; headSha?: string } | undefined {
   if (body === undefined) {
     return undefined;
   }
@@ -86,8 +93,12 @@ export function parseInlineCommentMetadata(body: string | undefined): { findingI
   try {
     const parsed = JSON.parse(match[1]) as { findingId?: unknown; headSha?: unknown };
     return {
-      ...(typeof parsed.findingId === "string" && parsed.findingId.length > 0 ? { findingId: parsed.findingId } : {}),
-      ...(typeof parsed.headSha === "string" && parsed.headSha.length > 0 ? { headSha: parsed.headSha } : {}),
+      ...(typeof parsed.findingId === "string" && parsed.findingId.length > 0
+        ? { findingId: parsed.findingId }
+        : {}),
+      ...(typeof parsed.headSha === "string" && parsed.headSha.length > 0
+        ? { headSha: parsed.headSha }
+        : {}),
     };
   } catch {
     return undefined;

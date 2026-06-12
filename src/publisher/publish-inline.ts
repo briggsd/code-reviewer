@@ -22,7 +22,9 @@ export interface PublishReviewInlineFindingsInput {
   expectedHeadSha?: string;
 }
 
-export async function publishReviewInlineFindings(input: PublishReviewInlineFindingsInput): Promise<PublishInlineFindingsResult> {
+export async function publishReviewInlineFindings(
+  input: PublishReviewInlineFindingsInput,
+): Promise<PublishInlineFindingsResult> {
   if (input.adapter.publishInlineFindings === undefined) {
     throw new Error(`${input.adapter.provider} does not support inline finding publishing`);
   }
@@ -33,18 +35,21 @@ export async function publishReviewInlineFindings(input: PublishReviewInlineFind
     findings: input.summary.findings,
     expectedHeadSha: input.expectedHeadSha ?? input.change.headSha,
   });
-  const blockedOutcomes: PublishInlineFindingOutcome[] = readiness.blockedFindings.map((blocked) => ({
-    ...(blocked.finding.id !== undefined ? { findingId: blocked.finding.id } : {}),
-    disposition: "skipped",
-    reason: blocked.reasons.join(","),
-  }));
-  const providerResult = readiness.readyFindings.length === 0
-    ? emptyInlineResult(input.change.provider)
-    : await input.adapter.publishInlineFindings({
-      change: input.change,
-      findings: readiness.readyFindings,
-      runId: input.runId,
-    } satisfies PublishInlineFindingsInput);
+  const blockedOutcomes: PublishInlineFindingOutcome[] = readiness.blockedFindings.map(
+    (blocked) => ({
+      ...(blocked.finding.id !== undefined ? { findingId: blocked.finding.id } : {}),
+      disposition: "skipped",
+      reason: blocked.reasons.join(","),
+    }),
+  );
+  const providerResult =
+    readiness.readyFindings.length === 0
+      ? emptyInlineResult(input.change.provider)
+      : await input.adapter.publishInlineFindings({
+          change: input.change,
+          findings: readiness.readyFindings,
+          runId: input.runId,
+        } satisfies PublishInlineFindingsInput);
   const outcomes = [...providerResult.findings, ...blockedOutcomes];
   const result: PublishInlineFindingsResult = {
     provider: input.change.provider,
@@ -74,7 +79,9 @@ export async function publishReviewInlineFindings(input: PublishReviewInlineFind
   return result;
 }
 
-function emptyInlineResult(provider: PublishInlineFindingsResult["provider"]): PublishInlineFindingsResult {
+function emptyInlineResult(
+  provider: PublishInlineFindingsResult["provider"],
+): PublishInlineFindingsResult {
   return {
     provider,
     attemptedInlineCount: 0,
@@ -90,7 +97,9 @@ function inlineFindingTraceData(findings: PublishInlineFindingOutcome[]): JsonVa
     ...(finding.findingId !== undefined ? { findingId: finding.findingId } : {}),
     disposition: finding.disposition,
     ...(finding.reason !== undefined ? { reason: finding.reason } : {}),
-    ...(finding.providerCommentId !== undefined ? { providerCommentId: finding.providerCommentId } : {}),
+    ...(finding.providerCommentId !== undefined
+      ? { providerCommentId: finding.providerCommentId }
+      : {}),
     ...(finding.url !== undefined ? { url: finding.url } : {}),
   }));
 }

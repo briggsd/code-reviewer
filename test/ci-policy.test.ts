@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ReviewSummary } from "../src/index.ts";
 import {
   createDefaultReviewConfig,
   decideCiOutcome,
@@ -7,7 +8,6 @@ import {
   normalizeReviewFixture,
   runReview,
 } from "../src/index.ts";
-import type { ReviewSummary } from "../src/index.ts";
 
 describe("CI decision policy", () => {
   test("advisory mode passes even with critical findings", async () => {
@@ -19,7 +19,10 @@ describe("CI decision policy", () => {
         mode: "advisory",
       },
     });
-    const result = await runReview({ fixture: advisoryFixture, now: new Date("2026-06-09T00:00:00.000Z") });
+    const result = await runReview({
+      fixture: advisoryFixture,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
 
     expect(decideCiOutcome(result.summary, advisoryFixture.config)).toEqual({
       outcome: "pass",
@@ -146,7 +149,9 @@ describe("summary markdown formatting", () => {
       },
     });
 
-    expect(markdown).toContain("**CRITICAL: Account lookup misses authorization** (auth/accounts.ts:23)");
+    expect(markdown).toContain(
+      "**CRITICAL: Account lookup misses authorization** (auth/accounts.ts:23)",
+    );
     expect(markdown).toContain("Reviewer: `security`");
     expect(markdown).toContain("<!-- ai-code-review-factory");
     expect(markdown).toContain('"runId": "fixture-auth-pr"');

@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 describe("adoption documentation", () => {
   test("documents adopter path, live-tested evidence, deferred work, and failure artifacts", async () => {

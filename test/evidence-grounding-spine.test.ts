@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { createStableFindingId, loadReviewFixture, runReview } from "../src/index.ts";
 import type {
   Finding,
   PriorReviewState,
@@ -9,6 +8,7 @@ import type {
   TelemetrySink,
   TraceSink,
 } from "../src/index.ts";
+import { createStableFindingId, loadReviewFixture, runReview } from "../src/index.ts";
 
 // ---------------------------------------------------------------------------
 // Minimal in-test sinks (mirrors state.test.ts pattern)
@@ -115,7 +115,9 @@ describe("evidence grounding spine integration", () => {
     expect(summary.findings.map((f) => f.title)).toContain("Grounded finding");
 
     // (b) body contains the transparency note
-    expect(summary.body).toContain("withheld: the code they cited could not be found in the changed files");
+    expect(summary.body).toContain(
+      "withheld: the code they cited could not be found in the changed files",
+    );
 
     // (c) decision/outcome reflect survivors only
     // Only the grounded "warning" finding remains → decision is not "significant_concerns"
@@ -129,7 +131,10 @@ describe("evidence grounding spine integration", () => {
     // (d) RecordingTelemetrySink run_metrics has data.grounding.droppedFindingCount === 1
     const metrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
     expect(metrics).toBeDefined();
-    expect((metrics?.data?.grounding as { droppedFindingCount: number } | undefined)?.droppedFindingCount).toBe(1);
+    expect(
+      (metrics?.data?.grounding as { droppedFindingCount: number } | undefined)
+        ?.droppedFindingCount,
+    ).toBe(1);
 
     // (e) RecordingTraceSink has a grounding.applied event with droppedFindingCount: 1
     const groundingEvent = traceSink.events.find((e) => e.type === "grounding.applied");
@@ -167,7 +172,7 @@ describe("evidence grounding spine integration", () => {
     // Telemetry must NOT contain grounding field (no drops)
     const metrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
     expect(metrics).toBeDefined();
-    expect(Object.prototype.hasOwnProperty.call(metrics?.data, "grounding")).toBe(false);
+    expect(Object.hasOwn(metrics?.data ?? {}, "grounding")).toBe(false);
   });
 
   test("grounding-dropped finding from prior state is classified as withheld, not fixed", async () => {
@@ -247,6 +252,9 @@ describe("evidence grounding spine integration", () => {
     // (d) telemetry run_metrics carries withheldFindingCount
     const metrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
     expect(metrics).toBeDefined();
-    expect((metrics?.data?.reReview as { withheldFindingCount: number } | undefined)?.withheldFindingCount).toBe(1);
+    expect(
+      (metrics?.data?.reReview as { withheldFindingCount: number } | undefined)
+        ?.withheldFindingCount,
+    ).toBe(1);
   });
 });

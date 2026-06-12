@@ -1,7 +1,7 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { isAbsolute, join } from "node:path";
 
 const tempDirectory = await mkdtemp(join(tmpdir(), "ai-review-external-package-"));
 const bunInstallDirectory = join(tempDirectory, "bun-install");
@@ -42,16 +42,19 @@ try {
   const fixturePath = join(adopterDirectory, "adopter-fixture.json");
   await writeFile(fixturePath, JSON.stringify(createAdopterFixture(), null, 2));
   const fixtureOutputDirectory = join(adopterDirectory, ".ai-review-fixture");
-  const fixtureRun = await run([
-    installedCli,
-    "run",
-    "--fixture",
-    fixturePath,
-    "--runtime",
-    "dummy",
-    "--output-dir",
-    fixtureOutputDirectory,
-  ], { cwd: adopterDirectory });
+  const fixtureRun = await run(
+    [
+      installedCli,
+      "run",
+      "--fixture",
+      fixturePath,
+      "--runtime",
+      "dummy",
+      "--output-dir",
+      fixtureOutputDirectory,
+    ],
+    { cwd: adopterDirectory },
+  );
   assertSummary(JSON.parse(fixtureRun.stdout) as unknown, "fixture");
   await assertContextArtifacts({
     adopterDirectory,
@@ -63,7 +66,7 @@ try {
   if (provider === undefined || provider.length === 0) {
     console.log(
       `external package smoke passed: ${artifact.filename}; provider dry-run skipped ` +
-      "(set AI_REVIEW_EXTERNAL_SMOKE_PROVIDER, AI_REVIEW_EXTERNAL_SMOKE_REPO, and AI_REVIEW_EXTERNAL_SMOKE_CHANGE_ID)",
+        "(set AI_REVIEW_EXTERNAL_SMOKE_PROVIDER, AI_REVIEW_EXTERNAL_SMOKE_REPO, and AI_REVIEW_EXTERNAL_SMOKE_CHANGE_ID)",
     );
   } else {
     await runProviderSmoke(provider);
@@ -155,7 +158,12 @@ async function assertContextArtifacts(input: {
   outputDirectory: string;
   runId: string;
 }): Promise<void> {
-  const sharedContextPath = join(input.adopterDirectory, ".ai-review", "context", "change-context.json");
+  const sharedContextPath = join(
+    input.adopterDirectory,
+    ".ai-review",
+    "context",
+    "change-context.json",
+  );
   if (!existsSync(sharedContextPath)) {
     throw new Error(`fixture run did not write shared context: ${sharedContextPath}`);
   }
@@ -168,7 +176,9 @@ async function assertContextArtifacts(input: {
     throw new Error("shared context did not contain patchPath-only README.md metadata");
   }
 
-  const patchPath = isAbsolute(file.patchPath) ? file.patchPath : join(input.adopterDirectory, file.patchPath);
+  const patchPath = isAbsolute(file.patchPath)
+    ? file.patchPath
+    : join(input.adopterDirectory, file.patchPath);
   if (!existsSync(patchPath)) {
     throw new Error(`fixture run did not write patch artifact: ${patchPath}`);
   }
@@ -180,7 +190,10 @@ async function assertContextArtifacts(input: {
   const runRecord = JSON.parse(
     await readFile(join(input.outputDirectory, "runs", input.runId, "run.json"), "utf8"),
   ) as { metrics?: { context?: { patchFileCount?: number; artifactBytes?: number } } };
-  if (runRecord.metrics?.context?.patchFileCount !== 1 || (runRecord.metrics.context.artifactBytes ?? 0) <= 0) {
+  if (
+    runRecord.metrics?.context?.patchFileCount !== 1 ||
+    (runRecord.metrics.context.artifactBytes ?? 0) <= 0
+  ) {
     throw new Error("run metrics did not record context artifact bytes");
   }
 }
@@ -213,7 +226,10 @@ interface RunOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-async function run(command: string[], options: RunOptions = {}): Promise<{ stdout: string; stderr: string }> {
+async function run(
+  command: string[],
+  options: RunOptions = {},
+): Promise<{ stdout: string; stderr: string }> {
   const subprocess = Bun.spawn(command, {
     ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
     ...(options.env !== undefined ? { env: options.env } : {}),

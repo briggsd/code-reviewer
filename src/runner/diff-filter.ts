@@ -1,12 +1,7 @@
 import type { ChangedFile, DiffSummary, ReviewConfig } from "../contracts/index.ts";
 import { matchesAnyGlob } from "./path-match.ts";
 
-export type IgnoredFileReason =
-  | "binary"
-  | "lockfile"
-  | "vendored"
-  | "generated"
-  | "ignored_path";
+export type IgnoredFileReason = "binary" | "lockfile" | "vendored" | "generated" | "ignored_path";
 
 export interface IgnoredFile {
   file: ChangedFile;

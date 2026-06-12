@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { Finding, PriorReviewState, ReviewSummary } from "../src/index.ts";
 import {
   classifyReReviewFindings,
   createReReviewSummary,
@@ -6,7 +7,6 @@ import {
   loadReviewFixture,
   runReview,
 } from "../src/index.ts";
-import type { Finding, PriorReviewState, ReviewSummary } from "../src/index.ts";
 
 const recurringFinding: Finding = {
   id: "fnd_recurring",
@@ -73,8 +73,10 @@ describe("re-review finding classification", () => {
       "recurring",
       "fixed",
     ]);
-    expect(reReview.classifications.find((classification) => classification.stableId === "fnd_recurring")?.lastSeenHeadSha)
-      .toBe("old-head");
+    expect(
+      reReview.classifications.find((classification) => classification.stableId === "fnd_recurring")
+        ?.lastSeenHeadSha,
+    ).toBe("old-head");
   });
 
   test("runner attaches re-review classification when prior state is present", async () => {

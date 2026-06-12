@@ -1,4 +1,9 @@
-import type { CiAdapter, CiDecision, DetectedCiEnvironment, SafetyMode } from "../contracts/index.ts";
+import type {
+  CiAdapter,
+  CiDecision,
+  DetectedCiEnvironment,
+  SafetyMode,
+} from "../contracts/index.ts";
 
 export interface LocalCiAdapterOptions {
   stdout?: Pick<typeof console, "log">;

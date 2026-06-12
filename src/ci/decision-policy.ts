@@ -28,7 +28,10 @@ export function decideCiOutcome(
     };
   }
 
-  const highestBlockingSeverity = highestSeverity(summary.findings.map((finding) => finding.severity), config.failOn);
+  const highestBlockingSeverity = highestSeverity(
+    summary.findings.map((finding) => finding.severity),
+    config.failOn,
+  );
   if (highestBlockingSeverity !== undefined) {
     return {
       outcome: "fail",

@@ -1,0 +1,6 @@
+# Bulk mechanical commits to skip in git blame.
+# Use: git blame --ignore-revs-file .git-blame-ignore-revs <file>
+# Or once per clone: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Biome formatter adoption + repo-wide lint-debt clear (#96)
+e41c7e4b484cff06b4649d3e81f5bd25107a9138

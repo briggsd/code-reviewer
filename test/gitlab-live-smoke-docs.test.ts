@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 describe("GitLab live smoke documentation", () => {
   test("documents opt-in GitLab smoke prerequisites and safety posture", async () => {

@@ -74,8 +74,18 @@ describe("parseUnifiedDiff", () => {
   });
 
   test("classifies added and deleted files", () => {
-    expect(parseUnifiedDiff(ADDED)[0]).toMatchObject({ path: "src/new.ts", status: "added", additions: 2, deletions: 0 });
-    expect(parseUnifiedDiff(DELETED)[0]).toMatchObject({ path: "old.ts", status: "deleted", additions: 0, deletions: 1 });
+    expect(parseUnifiedDiff(ADDED)[0]).toMatchObject({
+      path: "src/new.ts",
+      status: "added",
+      additions: 2,
+      deletions: 0,
+    });
+    expect(parseUnifiedDiff(DELETED)[0]).toMatchObject({
+      path: "old.ts",
+      status: "deleted",
+      additions: 0,
+      deletions: 1,
+    });
   });
 
   test("captures rename old/new paths", () => {
@@ -179,25 +189,27 @@ rename to "re\\303\\251named.md"
 });
 
 describe("loadGitDiffChange", () => {
-  const fakeGit = (overrides: Record<string, string> = {}): GitRunner => async (args) => {
-    const key = args.join(" ");
-    const responses: Record<string, string> = {
-      "diff --no-color main": `${MODIFIED}${ADDED}`,
-      "rev-parse HEAD": "headsha123\n",
-      "rev-parse main": "basesha456\n",
-      "rev-parse --abbrev-ref HEAD": "feature/x\n",
-      "config user.name": "Ada Lovelace\n",
-      "config user.email": "ada@example.com\n",
-      "remote get-url origin": "git@github.com:acme/widgets.git\n",
-      "rev-parse --show-toplevel": "/home/ada/widgets\n",
-      ...overrides,
-    };
-    if (!(key in responses)) {
-      throw new Error(`unexpected git call: ${key}`);
-    }
+  const fakeGit =
+    (overrides: Record<string, string> = {}): GitRunner =>
+    async (args) => {
+      const key = args.join(" ");
+      const responses: Record<string, string> = {
+        "diff --no-color main": `${MODIFIED}${ADDED}`,
+        "rev-parse HEAD": "headsha123\n",
+        "rev-parse main": "basesha456\n",
+        "rev-parse --abbrev-ref HEAD": "feature/x\n",
+        "config user.name": "Ada Lovelace\n",
+        "config user.email": "ada@example.com\n",
+        "remote get-url origin": "git@github.com:acme/widgets.git\n",
+        "rev-parse --show-toplevel": "/home/ada/widgets\n",
+        ...overrides,
+      };
+      if (!(key in responses)) {
+        throw new Error(`unexpected git call: ${key}`);
+      }
 
-    return responses[key] as string;
-  };
+      return responses[key] as string;
+    };
 
   test("builds local change metadata and a totalled diff from git output", async () => {
     const { metadata, diff } = await loadGitDiffChange({ base: "main" }, fakeGit());
@@ -222,7 +234,9 @@ describe("loadGitDiffChange", () => {
       throw new Error("git should not be invoked for an invalid base");
     };
 
-    await expect(loadGitDiffChange({ base: "--upload-pack=evil" }, git)).rejects.toThrow(/invalid --base/);
+    await expect(loadGitDiffChange({ base: "--upload-pack=evil" }, git)).rejects.toThrow(
+      /invalid --base/,
+    );
   });
 
   test("defaults base to HEAD (working-tree review)", async () => {

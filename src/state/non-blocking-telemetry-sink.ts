@@ -24,23 +24,25 @@ export function createTelemetryFailureTraceLogger(options: {
   runId: string;
 }): (failure: TelemetryDeliveryFailure) => void {
   return (failure) => {
-    void options.traceSink.write({
-      type: "runtime.event",
-      runId: options.runId,
-      timestamp: failure.timestamp,
-      message: `Telemetry delivery ${failure.reason}`,
-      data: {
-        event: "telemetry.delivery_failed",
-        reason: failure.reason,
-        telemetryEventType: failure.event?.type ?? null,
-        queueSize: failure.queueSize,
-        deliveredCount: failure.deliveredCount,
-        failedCount: failure.failedCount,
-        droppedCount: failure.droppedCount,
-        errorName: failure.error?.name ?? null,
-        errorMessage: failure.error?.message ?? null,
-      },
-    }).catch(() => undefined);
+    void options.traceSink
+      .write({
+        type: "runtime.event",
+        runId: options.runId,
+        timestamp: failure.timestamp,
+        message: `Telemetry delivery ${failure.reason}`,
+        data: {
+          event: "telemetry.delivery_failed",
+          reason: failure.reason,
+          telemetryEventType: failure.event?.type ?? null,
+          queueSize: failure.queueSize,
+          deliveredCount: failure.deliveredCount,
+          failedCount: failure.failedCount,
+          droppedCount: failure.droppedCount,
+          errorName: failure.error?.name ?? null,
+          errorMessage: failure.error?.message ?? null,
+        },
+      })
+      .catch(() => undefined);
   };
 }
 
@@ -138,7 +140,11 @@ export class NonBlockingTelemetrySink implements TelemetrySink {
     }
   }
 
-  private recordFailure(reason: TelemetryDeliveryFailureReason, event?: TelemetryEvent, error?: unknown): void {
+  private recordFailure(
+    reason: TelemetryDeliveryFailureReason,
+    event?: TelemetryEvent,
+    error?: unknown,
+  ): void {
     this.onFailure({
       reason,
       ...(event !== undefined ? { event } : {}),
@@ -201,7 +207,11 @@ function classifyDeliveryFailure(error: unknown): TelemetryDeliveryFailureReason
   return error instanceof TelemetryTimeoutError ? "delivery_timeout" : "transport_error";
 }
 
-function serializeTelemetryError(error: unknown): { name: string; message: string; stack?: string } {
+function serializeTelemetryError(error: unknown): {
+  name: string;
+  message: string;
+  stack?: string;
+} {
   if (error instanceof Error) {
     return {
       name: error.name,

@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
-import { GitLabVcsAdapter, loadReviewFixture, runReview } from "../src/index.ts";
+import { readFile } from "node:fs/promises";
 import type { ChangeMetadata, ChangeRef, Finding, GitLabFetchLike } from "../src/index.ts";
+import { GitLabVcsAdapter, loadReviewFixture, runReview } from "../src/index.ts";
 // Imported from the direct file path (not the publisher barrel): the inline-comment renderer is
 // intentionally not part of the public API surface (#82 review).
 import { parseInlineCommentMetadata } from "../src/publisher/inline-comment-markdown.ts";
@@ -68,8 +68,12 @@ describe("GitLabVcsAdapter", () => {
       webUrl: "https://gitlab.com/gitlab-dev",
     });
     expect(change.labels).toEqual(["security", "api"]);
-    expect(fetchCalls[0]?.url).toBe("https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7");
-    expect((fetchCalls[0]?.init?.headers as Record<string, string>)["PRIVATE-TOKEN"]).toBe("test-token");
+    expect(fetchCalls[0]?.url).toBe(
+      "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7",
+    );
+    expect((fetchCalls[0]?.init?.headers as Record<string, string>)["PRIVATE-TOKEN"]).toBe(
+      "test-token",
+    );
   });
 
   test("normalizes GitLab merge request changes", async () => {
@@ -122,7 +126,9 @@ describe("GitLabVcsAdapter", () => {
       deletions: 2,
     });
     expect(diff.truncated).toBe(true);
-    expect(diff.truncationReason).toBe("One or more GitLab merge request diffs were omitted or marked overflow/collapsed.");
+    expect(diff.truncationReason).toBe(
+      "One or more GitLab merge request diffs were omitted or marked overflow/collapsed.",
+    );
     expect(diff.totalAdditions).toBe(4);
     expect(diff.totalDeletions).toBe(5);
   });
@@ -139,15 +145,24 @@ describe("GitLabVcsAdapter", () => {
           return jsonResponse({ id: 55, username: "ai-review-bot" });
         }
 
-        if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" && init?.method === undefined) {
+        if (
+          url ===
+            "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" &&
+          init?.method === undefined
+        ) {
           return jsonResponse([]);
         }
 
-        if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes") {
-          return jsonResponse({
-            id: 654,
-            web_url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_654",
-          }, 201);
+        if (
+          url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes"
+        ) {
+          return jsonResponse(
+            {
+              id: 654,
+              web_url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_654",
+            },
+            201,
+          );
         }
 
         return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
@@ -177,8 +192,12 @@ describe("GitLabVcsAdapter", () => {
     const postCall = calls.find((c) => c.url.endsWith("/notes") && c.init?.method === "POST");
     const requestBody = JSON.parse(String(postCall?.init?.body)) as { body: string };
     expect(postCall).toBeDefined();
-    expect((postCall?.init?.headers as Record<string, string>)["PRIVATE-TOKEN"]).toBe("write-token");
-    expect((postCall?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    expect((postCall?.init?.headers as Record<string, string>)["PRIVATE-TOKEN"]).toBe(
+      "write-token",
+    );
+    expect((postCall?.init?.headers as Record<string, string>)["Content-Type"]).toBe(
+      "application/json",
+    );
     expect(requestBody.body).toContain("Account lookup misses authorization");
     expect(requestBody.body).toContain("<!-- ai-code-review-factory");
     expect(requestBody.body).toContain("fixture-auth-pr");
@@ -196,7 +215,9 @@ describe("GitLabVcsAdapter", () => {
       fetch: async (input) => {
         const url = String(input);
 
-        if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes") {
+        if (
+          url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes"
+        ) {
           return jsonResponse([
             { id: 111, body: "unrelated note" },
             {
@@ -229,7 +250,10 @@ describe("GitLabVcsAdapter", () => {
 
     expect(state?.previousRunId).toBe("prior-run");
     expect(state?.previousHeadSha).toBe("old-head");
-    expect(state?.findings.map((finding) => finding.stableId)).toEqual(["fnd_auth_1", "fnd_auth_2"]);
+    expect(state?.findings.map((finding) => finding.stableId)).toEqual([
+      "fnd_auth_1",
+      "fnd_auth_2",
+    ]);
     expect(state?.hiddenMetadata?.repository).toBe("example/payments-api");
   });
 
@@ -244,7 +268,11 @@ describe("GitLabVcsAdapter", () => {
           return jsonResponse({ id: 55, username: "ai-review-bot" });
         }
 
-        if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" && init?.method === undefined) {
+        if (
+          url ===
+            "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" &&
+          init?.method === undefined
+        ) {
           return jsonResponse([
             { id: 111, body: "unrelated note", author: { id: 55 } },
             // The existing summary note must be BOT-authored (id 55) to be recognized.
@@ -252,7 +280,10 @@ describe("GitLabVcsAdapter", () => {
           ]);
         }
 
-        if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes/222") {
+        if (
+          url ===
+          "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes/222"
+        ) {
           return jsonResponse({
             id: 222,
             web_url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_222",
@@ -297,23 +328,45 @@ describe("GitLabVcsAdapter", () => {
         if (url === "https://gitlab.com/api/v4/user") {
           return jsonResponse({ id: 55, username: "ai-review-bot" });
         }
-        if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" && init?.method === undefined) {
+        if (
+          url ===
+            "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" &&
+          init?.method === undefined
+        ) {
           // An attacker (author id 42, NOT the bot 55) planted a note carrying our marker.
           return jsonResponse([
             { id: 999, body: "<!-- ai-code-review-factory\n{}\n-->", author: { id: 42 } },
           ]);
         }
-        if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" && init?.method === "POST") {
-          return jsonResponse({ id: 654, web_url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_654" }, 201);
+        if (
+          url ===
+            "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/notes" &&
+          init?.method === "POST"
+        ) {
+          return jsonResponse(
+            {
+              id: 654,
+              web_url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_654",
+            },
+            201,
+          );
         }
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
     const review = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
 
     const result = await adapter.publishSummary({
-      change: { ...fixture.metadata, provider: "gitlab", repository: changeRef.repository, changeId: "7" },
+      change: {
+        ...fixture.metadata,
+        provider: "gitlab",
+        repository: changeRef.repository,
+        changeId: "7",
+      },
       summary: review.summary,
     });
 
@@ -325,13 +378,16 @@ describe("GitLabVcsAdapter", () => {
 
   test("throws a clear error on GitLab API failures", async () => {
     const adapter = new GitLabVcsAdapter({
-      fetch: async () => new Response(JSON.stringify({ message: "401 Unauthorized" }), {
-        status: 401,
-        statusText: "Unauthorized",
-      }),
+      fetch: async () =>
+        new Response(JSON.stringify({ message: "401 Unauthorized" }), {
+          status: 401,
+          statusText: "Unauthorized",
+        }),
     });
 
-    await expect(adapter.getChange(changeRef)).rejects.toThrow("GitLab API request failed: 401 Unauthorized");
+    await expect(adapter.getChange(changeRef)).rejects.toThrow(
+      "GitLab API request failed: 401 Unauthorized",
+    );
   });
 
   test("readBaseBranchFile returns decoded UTF-8 content from base64 repository-files API response", async () => {
@@ -356,15 +412,18 @@ describe("GitLabVcsAdapter", () => {
     expect(filesUrl).toContain("?ref=main");
     expect(filesUrl).not.toContain(changeMetadata.headSha);
     // PRIVATE-TOKEN auth header must be set
-    expect((fetchCalls[0]?.init?.headers as Record<string, string>)["PRIVATE-TOKEN"]).toBe("test-token");
+    expect((fetchCalls[0]?.init?.headers as Record<string, string>)["PRIVATE-TOKEN"]).toBe(
+      "test-token",
+    );
   });
 
   test("readBaseBranchFile returns undefined on a 404 (file absent on base branch)", async () => {
     const adapter = new GitLabVcsAdapter({
-      fetch: async () => new Response(JSON.stringify({ message: "404 File Not Found" }), {
-        status: 404,
-        statusText: "Not Found",
-      }),
+      fetch: async () =>
+        new Response(JSON.stringify({ message: "404 File Not Found" }), {
+          status: 404,
+          statusText: "Not Found",
+        }),
     });
 
     const result = await adapter.readBaseBranchFile(changeMetadata, ".ai-review.json");
@@ -374,7 +433,8 @@ describe("GitLabVcsAdapter", () => {
 
   test("readBaseBranchFile returns undefined (does not throw) on a non-404 error — best-effort read", async () => {
     const adapter = new GitLabVcsAdapter({
-      fetch: async () => new Response("upstream boom", { status: 500, statusText: "Internal Server Error" }),
+      fetch: async () =>
+        new Response("upstream boom", { status: 500, statusText: "Internal Server Error" }),
     });
 
     // A transient/auth error must degrade to "no base conventions", never fail the review.
@@ -440,7 +500,15 @@ describe("GitLabVcsAdapter", () => {
 
         // MR GET for diff_refs
         if (url === mrPath && init?.method === undefined) {
-          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+          return jsonResponse({
+            iid: 7,
+            title: "t",
+            source_branch: "s",
+            target_branch: "main",
+            author: { username: "u" },
+            labels: [],
+            diff_refs: inlineDiffRefs,
+          });
         }
 
         // Discussions GET for dedup
@@ -450,10 +518,24 @@ describe("GitLabVcsAdapter", () => {
 
         // Discussion POST
         if (url === `${mrPath}/discussions` && init?.method === "POST") {
-          return jsonResponse({ id: "disc-hash-1", notes: [{ id: 101, web_url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_101" }] }, 201);
+          return jsonResponse(
+            {
+              id: "disc-hash-1",
+              notes: [
+                {
+                  id: 101,
+                  web_url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_101",
+                },
+              ],
+            },
+            201,
+          );
         }
 
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
 
@@ -464,10 +546,15 @@ describe("GitLabVcsAdapter", () => {
     });
 
     // Assert the POST went to the discussions endpoint
-    const postCall = calls.find((c) => c.url === `${mrPath}/discussions` && c.init?.method === "POST");
+    const postCall = calls.find(
+      (c) => c.url === `${mrPath}/discussions` && c.init?.method === "POST",
+    );
     expect(postCall).toBeDefined();
 
-    const requestBody = JSON.parse(String(postCall?.init?.body)) as { body: string; position: Record<string, unknown> };
+    const requestBody = JSON.parse(String(postCall?.init?.body)) as {
+      body: string;
+      position: Record<string, unknown>;
+    };
 
     // Position must carry all three SHAs and the correct text position
     expect(requestBody.position).toMatchObject({
@@ -480,7 +567,7 @@ describe("GitLabVcsAdapter", () => {
       new_line: 42,
     });
     // RIGHT side → new_line present, old_line absent
-    expect(requestBody.position["old_line"]).toBeUndefined();
+    expect(requestBody.position.old_line).toBeUndefined();
 
     // Body must contain escaped finding content and the dedup metadata
     expect(requestBody.body).toContain("### AI review: 🚨 Critical · authorization");
@@ -508,7 +595,11 @@ describe("GitLabVcsAdapter", () => {
     const mrPath = "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7";
     const calls: Array<{ url: string; init?: RequestInit }> = [];
 
-    const leftFinding: Finding = { ...readyFinding, id: "fnd_left_side", location: { path: "src/app.ts", line: 10, side: "LEFT" } };
+    const leftFinding: Finding = {
+      ...readyFinding,
+      id: "fnd_left_side",
+      location: { path: "src/app.ts", line: 10, side: "LEFT" },
+    };
 
     const adapter = new GitLabVcsAdapter({
       fetch: async (input, init) => {
@@ -516,7 +607,15 @@ describe("GitLabVcsAdapter", () => {
         calls.push({ url, ...(init !== undefined ? { init } : {}) });
 
         if (url === mrPath && init?.method === undefined) {
-          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+          return jsonResponse({
+            iid: 7,
+            title: "t",
+            source_branch: "s",
+            target_branch: "main",
+            author: { username: "u" },
+            labels: [],
+            diff_refs: inlineDiffRefs,
+          });
         }
 
         if (url === `${mrPath}/discussions` && init?.method === undefined) {
@@ -527,18 +626,23 @@ describe("GitLabVcsAdapter", () => {
           return jsonResponse({ id: "disc-hash-2", notes: [{ id: 202 }] }, 201);
         }
 
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
 
     await adapter.publishInlineFindings({ change: inlineChangeMetadata, findings: [leftFinding] });
 
     const postCall = calls.find((c) => c.init?.method === "POST");
-    const requestBody = JSON.parse(String(postCall?.init?.body)) as { position: Record<string, unknown> };
+    const requestBody = JSON.parse(String(postCall?.init?.body)) as {
+      position: Record<string, unknown>;
+    };
 
     // LEFT side → old_line present, new_line absent
-    expect(requestBody.position["old_line"]).toBe(10);
-    expect(requestBody.position["new_line"]).toBeUndefined();
+    expect(requestBody.position.old_line).toBe(10);
+    expect(requestBody.position.new_line).toBeUndefined();
   });
 
   test("deduplicates: skips posting when the same findingId+headSha already exists in discussions", async () => {
@@ -564,22 +668,37 @@ describe("GitLabVcsAdapter", () => {
         }
 
         if (url === mrPath && init?.method === undefined) {
-          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+          return jsonResponse({
+            iid: 7,
+            title: "t",
+            source_branch: "s",
+            target_branch: "main",
+            author: { username: "u" },
+            labels: [],
+            diff_refs: inlineDiffRefs,
+          });
         }
 
         if (url === `${mrPath}/discussions` && init?.method === undefined) {
-          return jsonResponse([{
-            id: "disc-existing",
-            notes: [{
-              id: 777,
-              body: existingNoteBody,
-              // Author id must match the bot id returned by GET /user (#84)
-              author: { id: 55, username: "bot-user" },
-            }],
-          }]);
+          return jsonResponse([
+            {
+              id: "disc-existing",
+              notes: [
+                {
+                  id: 777,
+                  body: existingNoteBody,
+                  // Author id must match the bot id returned by GET /user (#84)
+                  author: { id: 55, username: "bot-user" },
+                },
+              ],
+            },
+          ]);
         }
 
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
 
@@ -622,14 +741,25 @@ describe("GitLabVcsAdapter", () => {
         calls.push({ url, ...(init !== undefined ? { init } : {}) });
 
         if (url === mrPath && init?.method === undefined) {
-          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+          return jsonResponse({
+            iid: 7,
+            title: "t",
+            source_branch: "s",
+            target_branch: "main",
+            author: { username: "u" },
+            labels: [],
+            diff_refs: inlineDiffRefs,
+          });
         }
 
         if (url === `${mrPath}/discussions` && init?.method === undefined) {
           return jsonResponse([]);
         }
 
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
 
@@ -656,7 +786,15 @@ describe("GitLabVcsAdapter", () => {
       fetch: async (input, init) => {
         const url = String(input);
         if (url === mrPath && init?.method === undefined) {
-          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+          return jsonResponse({
+            iid: 7,
+            title: "t",
+            source_branch: "s",
+            target_branch: "main",
+            author: { username: "u" },
+            labels: [],
+            diff_refs: inlineDiffRefs,
+          });
         }
         if (url === `${mrPath}/discussions` && init?.method === undefined) {
           return jsonResponse([]);
@@ -666,11 +804,17 @@ describe("GitLabVcsAdapter", () => {
           // hash as a note id; surface a failed outcome instead.
           return jsonResponse({ id: "disc-hash-empty", notes: [] }, 201);
         }
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
 
-    const result = await adapter.publishInlineFindings({ change: inlineChangeMetadata, findings: [readyFinding] });
+    const result = await adapter.publishInlineFindings({
+      change: inlineChangeMetadata,
+      findings: [readyFinding],
+    });
 
     expect(result.postedInlineCount).toBe(0);
     expect(result.failedInlineCount).toBe(1);
@@ -693,7 +837,15 @@ describe("GitLabVcsAdapter", () => {
         const url = String(input);
         calls.push({ url, ...(init !== undefined ? { init } : {}) });
         if (url === mrPath && init?.method === undefined) {
-          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+          return jsonResponse({
+            iid: 7,
+            title: "t",
+            source_branch: "s",
+            target_branch: "main",
+            author: { username: "u" },
+            labels: [],
+            diff_refs: inlineDiffRefs,
+          });
         }
         if (url === `${mrPath}/discussions` && init?.method === undefined) {
           return jsonResponse([]);
@@ -701,7 +853,10 @@ describe("GitLabVcsAdapter", () => {
         if (url === `${mrPath}/discussions` && init?.method === "POST") {
           return jsonResponse({ id: "disc-hash-evil", notes: [{ id: 303 }] }, 201);
         }
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
 
@@ -712,7 +867,8 @@ describe("GitLabVcsAdapter", () => {
 
     // The raw '-->' from the id must NOT appear before the legitimate comment terminator — assert
     // the metadata block does not contain the injected closer, and that '>' was unicode-escaped.
-    const metadataBlock = /<!-- ai-code-review-factory-inline\n([\s\S]*?)\n-->/.exec(body)?.[1] ?? "";
+    const metadataBlock =
+      /<!-- ai-code-review-factory-inline\n([\s\S]*?)\n-->/.exec(body)?.[1] ?? "";
     // Only '>' is escaped (enough to prevent the '-->' closer); '<' is harmless inside a comment.
     expect(metadataBlock).not.toContain("-->");
     expect(metadataBlock).toContain("fnd--\\u003e<script\\u003eevil");
@@ -728,7 +884,15 @@ describe("GitLabVcsAdapter", () => {
         const url = String(input);
 
         if (url === mrPath && init?.method === undefined) {
-          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+          return jsonResponse({
+            iid: 7,
+            title: "t",
+            source_branch: "s",
+            target_branch: "main",
+            author: { username: "u" },
+            labels: [],
+            diff_refs: inlineDiffRefs,
+          });
         }
 
         if (url === `${mrPath}/discussions` && init?.method === undefined) {
@@ -736,7 +900,10 @@ describe("GitLabVcsAdapter", () => {
         }
 
         // POST fails
-        return new Response(JSON.stringify({ message: "validation failed" }), { status: 422, statusText: "Unprocessable Entity" });
+        return new Response(JSON.stringify({ message: "validation failed" }), {
+          status: 422,
+          statusText: "Unprocessable Entity",
+        });
       },
     });
 
@@ -750,7 +917,9 @@ describe("GitLabVcsAdapter", () => {
       findingId: "fnd_inline_test",
       disposition: "failed",
     });
-    expect(result.findings[0]?.reason).toContain("GitLab API request failed: 422 Unprocessable Entity");
+    expect(result.findings[0]?.reason).toContain(
+      "GitLab API request failed: 422 Unprocessable Entity",
+    );
   });
 
   test("returns all findings as skipped/missing_diff_refs when the MR has no diff_refs", async () => {
@@ -764,10 +933,20 @@ describe("GitLabVcsAdapter", () => {
 
         // MR GET returns no diff_refs
         if (url === mrPath && init?.method === undefined) {
-          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [] });
+          return jsonResponse({
+            iid: 7,
+            title: "t",
+            source_branch: "s",
+            target_branch: "main",
+            author: { username: "u" },
+            labels: [],
+          });
         }
 
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
 
@@ -821,25 +1000,51 @@ describe("GitLabVcsAdapter", () => {
         }
 
         if (url === mrPath && init?.method === undefined) {
-          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+          return jsonResponse({
+            iid: 7,
+            title: "t",
+            source_branch: "s",
+            target_branch: "main",
+            author: { username: "u" },
+            labels: [],
+            diff_refs: inlineDiffRefs,
+          });
         }
 
         if (url === `${mrPath}/discussions` && init?.method === undefined) {
-          return jsonResponse([{
-            id: "disc-planted",
-            notes: [{
-              id: 777,
-              body: plantedNoteBody,
-              author: { id: 42, username: "attacker" },
-            }],
-          }]);
+          return jsonResponse([
+            {
+              id: "disc-planted",
+              notes: [
+                {
+                  id: 777,
+                  body: plantedNoteBody,
+                  author: { id: 42, username: "attacker" },
+                },
+              ],
+            },
+          ]);
         }
 
         if (url === `${mrPath}/discussions` && init?.method === "POST") {
-          return jsonResponse({ id: "disc-new", notes: [{ id: 888, web_url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_888" }] }, 201);
+          return jsonResponse(
+            {
+              id: "disc-new",
+              notes: [
+                {
+                  id: 888,
+                  web_url: "https://gitlab.com/example/payments-api/-/merge_requests/7#note_888",
+                },
+              ],
+            },
+            201,
+          );
         }
 
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
 
@@ -884,21 +1089,36 @@ describe("GitLabVcsAdapter", () => {
         }
 
         if (url === mrPath && init?.method === undefined) {
-          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+          return jsonResponse({
+            iid: 7,
+            title: "t",
+            source_branch: "s",
+            target_branch: "main",
+            author: { username: "u" },
+            labels: [],
+            diff_refs: inlineDiffRefs,
+          });
         }
 
         if (url === `${mrPath}/discussions` && init?.method === undefined) {
-          return jsonResponse([{
-            id: "disc-existing",
-            notes: [{
-              id: 777,
-              body: existingNoteBody,
-              author: { id: 55, username: "bot-user" },
-            }],
-          }]);
+          return jsonResponse([
+            {
+              id: "disc-existing",
+              notes: [
+                {
+                  id: 777,
+                  body: existingNoteBody,
+                  author: { id: 55, username: "bot-user" },
+                },
+              ],
+            },
+          ]);
         }
 
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
 
@@ -941,29 +1161,47 @@ describe("GitLabVcsAdapter", () => {
 
         // Simulate a 401 on GET /user — identity cannot be resolved.
         if (url === "https://gitlab.com/api/v4/user") {
-          return new Response(JSON.stringify({ message: "401 Unauthorized" }), { status: 401, statusText: "Unauthorized" });
+          return new Response(JSON.stringify({ message: "401 Unauthorized" }), {
+            status: 401,
+            statusText: "Unauthorized",
+          });
         }
 
         if (url === mrPath && init?.method === undefined) {
-          return jsonResponse({ iid: 7, title: "t", source_branch: "s", target_branch: "main", author: { username: "u" }, labels: [], diff_refs: inlineDiffRefs });
+          return jsonResponse({
+            iid: 7,
+            title: "t",
+            source_branch: "s",
+            target_branch: "main",
+            author: { username: "u" },
+            labels: [],
+            diff_refs: inlineDiffRefs,
+          });
         }
 
         if (url === `${mrPath}/discussions` && init?.method === undefined) {
-          return jsonResponse([{
-            id: "disc-existing",
-            notes: [{
-              id: 777,
-              body: existingNoteBody,
-              author: { id: 55, username: "bot-user" },
-            }],
-          }]);
+          return jsonResponse([
+            {
+              id: "disc-existing",
+              notes: [
+                {
+                  id: 777,
+                  body: existingNoteBody,
+                  author: { id: 55, username: "bot-user" },
+                },
+              ],
+            },
+          ]);
         }
 
         if (url === `${mrPath}/discussions` && init?.method === "POST") {
           return jsonResponse({ id: "disc-new", notes: [{ id: 888 }] }, 201);
         }
 
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
 
@@ -992,7 +1230,9 @@ function fixtureFetch(calls: Array<{ url: string; init?: RequestInit }>): GitLab
       return jsonResponse(await readFixture("merge-request.json"));
     }
 
-    if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/changes") {
+    if (
+      url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7/changes"
+    ) {
       return jsonResponse(await readFixture("changes.json"));
     }
 

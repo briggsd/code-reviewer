@@ -40,11 +40,15 @@ export function formatReviewSummaryMarkdown(
     lines.push(`- Recurring findings: ${summary.reReview.recurringFindingIds.length}`);
     lines.push(`- Fixed prior findings: ${summary.reReview.fixedFindingIds.length}`);
     if (summary.reReview.fixedFindingIds.length > 0) {
-      lines.push(`- Fixed IDs: ${summary.reReview.fixedFindingIds.map((id) => `\`${id}\``).join(", ")}`);
+      lines.push(
+        `- Fixed IDs: ${summary.reReview.fixedFindingIds.map((id) => `\`${id}\``).join(", ")}`,
+      );
     }
     lines.push(`- Withheld prior findings: ${summary.reReview.withheldFindingIds.length}`);
     if (summary.reReview.withheldFindingIds.length > 0) {
-      lines.push(`- Withheld IDs: ${summary.reReview.withheldFindingIds.map((id) => `\`${id}\``).join(", ")}`);
+      lines.push(
+        `- Withheld IDs: ${summary.reReview.withheldFindingIds.map((id) => `\`${id}\``).join(", ")}`,
+      );
     }
   }
 
@@ -64,9 +68,10 @@ export function formatReviewSummaryMarkdown(
 function formatFinding(finding: Finding): string {
   const location = formatLocation(finding);
   // acknowledged.reason comes from the base-branch .ai-review.json — untrusted text (#74).
-  const acknowledgedSuffix = finding.acknowledged !== undefined
-    ? ` — _acknowledged: ${escapeMarkdown(finding.acknowledged.reason)}_`
-    : "";
+  const acknowledgedSuffix =
+    finding.acknowledged !== undefined
+      ? ` — _acknowledged: ${escapeMarkdown(finding.acknowledged.reason)}_`
+      : "";
   const lines = [
     // title is LLM-produced — escape before embedding in bold text (#74).
     `- **${finding.severity.toUpperCase()}: ${escapeMarkdown(finding.title)}**${location}${acknowledgedSuffix}`,

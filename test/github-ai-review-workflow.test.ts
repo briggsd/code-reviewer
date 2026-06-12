@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 describe("repository AI review workflow", () => {
   test("keeps dummy PR review default and gates real Pi review to same-repo PRs", async () => {
@@ -10,12 +10,16 @@ describe("repository AI review workflow", () => {
     expect(workflow).toContain("--runtime dummy");
     expect(workflow).toContain("AI_REVIEW_REAL_REVIEW_ENABLED != 'true'");
     expect(workflow).toContain("AI review publish real Pi summary");
-    expect(workflow).toContain("github.event.pull_request.head.repo.full_name == github.repository && vars.AI_REVIEW_REAL_REVIEW_ENABLED == 'true'");
+    expect(workflow).toContain(
+      "github.event.pull_request.head.repo.full_name == github.repository && vars.AI_REVIEW_REAL_REVIEW_ENABLED == 'true'",
+    );
     expect(workflow).toContain("pull-requests: write");
     expect(workflow).toContain("npm install -g --ignore-scripts @earendil-works/pi-coding-agent");
     expect(workflow).toContain("ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}");
     expect(workflow).toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
-    expect(workflow).toContain("GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}");
+    expect(workflow).toContain(
+      "GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}",
+    );
     expect(workflow).toContain("AI_REVIEW_PI_PROVIDER: ${{ vars.AI_REVIEW_PI_PROVIDER }}");
     expect(workflow).toContain("AI_REVIEW_PI_MODEL: ${{ vars.AI_REVIEW_PI_MODEL }}");
     expect(workflow).toContain("--runtime pi");

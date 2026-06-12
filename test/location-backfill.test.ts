@@ -107,12 +107,9 @@ describe("backfillFindingLocations", () => {
     //  contextLineA();   → newLine=5
     // +addedLine();      → newLine=6
     //  contextLineB();   → newLine=7
-    const patch = [
-      "@@ -5,4 +5,4 @@",
-      " contextLineA();",
-      "+addedLine();",
-      " contextLineB();",
-    ].join("\n");
+    const patch = ["@@ -5,4 +5,4 @@", " contextLineA();", "+addedLine();", " contextLineB();"].join(
+      "\n",
+    );
     const diff = makeDiff(patch);
 
     const finding = makeNoLocationFinding({
@@ -244,9 +241,7 @@ describe("backfillFindingLocations", () => {
     const diff = makeDiff(patch);
 
     const finding = makeNoLocationFinding({
-      quotedCode: [
-        "const userId = req.query.userId;\nreturn db.findById(userId);",
-      ],
+      quotedCode: ["const userId = req.query.userId;\nreturn db.findById(userId);"],
     });
 
     const { findings, backfilledCount } = backfillFindingLocations([finding], diff);
@@ -359,7 +354,7 @@ describe("backfillFindingLocations", () => {
     expect(findings[0]?.location?.line).toBe(1);
     expect(findings[1]?.location).toBeUndefined(); // no-match unchanged
     expect(findings[2]?.location).toBeUndefined(); // no-quote unchanged
-    expect(findings[3]?.location?.line).toBe(99);  // already-located unchanged
+    expect(findings[3]?.location?.line).toBe(99); // already-located unchanged
   });
 
   // -------------------------------------------------------------------------
@@ -375,9 +370,9 @@ describe("backfillFindingLocations", () => {
     ].join("\n");
     const diff = makeDiff(patch);
 
-    const f1 = makeNoLocationFinding({ title: "first",  quotedCode: ["const firstLine = a();"] });
+    const f1 = makeNoLocationFinding({ title: "first", quotedCode: ["const firstLine = a();"] });
     const f2 = makeNoLocationFinding({ title: "second", quotedCode: ["const secondLine = b();"] });
-    const f3 = makeNoLocationFinding({ title: "third",  quotedCode: ["const thirdLine = c();"] });
+    const f3 = makeNoLocationFinding({ title: "third", quotedCode: ["const thirdLine = c();"] });
 
     const { findings, backfilledCount } = backfillFindingLocations([f1, f2, f3], diff);
 
@@ -393,7 +388,8 @@ describe("backfillFindingLocations", () => {
   // -------------------------------------------------------------------------
 
   test("finding with path-only location (no line) is still a candidate and gets backfilled", () => {
-    const patch = "@@ -1,1 +1,2 @@\n+const userId = req.params.userId;\n+return db.findById(userId);";
+    const patch =
+      "@@ -1,1 +1,2 @@\n+const userId = req.params.userId;\n+return db.findById(userId);";
     const diff = makeDiff(patch);
 
     const finding = makePathOnlyFinding("src/db/accounts.ts", {
@@ -413,12 +409,26 @@ describe("backfillFindingLocations", () => {
     const sharedLine = "return db.accounts.findById(accountId);";
     const diff: DiffSummary = {
       files: [
-        { path: "src/file-b.ts", status: "modified", additions: 1, deletions: 0, isBinary: false,
-          patch: `@@ -1,1 +50,1 @@\n+${sharedLine}` },
-        { path: "src/file-a.ts", status: "modified", additions: 1, deletions: 0, isBinary: false,
-          patch: `@@ -1,1 +7,1 @@\n+${sharedLine}` },
+        {
+          path: "src/file-b.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          isBinary: false,
+          patch: `@@ -1,1 +50,1 @@\n+${sharedLine}`,
+        },
+        {
+          path: "src/file-a.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          isBinary: false,
+          patch: `@@ -1,1 +7,1 @@\n+${sharedLine}`,
+        },
       ],
-      totalAdditions: 2, totalDeletions: 0, truncated: false,
+      totalAdditions: 2,
+      totalDeletions: 0,
+      truncated: false,
     };
 
     const finding = makePathOnlyFinding("src/file-a.ts", { quotedCode: [sharedLine] });

@@ -1,4 +1,10 @@
-import type { ChangeMetadata, ChangedFile, DiffSummary, Finding, FindingLocation } from "../contracts/index.ts";
+import type {
+  ChangedFile,
+  ChangeMetadata,
+  DiffSummary,
+  Finding,
+  FindingLocation,
+} from "../contracts/index.ts";
 
 export type InlinePublishBlockReason =
   | "stale_head_sha"
@@ -36,7 +42,9 @@ export interface EvaluateInlinePublishReadinessInput {
   expectedHeadSha?: string;
 }
 
-export function evaluateInlinePublishReadiness(input: EvaluateInlinePublishReadinessInput): InlinePublishReadiness {
+export function evaluateInlinePublishReadiness(
+  input: EvaluateInlinePublishReadinessInput,
+): InlinePublishReadiness {
   const globalReasons: InlinePublishBlockReason[] = [];
   if (input.expectedHeadSha !== undefined && input.expectedHeadSha !== input.change.headSha) {
     globalReasons.push("stale_head_sha");
@@ -92,7 +100,11 @@ function evaluateFindingLocation(finding: Finding, diff: DiffSummary): InlinePub
   return reasons;
 }
 
-function evaluateFileCoordinate(file: ChangedFile, location: FindingLocation, line: number | undefined): InlinePublishBlockReason[] {
+function evaluateFileCoordinate(
+  file: ChangedFile,
+  location: FindingLocation,
+  line: number | undefined,
+): InlinePublishBlockReason[] {
   const reasons: InlinePublishBlockReason[] = [];
   if (file.isBinary) {
     reasons.push("binary_file");
@@ -107,7 +119,12 @@ function evaluateFileCoordinate(file: ChangedFile, location: FindingLocation, li
     reasons.push("added_file_left_side");
   }
 
-  if (line !== undefined && location.side !== undefined && file.patch !== undefined && file.patch.length > 0) {
+  if (
+    line !== undefined &&
+    location.side !== undefined &&
+    file.patch !== undefined &&
+    file.patch.length > 0
+  ) {
     const lines = parsePatchLines(file.patch);
     const candidateLines = location.side === "LEFT" ? lines.left : lines.right;
     if (!candidateLines.has(line)) {
@@ -140,7 +157,13 @@ function parsePatchLines(patch: string): { left: Set<number>; right: Set<number>
       continue;
     }
 
-    if (oldLine === undefined || newLine === undefined || row.startsWith("diff --git") || row.startsWith("---") || row.startsWith("+++")) {
+    if (
+      oldLine === undefined ||
+      newLine === undefined ||
+      row.startsWith("diff --git") ||
+      row.startsWith("---") ||
+      row.startsWith("+++")
+    ) {
       continue;
     }
 

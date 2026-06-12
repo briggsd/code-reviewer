@@ -10,13 +10,13 @@
  * body, so the unit-test + applied call sites approach is used per spec note.
  */
 import { describe, expect, test } from "bun:test";
+import type { Finding, ReviewSummary } from "../src/index.ts";
 import {
   escapeMarkdown,
   formatReviewSummaryMarkdown,
   loadReviewFixture,
   runReview,
 } from "../src/index.ts";
-import type { Finding, ReviewSummary } from "../src/index.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -10,15 +10,15 @@ import type {
   PriorReviewState,
   ReviewConfig,
   ReviewContext,
-  ReviewErrorClassification,
   ReviewContextArtifacts,
   ReviewDecision,
-  RiskTier,
+  ReviewErrorClassification,
   ReviewerContextReferences,
   ReviewerRunInput,
   ReviewRunMetrics,
   ReviewStateStore,
   ReviewSummary,
+  RiskTier,
   RuntimeEvent,
   RuntimeEventSubscription,
   RuntimeToolPolicy,
@@ -31,16 +31,19 @@ import type {
 } from "../contracts/index.ts";
 import { escapeMarkdown } from "../publisher/markdown-escape.ts";
 import { resolveRuntimeKind, sanitizeJobKind } from "../runtime/runtime-kind.ts";
+import { applyAcknowledgements } from "./acknowledgements.ts";
 import { writeReviewContextArtifacts } from "./context-artifacts.ts";
 import { filterDiff } from "./diff-filter.ts";
 import { classifyReviewError } from "./error-classifier.ts";
-import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
-import { classifyRisk } from "./risk-classifier.ts";
-import { findUnsupportedReviewerPolicyEntries, selectTrustedReviewerDefinitions } from "./reviewer-definitions.ts";
 import { assessFindingGrounding } from "./evidence-grounding.ts";
+import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
 import { backfillFindingLocations } from "./location-backfill.ts";
-import { applyAcknowledgements } from "./acknowledgements.ts";
 import { classifyReReviewFindings } from "./re-review.ts";
+import {
+  findUnsupportedReviewerPolicyEntries,
+  selectTrustedReviewerDefinitions,
+} from "./reviewer-definitions.ts";
+import { classifyRisk } from "./risk-classifier.ts";
 import { assignStableFindingIds, createStableFindingId } from "./stable-finding-id.ts";
 import { assessThinReview } from "./thin-review.ts";
 import { getTierProfile } from "./tier-profile.ts";
@@ -79,12 +82,18 @@ export interface RunReviewFromChangeOptions extends Omit<RunReviewOptions, "fixt
   fakeFindings?: Finding[];
 }
 
-export async function runReviewFromChange(options: RunReviewFromChangeOptions): Promise<RunReviewResult> {
+export async function runReviewFromChange(
+  options: RunReviewFromChangeOptions,
+): Promise<RunReviewResult> {
   const fixture = normalizeReviewFixture({
     ...(options.runId !== undefined ? { runId: options.runId } : {}),
     ...(options.safetyMode !== undefined ? { safetyMode: options.safetyMode } : {}),
-    ...(options.workingDirectory !== undefined ? { workingDirectory: options.workingDirectory } : {}),
-    ...(options.contextDirectory !== undefined ? { contextDirectory: options.contextDirectory } : {}),
+    ...(options.workingDirectory !== undefined
+      ? { workingDirectory: options.workingDirectory }
+      : {}),
+    ...(options.contextDirectory !== undefined
+      ? { contextDirectory: options.contextDirectory }
+      : {}),
     metadata: options.metadata,
     diff: options.diff,
     ...(options.config !== undefined ? { config: options.config } : {}),
@@ -130,11 +139,13 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
   const contextBuildStartedAt = clock();
   const filtered = filterDiff(fixture.diff, fixture.config);
   const riskAssessmentStartedAt = clock();
-  const risk = fixture.risk ?? classifyRisk({
-    diff: filtered.diff,
-    config: fixture.config,
-    ignoredFileCount: filtered.ignoredFiles.length,
-  });
+  const risk =
+    fixture.risk ??
+    classifyRisk({
+      diff: filtered.diff,
+      config: fixture.config,
+      ignoredFileCount: filtered.ignoredFiles.length,
+    });
   const riskAssessmentCompletedAt = clock();
 
   const context: ReviewContext = {
@@ -149,7 +160,10 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     ...(fixture.priorState !== undefined ? { priorState: fixture.priorState } : {}),
   };
 
-  const contextArtifacts = await writeReviewContextArtifacts({ context, generatedAt: clock().toISOString() });
+  const contextArtifacts = await writeReviewContextArtifacts({
+    context,
+    generatedAt: clock().toISOString(),
+  });
   context.diff = contextArtifacts.diff;
   context.contextArtifacts = contextArtifacts.artifacts;
 
@@ -194,7 +208,9 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     },
   });
 
-  for (const unsupportedReviewer of findUnsupportedReviewerPolicyEntries({ config: context.config })) {
+  for (const unsupportedReviewer of findUnsupportedReviewerPolicyEntries({
+    config: context.config,
+  })) {
     await emitTrace(options.traceSink, {
       type: "agent.skipped",
       runId,
@@ -224,7 +240,8 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     if (groundingDroppedCount > 0) {
       const highestSeverity = getHighestSeverity(grounding.grounded);
       const decision = chooseDecision(grounding.grounded, highestSeverity);
-      const hasBlockingFinding = highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
+      const hasBlockingFinding =
+        highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
       const outcome = context.config.mode === "blocking" && hasBlockingFinding ? "fail" : "pass";
       groundedSummary = {
         ...runtimeResult.summary,
@@ -244,7 +261,10 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         data: {
           droppedFindingCount: groundingDroppedCount,
           dropped: grounding.dropped.map((f) => ({
-            reviewer: f.reviewer, severity: f.severity, category: f.category, title: f.title,
+            reviewer: f.reviewer,
+            severity: f.severity,
+            category: f.category,
+            title: f.title,
           })),
         },
       });
@@ -269,7 +289,11 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     }
 
     const withIds = assignStableFindingIds(groundedSummary);
-    const acked = applyAcknowledgements(withIds.findings, context.config.acknowledgements ?? [], startedAt);
+    const acked = applyAcknowledgements(
+      withIds.findings,
+      context.config.acknowledgements ?? [],
+      startedAt,
+    );
     const acknowledgedCount = acked.acknowledgedCount;
     const suppressedCount = acked.suppressedCount;
     let ackedSummary = withIds;
@@ -278,10 +302,12 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       const gateFindings = acked.findings.filter((f) => f.acknowledged === undefined);
       const highestSeverity = getHighestSeverity(gateFindings);
       const decision = chooseDecision(gateFindings, highestSeverity);
-      const hasBlockingFinding = highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
+      const hasBlockingFinding =
+        highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
       const outcome = context.config.mode === "blocking" && hasBlockingFinding ? "fail" : "pass";
       const notes: string[] = [];
-      if (acked.acknowledgedCount > 0) notes.push(`${acked.acknowledgedCount} finding(s) acknowledged`);
+      if (acked.acknowledgedCount > 0)
+        notes.push(`${acked.acknowledgedCount} finding(s) acknowledged`);
       if (acked.suppressedCount > 0) notes.push(`${acked.suppressedCount} suppressed`);
       ackedSummary = {
         ...withIds,
@@ -298,7 +324,10 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         runId,
         role: "coordinator",
         timestamp: clock().toISOString(),
-        data: { acknowledgedCount: acked.acknowledgedCount, suppressedCount: acked.suppressedCount },
+        data: {
+          acknowledgedCount: acked.acknowledgedCount,
+          suppressedCount: acked.suppressedCount,
+        },
       });
     }
     // Stable IDs of findings grounding withheld this run, so re-review classifies a prior
@@ -321,14 +350,16 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         outcome: summary.outcome,
         findingCount: summary.findings.length,
         durationMs: coordinatorMs,
-        ...(runtimeResult.coordinatorResult?.coordinatorShortCircuited === true ? { coordinatorShortCircuited: true } : {}),
+        ...(runtimeResult.coordinatorResult?.coordinatorShortCircuited === true
+          ? { coordinatorShortCircuited: true }
+          : {}),
         ...(summary.reReview !== undefined
           ? {
-            newFindingCount: summary.reReview.newFindingIds.length,
-            recurringFindingCount: summary.reReview.recurringFindingIds.length,
-            fixedFindingCount: summary.reReview.fixedFindingIds.length,
-            withheldFindingCount: summary.reReview.withheldFindingIds.length,
-          }
+              newFindingCount: summary.reReview.newFindingIds.length,
+              recurringFindingCount: summary.reReview.recurringFindingIds.length,
+              fixedFindingCount: summary.reReview.fixedFindingIds.length,
+              withheldFindingCount: summary.reReview.withheldFindingIds.length,
+            }
           : {}),
       },
     });
@@ -343,8 +374,12 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         riskAssessmentMs,
         coordinatorMs,
       },
-      ...(context.contextArtifacts !== undefined ? { contextArtifacts: context.contextArtifacts } : {}),
-      ...(runtimeResult.coordinatorResult !== undefined ? { coordinatorResult: runtimeResult.coordinatorResult } : {}),
+      ...(context.contextArtifacts !== undefined
+        ? { contextArtifacts: context.contextArtifacts }
+        : {}),
+      ...(runtimeResult.coordinatorResult !== undefined
+        ? { coordinatorResult: runtimeResult.coordinatorResult }
+        : {}),
     });
     await options.stateStore?.saveRun({
       runId,
@@ -383,8 +418,17 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         ...(locationBackfilledCount > 0 ? { locationBackfilledCount } : {}),
         ...(acknowledgedCount > 0 ? { acknowledgedCount } : {}),
         ...(suppressedCount > 0 ? { suppressedCount } : {}),
-        ...(thinReview.thin ? { thinReview: { outputTokens: thinReview.outputTokens, expectedFloor: thinReview.expectedFloor } } : {}),
-        ...(runtimeResult.coordinatorResult?.coordinatorShortCircuited === true ? { coordinatorShortCircuited: true } : {}),
+        ...(thinReview.thin
+          ? {
+              thinReview: {
+                outputTokens: thinReview.outputTokens,
+                expectedFloor: thinReview.expectedFloor,
+              },
+            }
+          : {}),
+        ...(runtimeResult.coordinatorResult?.coordinatorShortCircuited === true
+          ? { coordinatorShortCircuited: true }
+          : {}),
       }),
     });
 
@@ -416,7 +460,9 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     return {
       context,
       summary,
-      ...(runtimeResult.coordinatorResult !== undefined ? { coordinatorResult: runtimeResult.coordinatorResult } : {}),
+      ...(runtimeResult.coordinatorResult !== undefined
+        ? { coordinatorResult: runtimeResult.coordinatorResult }
+        : {}),
     };
   } catch (error) {
     const failedAt = clock();
@@ -452,8 +498,8 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       },
       ...(context.contextArtifacts !== undefined
         ? {
-          context: createContextMetrics(context.contextArtifacts),
-        }
+            context: createContextMetrics(context.contextArtifacts),
+          }
         : {}),
     };
     await options.stateStore?.saveRun({
@@ -492,7 +538,8 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
 export function summarizeReview(context: ReviewContext, findings: Finding[]): ReviewSummary {
   const dedupedFindings = deduplicateFindings(findings);
   const highestSeverity = getHighestSeverity(dedupedFindings);
-  const hasBlockingFinding = highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
+  const hasBlockingFinding =
+    highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
   const decision = chooseDecision(dedupedFindings, highestSeverity);
   const outcome = context.config.mode === "blocking" && hasBlockingFinding ? "fail" : "pass";
 
@@ -519,9 +566,12 @@ async function runAgents(input: {
   }
 
   const runtimeTraceWrites: Promise<void>[] = [];
-  const subscription: RuntimeEventSubscription = input.runtime.streamEvents(input.context.runId, (event) => {
-    runtimeTraceWrites.push(emitTrace(input.traceSink, event));
-  });
+  const subscription: RuntimeEventSubscription = input.runtime.streamEvents(
+    input.context.runId,
+    (event) => {
+      runtimeTraceWrites.push(emitTrace(input.traceSink, event));
+    },
+  );
 
   try {
     const coordinatorResult = await withOverallTimeout(
@@ -540,7 +590,8 @@ async function runAgents(input: {
         runId: input.context.runId,
         role: "coordinator",
         timestamp: new Date().toISOString(),
-        message: "Review run reached the overall timeout; returning completed reviewer findings as a partial summary.",
+        message:
+          "Review run reached the overall timeout; returning completed reviewer findings as a partial summary.",
         data: {
           phase: "agent_runtime",
           partial: true,
@@ -561,7 +612,10 @@ async function runAgents(input: {
   }
 }
 
-function getPartialCoordinatorResult(runtime: AgentRuntime | undefined, runId: string): CoordinatorRunResult | undefined {
+function getPartialCoordinatorResult(
+  runtime: AgentRuntime | undefined,
+  runId: string,
+): CoordinatorRunResult | undefined {
   if (!hasPartialCoordinatorResult(runtime)) {
     return undefined;
   }
@@ -569,8 +623,13 @@ function getPartialCoordinatorResult(runtime: AgentRuntime | undefined, runId: s
   return runtime.getPartialCoordinatorResult(runId);
 }
 
-function hasPartialCoordinatorResult(runtime: AgentRuntime | undefined): runtime is AgentRuntime & PartialCoordinatorResultRuntime {
-  return typeof (runtime as { getPartialCoordinatorResult?: unknown } | undefined)?.getPartialCoordinatorResult === "function";
+function hasPartialCoordinatorResult(
+  runtime: AgentRuntime | undefined,
+): runtime is AgentRuntime & PartialCoordinatorResultRuntime {
+  return (
+    typeof (runtime as { getPartialCoordinatorResult?: unknown } | undefined)
+      ?.getPartialCoordinatorResult === "function"
+  );
 }
 
 async function withOverallTimeout<T>(
@@ -584,7 +643,11 @@ async function withOverallTimeout<T>(
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
       timedOut = true;
-      reject(new Error(`Review run timed out after overall timeout ${timeoutMs}ms for ${formatRunIdForError(runId)}`));
+      reject(
+        new Error(
+          `Review run timed out after overall timeout ${timeoutMs}ms for ${formatRunIdForError(runId)}`,
+        ),
+      );
     }, timeoutMs);
   });
 
@@ -623,47 +686,63 @@ function createRunMetrics(input: {
   contextArtifacts?: ReviewContextArtifacts;
   coordinatorResult?: CoordinatorRunResult;
 }): ReviewRunMetrics {
-  const agentMetrics = input.coordinatorResult === undefined ? [] : [
-    ...input.coordinatorResult.reviewerResults.flatMap((result) => result.usage === undefined ? [] : [{
-      agentRunId: result.agentRunId,
-      role: result.role,
-      kind: "reviewer" as const,
-      usage: result.usage,
-      ...(result.promptMetrics !== undefined ? { prompt: result.promptMetrics } : {}),
-      ...(result.attemptCount !== undefined ? { attemptCount: result.attemptCount } : {}),
-      ...(result.retryCount !== undefined ? { retryCount: result.retryCount } : {}),
-    }]),
-    ...(input.coordinatorResult.usage === undefined ? [] : [{
-      agentRunId: input.coordinatorResult.agentRunId,
-      role: "coordinator",
-      kind: "coordinator" as const,
-      usage: input.coordinatorResult.usage,
-    }]),
-  ];
+  const agentMetrics =
+    input.coordinatorResult === undefined
+      ? []
+      : [
+          ...input.coordinatorResult.reviewerResults.flatMap((result) =>
+            result.usage === undefined
+              ? []
+              : [
+                  {
+                    agentRunId: result.agentRunId,
+                    role: result.role,
+                    kind: "reviewer" as const,
+                    usage: result.usage,
+                    ...(result.promptMetrics !== undefined ? { prompt: result.promptMetrics } : {}),
+                    ...(result.attemptCount !== undefined
+                      ? { attemptCount: result.attemptCount }
+                      : {}),
+                    ...(result.retryCount !== undefined ? { retryCount: result.retryCount } : {}),
+                  },
+                ],
+          ),
+          ...(input.coordinatorResult.usage === undefined
+            ? []
+            : [
+                {
+                  agentRunId: input.coordinatorResult.agentRunId,
+                  role: "coordinator",
+                  kind: "coordinator" as const,
+                  usage: input.coordinatorResult.usage,
+                },
+              ]),
+        ];
 
-  const failureMetrics = input.coordinatorResult?.reviewerFailures?.map((failure) => ({
-    agentRunId: failure.agentRunId,
-    role: failure.role,
-    kind: "reviewer" as const,
-    errorName: failure.errorName,
-    errorClassification: failure.errorClassification,
-    ...(failure.durationMs !== undefined ? { durationMs: failure.durationMs } : {}),
-    ...(failure.attemptCount !== undefined ? { attemptCount: failure.attemptCount } : {}),
-    ...(failure.retryCount !== undefined ? { retryCount: failure.retryCount } : {}),
-  })) ?? [];
+  const failureMetrics =
+    input.coordinatorResult?.reviewerFailures?.map((failure) => ({
+      agentRunId: failure.agentRunId,
+      role: failure.role,
+      kind: "reviewer" as const,
+      errorName: failure.errorName,
+      errorClassification: failure.errorClassification,
+      ...(failure.durationMs !== undefined ? { durationMs: failure.durationMs } : {}),
+      ...(failure.attemptCount !== undefined ? { attemptCount: failure.attemptCount } : {}),
+      ...(failure.retryCount !== undefined ? { retryCount: failure.retryCount } : {}),
+    })) ?? [];
 
   return {
     durationsMs: input.durationsMs,
     ...(input.contextArtifacts !== undefined
       ? {
-        context: createContextMetrics(input.contextArtifacts),
-      }
+          context: createContextMetrics(input.contextArtifacts),
+        }
       : {}),
     ...(agentMetrics.length > 0
       ? {
-        agents: agentMetrics,
-        tokens: sumTokenUsage(agentMetrics.map((agent) => agent.usage)),
-      }
+          agents: agentMetrics,
+          tokens: sumTokenUsage(agentMetrics.map((agent) => agent.usage)),
+        }
       : {}),
     ...(failureMetrics.length > 0 ? { failures: failureMetrics } : {}),
   };
@@ -702,8 +781,14 @@ function createRunMetricsTelemetryEvent(input: {
     durationMs: input.metrics.durationsMs.overallMs,
     durationsMs: toJsonRecord(input.metrics.durationsMs),
     findingCount: input.summary?.findings.length ?? 0,
-    findingsBySeverity: countFindingsBy(input.summary?.findings ?? [], (finding) => finding.severity),
-    findingsByReviewer: countFindingsBy(input.summary?.findings ?? [], (finding) => finding.reviewer),
+    findingsBySeverity: countFindingsBy(
+      input.summary?.findings ?? [],
+      (finding) => finding.severity,
+    ),
+    findingsByReviewer: countFindingsBy(
+      input.summary?.findings ?? [],
+      (finding) => finding.reviewer,
+    ),
     decision: input.summary?.decision ?? "review_failed",
     outcome: input.summary?.outcome ?? "fail",
   };
@@ -756,7 +841,10 @@ function createRunMetricsTelemetryEvent(input: {
   if (input.locationBackfilledCount !== undefined && input.locationBackfilledCount > 0) {
     data.locationBackfill = { backfilledCount: input.locationBackfilledCount };
   }
-  if ((input.acknowledgedCount !== undefined && input.acknowledgedCount > 0) || (input.suppressedCount !== undefined && input.suppressedCount > 0)) {
+  if (
+    (input.acknowledgedCount !== undefined && input.acknowledgedCount > 0) ||
+    (input.suppressedCount !== undefined && input.suppressedCount > 0)
+  ) {
     const ackData: Record<string, number> = {};
     if (input.acknowledgedCount !== undefined && input.acknowledgedCount > 0) {
       ackData.acknowledgedCount = input.acknowledgedCount;
@@ -792,7 +880,10 @@ function createRunMetricsTelemetryEvent(input: {
   };
 }
 
-function countFindingsBy(findings: Finding[], selectKey: (finding: Finding) => string): Record<string, number> {
+function countFindingsBy(
+  findings: Finding[],
+  selectKey: (finding: Finding) => string,
+): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const finding of findings) {
     const key = selectKey(finding);
@@ -814,7 +905,9 @@ function toJsonRecord(record: object): Record<string, JsonValue> {
   return jsonRecord;
 }
 
-function createContextMetrics(artifacts: ReviewContextArtifacts): NonNullable<ReviewRunMetrics["context"]> {
+function createContextMetrics(
+  artifacts: ReviewContextArtifacts,
+): NonNullable<ReviewRunMetrics["context"]> {
   return {
     artifactBytes: artifacts.totalBytes,
     changeContextBytes: artifacts.changeContextBytes,
@@ -872,8 +965,8 @@ function createCoordinatorRunInput(context: ReviewContext): CoordinatorRunInput 
 function createReviewerRunInputs(context: ReviewContext): ReviewerRunInput[] {
   const timeouts = getEffectiveTimeouts(context);
 
-  return selectTrustedReviewerDefinitions({ config: context.config, risk: context.risk })
-    .map((reviewerDefinition) => {
+  return selectTrustedReviewerDefinitions({ config: context.config, risk: context.risk }).map(
+    (reviewerDefinition) => {
       const assignedFiles = context.diff.files.map((file) => file.path);
 
       return {
@@ -889,10 +982,14 @@ function createReviewerRunInputs(context: ReviewContext): ReviewerRunInput[] {
         contextReferences: createReviewerContextReferences(context, assignedFiles),
         reviewerDefinition,
       };
-    });
+    },
+  );
 }
 
-function createReviewerContextReferences(context: ReviewContext, assignedFiles: string[]): ReviewerContextReferences {
+function createReviewerContextReferences(
+  context: ReviewContext,
+  assignedFiles: string[],
+): ReviewerContextReferences {
   const assignedFileSet = new Set(assignedFiles);
   const files = context.diff.files
     .filter((file) => assignedFileSet.has(file.path))
@@ -901,9 +998,9 @@ function createReviewerContextReferences(context: ReviewContext, assignedFiles: 
   return {
     ...(context.contextArtifacts !== undefined
       ? {
-        changeContextPath: context.contextArtifacts.changeContextPath,
-        patchDirectory: context.contextArtifacts.patchDirectory,
-      }
+          changeContextPath: context.contextArtifacts.changeContextPath,
+          patchDirectory: context.contextArtifacts.patchDirectory,
+        }
       : {}),
     files,
   };
@@ -931,7 +1028,10 @@ export function riskTierTimeoutScale(tier: RiskTier): number {
   return getTierProfile(tier).timeoutScale;
 }
 
-export function scaleTimeoutsForRiskTier(timeouts: ReviewConfig["timeouts"], tier: RiskTier): ReviewConfig["timeouts"] {
+export function scaleTimeoutsForRiskTier(
+  timeouts: ReviewConfig["timeouts"],
+  tier: RiskTier,
+): ReviewConfig["timeouts"] {
   if (tier === "full") {
     return timeouts;
   }
@@ -995,7 +1095,10 @@ function compareSeverity(left: Severity, right: Severity): number {
   return order[left] - order[right];
 }
 
-export function createRuntimeToolPolicy(safetyMode: SafetyMode, tier: RiskTier = "full"): RuntimeToolPolicy {
+export function createRuntimeToolPolicy(
+  safetyMode: SafetyMode,
+  tier: RiskTier = "full",
+): RuntimeToolPolicy {
   if (safetyMode === "privileged_metadata_only") {
     return {
       allowRead: false,
@@ -1035,7 +1138,10 @@ export function createRuntimeToolPolicy(safetyMode: SafetyMode, tier: RiskTier =
   };
 }
 
-function chooseDecision(findings: Finding[], highestSeverity: Severity | undefined): ReviewDecision {
+function chooseDecision(
+  findings: Finding[],
+  highestSeverity: Severity | undefined,
+): ReviewDecision {
   if (findings.length === 0) {
     return "approved";
   }
@@ -1096,9 +1202,10 @@ function createSummaryBody(context: ReviewContext, findings: Finding[]): string 
       // title is LLM-produced; path comes from the diff — both are untrusted and must be
       // escaped here so that summary.body is safe for structural Markdown assembly in
       // formatReviewSummaryMarkdown, which leaves summary.body unescaped (#74).
-      const location = finding.location?.path !== undefined
-        ? ` (${escapeMarkdown(finding.location.path)}${finding.location.line !== undefined ? `:${finding.location.line}` : ""})`
-        : "";
+      const location =
+        finding.location?.path !== undefined
+          ? ` (${escapeMarkdown(finding.location.path)}${finding.location.line !== undefined ? `:${finding.location.line}` : ""})`
+          : "";
       lines.push(`- [${finding.severity}] ${escapeMarkdown(finding.title)}${location}`);
     }
   }

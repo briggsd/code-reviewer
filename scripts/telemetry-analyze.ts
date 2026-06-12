@@ -2,9 +2,8 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-
-import { analyzeRunMetrics, formatRunMetricsAnalysis } from "../src/state/run-metrics-analyze.ts";
 import type { AnalyzeOptions } from "../src/state/run-metrics-analyze.ts";
+import { analyzeRunMetrics, formatRunMetricsAnalysis } from "../src/state/run-metrics-analyze.ts";
 import { collectTelemetryEvents } from "./telemetry-artifacts.ts";
 
 const DEFAULT_RUN_LIMIT = 20;
@@ -43,7 +42,11 @@ async function main(): Promise<void> {
   const runLimit = options.runLimit;
   const outputPath = resolve(options.outputPath);
 
-  const { events: telemetryEvents, telemetryFileCount, artifactCount } = await collectTelemetryEvents(runLimit);
+  const {
+    events: telemetryEvents,
+    telemetryFileCount,
+    artifactCount,
+  } = await collectTelemetryEvents(runLimit);
 
   if (telemetryEvents.length === 0) {
     console.error("No telemetry events collected; nothing to analyze.");
@@ -58,9 +61,9 @@ async function main(): Promise<void> {
 
   if (analysis.runCount === 0) {
     console.warn(
-      "Warning: collected telemetry but no real-runtime run_metrics events remained after "
-        + "excluding dummy/deterministic runs. The analysis contains zero runs — confirm that "
-        + "real Pi review runs exist for this repo.",
+      "Warning: collected telemetry but no real-runtime run_metrics events remained after " +
+        "excluding dummy/deterministic runs. The analysis contains zero runs — confirm that " +
+        "real Pi review runs exist for this repo.",
     );
   }
 
@@ -68,7 +71,9 @@ async function main(): Promise<void> {
   await writeFile(outputPath, `${JSON.stringify(analysis, null, 2)}\n`);
 
   console.log(formatRunMetricsAnalysis(analysis));
-  console.log(`\nAnalyzed ${analysis.runCount} ai_review.run_metrics events from ${telemetryFileCount} telemetry files across ${artifactCount} artifacts.`);
+  console.log(
+    `\nAnalyzed ${analysis.runCount} ai_review.run_metrics events from ${telemetryFileCount} telemetry files across ${artifactCount} artifacts.`,
+  );
   console.log(`Wrote ${outputPath}`);
 }
 

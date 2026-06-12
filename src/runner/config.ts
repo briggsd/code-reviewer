@@ -5,20 +5,21 @@ import { createDefaultReviewConfig } from "./default-config.ts";
 
 const DEFAULT_CONFIG_FILENAMES = [".ai-review.json", "ai-review.json"];
 
-export async function loadReviewConfigFile(path: string, base: ReviewConfig = createDefaultReviewConfig()): Promise<ReviewConfig> {
+export async function loadReviewConfigFile(
+  path: string,
+  base: ReviewConfig = createDefaultReviewConfig(),
+): Promise<ReviewConfig> {
   const raw = await readFile(path, "utf8");
   const parsed = JSON.parse(raw) as unknown;
 
   return normalizeReviewConfig(parsed, base, path);
 }
 
-export async function loadProjectReviewConfig(options: {
-  path?: string;
-  cwd?: string;
-  base?: ReviewConfig;
-} = {}): Promise<ReviewConfig> {
+export async function loadProjectReviewConfig(
+  options: { path?: string; cwd?: string; base?: ReviewConfig } = {},
+): Promise<ReviewConfig> {
   const base = options.base ?? createDefaultReviewConfig();
-  const path = options.path ?? await findProjectReviewConfig(options.cwd ?? process.cwd());
+  const path = options.path ?? (await findProjectReviewConfig(options.cwd ?? process.cwd()));
   if (path === undefined) {
     return base;
   }
@@ -57,12 +58,19 @@ export function normalizeReviewConfig(
     ...base,
     ...override,
     conventions: normalizeConventions(override.conventions, base.conventions ?? []),
-    acknowledgements: normalizeAcknowledgements(override.acknowledgements, base.acknowledgements ?? []),
-    failOn: Array.isArray(override.failOn) ? (override.failOn as ReviewConfig["failOn"]) : base.failOn,
+    acknowledgements: normalizeAcknowledgements(
+      override.acknowledgements,
+      base.acknowledgements ?? [],
+    ),
+    failOn: Array.isArray(override.failOn)
+      ? (override.failOn as ReviewConfig["failOn"])
+      : base.failOn,
     sensitivePaths: Array.isArray(override.sensitivePaths)
       ? (override.sensitivePaths as string[])
       : base.sensitivePaths,
-    ignoredPaths: Array.isArray(override.ignoredPaths) ? (override.ignoredPaths as string[]) : base.ignoredPaths,
+    ignoredPaths: Array.isArray(override.ignoredPaths)
+      ? (override.ignoredPaths as string[])
+      : base.ignoredPaths,
     reviewerPolicy: isRecord(override.reviewerPolicy)
       ? { ...base.reviewerPolicy, ...(override.reviewerPolicy as ReviewConfig["reviewerPolicy"]) }
       : base.reviewerPolicy,
@@ -119,7 +127,10 @@ export function normalizeConventions(value: unknown, fallback: string[]): string
   return normalized;
 }
 
-export function normalizeAcknowledgements(value: unknown, fallback: Acknowledgement[]): Acknowledgement[] {
+export function normalizeAcknowledgements(
+  value: unknown,
+  fallback: Acknowledgement[],
+): Acknowledgement[] {
   if (value === undefined) {
     return [...fallback];
   }
@@ -136,24 +147,20 @@ export function normalizeAcknowledgements(value: unknown, fallback: Acknowledgem
     const obj = entry as Record<string, unknown>;
 
     // path is required: must be a non-empty string.
-    if (typeof obj["path"] !== "string") {
+    if (typeof obj.path !== "string") {
       continue;
     }
-    const path = obj["path"].trim();
+    const path = obj.path.trim();
     if (path.length === 0) {
       continue;
     }
 
     // reason: string trimmed + truncated to 500 chars; missing/non-string → "".
-    const reason = typeof obj["reason"] === "string"
-      ? obj["reason"].trim().slice(0, 500)
-      : "";
+    const reason = typeof obj.reason === "string" ? obj.reason.trim().slice(0, 500) : "";
 
     // mode: keep only "acknowledge"/"suppress"; anything else → default "acknowledge".
     const mode: "acknowledge" | "suppress" =
-      obj["mode"] === "acknowledge" || obj["mode"] === "suppress"
-        ? obj["mode"]
-        : "acknowledge";
+      obj.mode === "acknowledge" || obj.mode === "suppress" ? obj.mode : "acknowledge";
 
     const ack: Acknowledgement = {
       path: path.slice(0, 500),
@@ -162,24 +169,24 @@ export function normalizeAcknowledgements(value: unknown, fallback: Acknowledgem
     };
 
     // category: optional, keep only non-empty string, bounded to 200 chars.
-    if (typeof obj["category"] === "string") {
-      const category = obj["category"].trim().slice(0, 200);
+    if (typeof obj.category === "string") {
+      const category = obj.category.trim().slice(0, 200);
       if (category.length > 0) {
         ack.category = category;
       }
     }
 
     // stableFindingId: optional, keep only non-empty string, bounded to 100 chars.
-    if (typeof obj["stableFindingId"] === "string") {
-      const stableFindingId = obj["stableFindingId"].trim().slice(0, 100);
+    if (typeof obj.stableFindingId === "string") {
+      const stableFindingId = obj.stableFindingId.trim().slice(0, 100);
       if (stableFindingId.length > 0) {
         ack.stableFindingId = stableFindingId;
       }
     }
 
     // expires: optional, keep only non-empty string, bounded to 200 chars.
-    if (typeof obj["expires"] === "string") {
-      const expires = obj["expires"].trim().slice(0, 200);
+    if (typeof obj.expires === "string") {
+      const expires = obj.expires.trim().slice(0, 200);
       if (expires.length > 0) {
         ack.expires = expires;
       }

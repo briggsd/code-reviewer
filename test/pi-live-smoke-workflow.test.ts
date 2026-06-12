@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 describe("Pi live smoke workflow", () => {
   test("is manual-only, default-branch guarded, and disabled by default", async () => {
@@ -21,7 +21,9 @@ describe("Pi live smoke workflow", () => {
     expect(workflow).toContain("npm install -g --ignore-scripts @earendil-works/pi-coding-agent");
     expect(workflow).toContain("ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}");
     expect(workflow).toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
-    expect(workflow).toContain("GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}");
+    expect(workflow).toContain(
+      "GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}",
+    );
     expect(workflow).toContain("persist-credentials: false");
     expect(workflow).toContain("if-no-files-found: ignore");
   });
@@ -30,8 +32,8 @@ describe("Pi live smoke workflow", () => {
     const script = await readFile("scripts/pi-live-smoke.ts", "utf8");
     const docs = await readFile("docs/pi-live-smoke.md", "utf8");
 
-    expect(script).toContain("readOptionalEnv(\"AI_REVIEW_PI_PROVIDER\")");
-    expect(script).toContain("readOptionalEnv(\"AI_REVIEW_PI_MODEL\")");
+    expect(script).toContain('readOptionalEnv("AI_REVIEW_PI_PROVIDER")');
+    expect(script).toContain('readOptionalEnv("AI_REVIEW_PI_MODEL")');
     expect(script).toContain("value === undefined || value.length === 0 ? undefined : value");
     expect(script).toContain('"npm", "pack"');
     expect(script).toContain('"bun", "add", "--global"');
@@ -41,7 +43,9 @@ describe("Pi live smoke workflow", () => {
     expect(script).toContain('safetyMode: "untrusted_read_only"');
     expect(docs).toContain("packaged `ai-code-review` CLI");
     expect(docs).toContain("adopter-like temporary working directory");
-    expect(docs).toContain("--no-context-files --no-extensions --no-skills --no-prompt-templates --no-approve --no-session");
+    expect(docs).toContain(
+      "--no-context-files --no-extensions --no-skills --no-prompt-templates --no-approve --no-session",
+    );
     expect(docs).toContain("trace.jsonl` ends with a structured `review.failed` event");
     expect(docs).toContain('phase: "agent_runtime"');
   });

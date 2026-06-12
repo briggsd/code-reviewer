@@ -2,12 +2,7 @@
   "threshold": 5,
   "minTokens": 50,
   "formats": ["typescript"],
-  "ignore": [
-    "**/node_modules/**",
-    "examples/fixtures/**",
-    "test/**",
-    "**/*.json"
-  ],
+  "ignore": ["**/node_modules/**", "examples/fixtures/**", "test/**", "**/*.json"],
   "reporters": ["console"],
   "gitignore": true
 }

@@ -1,4 +1,9 @@
-import type { ReviewConfig, ReviewerDefinition, RiskAssessment, Severity } from "../contracts/index.ts";
+import type {
+  ReviewConfig,
+  ReviewerDefinition,
+  RiskAssessment,
+  Severity,
+} from "../contracts/index.ts";
 import { getTierProfile } from "./tier-profile.ts";
 
 const SHARED_MANDATORY_RULES = [
@@ -72,7 +77,8 @@ export const TRUSTED_REVIEWER_DEFINITIONS: ReviewerDefinition[] = [
     role: "documentation",
     displayName: "Documentation",
     version: "documentation.m009-s04",
-    summary: "Review changed documentation and user-facing guidance for correctness and adoption risks.",
+    summary:
+      "Review changed documentation and user-facing guidance for correctness and adoption risks.",
     flag: [
       "Documentation that contradicts changed behavior, configuration, CLI flags, API contracts, permissions, or safety defaults.",
       "Missing migration, rollout, setup, troubleshooting, or operator guidance when the change requires action from adopters or maintainers.",
@@ -137,7 +143,9 @@ interface CreateTrustedReviewerDefinitionInput {
   outputExpectations: string[];
 }
 
-function createTrustedReviewerDefinition(input: CreateTrustedReviewerDefinitionInput): ReviewerDefinition {
+function createTrustedReviewerDefinition(
+  input: CreateTrustedReviewerDefinitionInput,
+): ReviewerDefinition {
   return {
     role: input.role,
     displayName: input.displayName,

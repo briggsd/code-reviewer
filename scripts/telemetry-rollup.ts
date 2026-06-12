@@ -38,7 +38,11 @@ async function main(): Promise<void> {
   const runLimit = options.runLimit;
   const outputPath = resolve(options.outputPath);
 
-  const { events: telemetryEvents, telemetryFileCount, artifactCount } = await collectTelemetryEvents(runLimit);
+  const {
+    events: telemetryEvents,
+    telemetryFileCount,
+    artifactCount,
+  } = await collectTelemetryEvents(runLimit);
 
   if (telemetryEvents.length === 0) {
     console.error("No telemetry events collected; nothing to roll up.");
@@ -49,16 +53,18 @@ async function main(): Promise<void> {
 
   if (rollup.runCount === 0) {
     console.warn(
-      "Warning: collected telemetry but no real-runtime run_metrics events remained after "
-        + "excluding dummy/deterministic runs. The rollup contains zero runs — confirm that "
-        + "real Pi review runs exist for this repo.",
+      "Warning: collected telemetry but no real-runtime run_metrics events remained after " +
+        "excluding dummy/deterministic runs. The rollup contains zero runs — confirm that " +
+        "real Pi review runs exist for this repo.",
     );
   }
 
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(rollup, null, 2)}\n`);
 
-  console.log(`Aggregated ${rollup.runCount} ai_review.run_metrics events from ${telemetryFileCount} telemetry files across ${artifactCount} artifacts.`);
+  console.log(
+    `Aggregated ${rollup.runCount} ai_review.run_metrics events from ${telemetryFileCount} telemetry files across ${artifactCount} artifacts.`,
+  );
   console.log(`Wrote ${outputPath}`);
 }
 

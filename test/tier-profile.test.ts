@@ -1,30 +1,32 @@
 import { describe, expect, test } from "bun:test";
-import {
-  DummyAgentRuntime,
-  getTierProfile,
-  loadReviewFixture,
-  normalizeReviewFixture,
-  runReview,
-  selectTrustedReviewerDefinitions,
-  TRUSTED_REVIEWER_DEFINITIONS,
-} from "../src/index.ts";
 import type {
   AgentRuntime,
   CoordinatorRunInput,
   CoordinatorRunResult,
+  PiProcessRunInput,
+  PiProcessRunner,
+  PiProcessRunResult,
   ReviewerRunInput,
   ReviewerRunResult,
   RiskAssessment,
   RuntimeEvent,
   RuntimeEventSubscription,
   TelemetryEvent,
-  TelemetrySink,
   TelemetryFlushResult,
+  TelemetrySink,
   TraceSink,
 } from "../src/index.ts";
+import {
+  DummyAgentRuntime,
+  getTierProfile,
+  loadReviewFixture,
+  normalizeReviewFixture,
+  PiAgentRuntime,
+  runReview,
+  selectTrustedReviewerDefinitions,
+  TRUSTED_REVIEWER_DEFINITIONS,
+} from "../src/index.ts";
 import { normalizeReviewConfig } from "../src/runner/config.ts";
-import type { PiProcessRunner, PiProcessRunInput, PiProcessRunResult } from "../src/index.ts";
-import { PiAgentRuntime } from "../src/index.ts";
 import { summarizeReview } from "../src/runner/run-review.ts";
 
 // ---------------------------------------------------------------------------
@@ -106,7 +108,12 @@ describe("selectTrustedReviewerDefinitions tier cap", () => {
       config: defaultConfig,
       risk: makeRisk("full"),
     });
-    expect(definitions.map((d) => d.role)).toEqual(["code_quality", "security", "documentation", "performance"]);
+    expect(definitions.map((d) => d.role)).toEqual([
+      "code_quality",
+      "security",
+      "documentation",
+      "performance",
+    ]);
   });
 
   test("trivial with code_quality disabled → empty array", () => {
@@ -165,23 +172,24 @@ class CapturingPiProcessRunner implements PiProcessRunner {
 
   async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
     this.calls.push(input);
-    const output = input.role === "coordinator"
-      ? {
-          decision: "approved",
-          outcome: "pass",
-          title: "AI review found no blocking issues",
-          body: "Coordinator synthesized.",
-          findings: [],
-          risk: {
-            tier: "trivial",
-            reason: "test",
-            matchedRules: [],
-            sensitivePaths: [],
-            reviewedFileCount: 1,
-            ignoredFileCount: 0,
-          },
-        }
-      : { findings: [] };
+    const output =
+      input.role === "coordinator"
+        ? {
+            decision: "approved",
+            outcome: "pass",
+            title: "AI review found no blocking issues",
+            body: "Coordinator synthesized.",
+            findings: [],
+            risk: {
+              tier: "trivial",
+              reason: "test",
+              matchedRules: [],
+              sensitivePaths: [],
+              reviewedFileCount: 1,
+              ignoredFileCount: 0,
+            },
+          }
+        : { findings: [] };
     const finalText = JSON.stringify(output);
     return {
       finalText,
@@ -214,23 +222,24 @@ class FindingReviewerPiProcessRunner extends CapturingPiProcessRunner {
       evidence: ["The changed code could be simpler."],
       recommendation: "Extract to a helper function.",
     };
-    const output = input.role === "coordinator"
-      ? {
-          decision: "approved_with_comments",
-          outcome: "pass",
-          title: "AI review found 1 finding",
-          body: "Coordinator consolidated.",
-          findings: [finding],
-          risk: {
-            tier: "trivial",
-            reason: "test",
-            matchedRules: [],
-            sensitivePaths: [],
-            reviewedFileCount: 1,
-            ignoredFileCount: 0,
-          },
-        }
-      : { findings: [finding] };
+    const output =
+      input.role === "coordinator"
+        ? {
+            decision: "approved_with_comments",
+            outcome: "pass",
+            title: "AI review found 1 finding",
+            body: "Coordinator consolidated.",
+            findings: [finding],
+            risk: {
+              tier: "trivial",
+              reason: "test",
+              matchedRules: [],
+              sensitivePaths: [],
+              reviewedFileCount: 1,
+              ignoredFileCount: 0,
+            },
+          }
+        : { findings: [finding] };
     const finalText = JSON.stringify(output);
     return {
       finalText,
@@ -315,11 +324,18 @@ describe("Pi runtime short-circuit", () => {
 
     const capturedEvents: RuntimeEvent[] = [];
     const traceSink: TraceSink = {
-      async write(event) { capturedEvents.push(event); },
+      async write(event) {
+        capturedEvents.push(event);
+      },
       async close() {},
     };
 
-    const result = await runReview({ fixture, runtime, traceSink, now: new Date("2026-06-09T00:00:00.000Z") });
+    const result = await runReview({
+      fixture,
+      runtime,
+      traceSink,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
 
     // Coordinator process must NOT have been spawned
     expect(runner.calls.some((c) => c.role === "coordinator")).toBe(false);
@@ -328,7 +344,9 @@ describe("Pi runtime short-circuit", () => {
     // Decision is approved (zero findings)
     expect(result.summary.decision).toBe("approved");
     // The agent.completed event for coordinator carries shortCircuited: true
-    const coordinatorCompleted = capturedEvents.find((e) => e.type === "agent.completed" && e.role === "coordinator");
+    const coordinatorCompleted = capturedEvents.find(
+      (e) => e.type === "agent.completed" && e.role === "coordinator",
+    );
     expect(coordinatorCompleted?.data?.shortCircuited).toBe(true);
   });
 
@@ -437,17 +455,23 @@ describe("Pi runtime short-circuit", () => {
 
 class RecordingTraceSink implements TraceSink {
   readonly events: RuntimeEvent[] = [];
-  async write(event: RuntimeEvent): Promise<void> { this.events.push(event); }
+  async write(event: RuntimeEvent): Promise<void> {
+    this.events.push(event);
+  }
   async close(): Promise<void> {}
 }
 
 class RecordingTelemetrySink implements TelemetrySink {
   readonly events: TelemetryEvent[] = [];
-  emit(event: TelemetryEvent): void { this.events.push(event); }
+  emit(event: TelemetryEvent): void {
+    this.events.push(event);
+  }
   async flush(): Promise<TelemetryFlushResult> {
     return { deliveredCount: this.events.length, failedCount: 0, droppedCount: 0, pendingCount: 0 };
   }
-  async close(): Promise<TelemetryFlushResult> { return this.flush(); }
+  async close(): Promise<TelemetryFlushResult> {
+    return this.flush();
+  }
 }
 
 describe("spine plumbing: coordinator short-circuit observability", () => {
@@ -607,11 +631,14 @@ describe("timeout scale and tool policy delegate to tier profile", () => {
           agentRunId: `${input.runId}:${input.role}`,
           role: input.role,
           findings: [],
-          rawOutput: "{\"findings\":[]}",
+          rawOutput: '{"findings":[]}',
         };
       }
 
-      streamEvents(_runId: string, _onEvent: (event: RuntimeEvent) => void): RuntimeEventSubscription {
+      streamEvents(
+        _runId: string,
+        _onEvent: (event: RuntimeEvent) => void,
+      ): RuntimeEventSubscription {
         return { unsubscribe: () => {} };
       }
 
@@ -651,11 +678,14 @@ describe("timeout scale and tool policy delegate to tier profile", () => {
           agentRunId: `${input.runId}:${input.role}`,
           role: input.role,
           findings: [],
-          rawOutput: "{\"findings\":[]}",
+          rawOutput: '{"findings":[]}',
         };
       }
 
-      streamEvents(_runId: string, _onEvent: (event: RuntimeEvent) => void): RuntimeEventSubscription {
+      streamEvents(
+        _runId: string,
+        _onEvent: (event: RuntimeEvent) => void,
+      ): RuntimeEventSubscription {
         return { unsubscribe: () => {} };
       }
 

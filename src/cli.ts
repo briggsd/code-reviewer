@@ -1,11 +1,26 @@
 #!/usr/bin/env bun
 
 import { join } from "node:path";
+import { finalizeCiExit } from "./cli/ci-exit.ts";
+import { parseRunPublishOptions } from "./cli/run-options.ts";
+import type {
+  ChangeMetadata,
+  ChangeRef,
+  DiffSummary,
+  Finding,
+  GitRunner,
+  PriorReviewState,
+  ResolvedBaseConfig,
+  ReviewConfig,
+  ReviewFixture,
+  VcsAdapter,
+} from "./index.ts";
 import {
   createDefaultReviewConfig,
   createRunId,
-  decideCiOutcome,
+  createTelemetryFailureTraceLogger,
   DummyAgentRuntime,
+  decideCiOutcome,
   FileSystemReviewStateStore,
   formatReviewSummaryMarkdown,
   GitHubVcsAdapter,
@@ -13,24 +28,20 @@ import {
   JsonlTelemetryTransport,
   JsonlTraceSink,
   LocalCiAdapter,
+  loadGitDiffChange,
+  loadProjectReviewConfig,
+  loadReviewFixture,
   NonBlockingTelemetrySink,
   PiAgentRuntime,
   publishReviewInlineFindings,
   publishReviewSummary,
   RedactingTraceSink,
-  createTelemetryFailureTraceLogger,
-  loadGitDiffChange,
-  loadProjectReviewConfig,
-  loadReviewFixture,
   resolveBaseConfig,
   reviewConfigSchema,
   reviewOutputSchemas,
   runReview,
   runReviewFromChange,
 } from "./index.ts";
-import { parseRunPublishOptions } from "./cli/run-options.ts";
-import { finalizeCiExit } from "./cli/ci-exit.ts";
-import type { ChangeRef, DiffSummary, Finding, GitRunner, PriorReviewState, ResolvedBaseConfig, ReviewConfig, ReviewFixture, ChangeMetadata, VcsAdapter } from "./index.ts";
 
 const gitRunner: GitRunner = async (args) => {
   const proc = Bun.spawn(["git", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -99,35 +110,50 @@ async function runCommand(args: string[]): Promise<void> {
   }
 
   const now = new Date();
-  const runId = source.kind === "fixture" ? source.fixture.runId ?? createRunId(now) : createRunId(now);
-  const tracePath = outputDirectory === undefined ? undefined : join(outputDirectory, "runs", runId, "trace.jsonl");
-  const telemetryPath = outputDirectory === undefined ? undefined : join(outputDirectory, "runs", runId, "telemetry.jsonl");
+  const runId =
+    source.kind === "fixture" ? (source.fixture.runId ?? createRunId(now)) : createRunId(now);
+  const tracePath =
+    outputDirectory === undefined ? undefined : join(outputDirectory, "runs", runId, "trace.jsonl");
+  const telemetryPath =
+    outputDirectory === undefined
+      ? undefined
+      : join(outputDirectory, "runs", runId, "telemetry.jsonl");
   const rawTraceSink = tracePath === undefined ? undefined : new JsonlTraceSink(tracePath);
-  const traceSink = rawTraceSink === undefined
-    ? undefined
-    : redactTrace
-      ? new RedactingTraceSink(rawTraceSink)
-      : rawTraceSink;
-  const telemetrySink = telemetryPath === undefined
-    ? undefined
-    : new NonBlockingTelemetrySink({
-      transport: new JsonlTelemetryTransport(telemetryPath),
-      ...(traceSink !== undefined ? { onFailure: createTelemetryFailureTraceLogger({ traceSink, runId }) } : {}),
-    });
-  const stateStore = outputDirectory === undefined ? undefined : new FileSystemReviewStateStore(outputDirectory);
-  const runtime = runtimeName === "dummy"
-    ? new DummyAgentRuntime({ defaultFindings: source.fakeFindings })
-    : runtimeName === "pi"
-      ? new PiAgentRuntime({
-        ...(piProvider !== undefined && piModel !== undefined
-          ? { defaultModel: { provider: piProvider, model: piModel } }
-          : {}),
-      })
-      : undefined;
+  const traceSink =
+    rawTraceSink === undefined
+      ? undefined
+      : redactTrace
+        ? new RedactingTraceSink(rawTraceSink)
+        : rawTraceSink;
+  const telemetrySink =
+    telemetryPath === undefined
+      ? undefined
+      : new NonBlockingTelemetrySink({
+          transport: new JsonlTelemetryTransport(telemetryPath),
+          ...(traceSink !== undefined
+            ? { onFailure: createTelemetryFailureTraceLogger({ traceSink, runId }) }
+            : {}),
+        });
+  const stateStore =
+    outputDirectory === undefined ? undefined : new FileSystemReviewStateStore(outputDirectory);
+  const runtime =
+    runtimeName === "dummy"
+      ? new DummyAgentRuntime({ defaultFindings: source.fakeFindings })
+      : runtimeName === "pi"
+        ? new PiAgentRuntime({
+            ...(piProvider !== undefined && piModel !== undefined
+              ? { defaultModel: { provider: piProvider, model: piModel } }
+              : {}),
+          })
+        : undefined;
   let ciExitCode: number | undefined;
 
   // Emit a counts-only trace event for conventions resolution (M008 — no convention text).
-  if (traceSink !== undefined && source.kind === "change" && source.conventionsResolution !== undefined) {
+  if (
+    traceSink !== undefined &&
+    source.kind === "change" &&
+    source.conventionsResolution !== undefined
+  ) {
     await traceSink.write({
       type: "conventions.resolved",
       runId,
@@ -142,32 +168,33 @@ async function runCommand(args: string[]): Promise<void> {
   }
 
   try {
-    const result = source.kind === "fixture"
-      ? await runReview({
-        fixture: { ...source.fixture, runId },
-        now,
-        ...(stateStore !== undefined ? { stateStore } : {}),
-        ...(traceSink !== undefined ? { traceSink } : {}),
-        ...(tracePath !== undefined ? { tracePath } : {}),
-        ...(telemetrySink !== undefined ? { telemetrySink } : {}),
-        ...(runtime !== undefined ? { runtime } : {}),
-        ...(jobKind !== undefined ? { jobKind } : {}),
-      })
-      : await runReviewFromChange({
-        runId,
-        metadata: source.metadata,
-        diff: source.diff,
-        config: source.config,
-        ...(source.priorState !== undefined ? { priorState: source.priorState } : {}),
-        fakeFindings: source.fakeFindings,
-        now,
-        ...(stateStore !== undefined ? { stateStore } : {}),
-        ...(traceSink !== undefined ? { traceSink } : {}),
-        ...(tracePath !== undefined ? { tracePath } : {}),
-        ...(telemetrySink !== undefined ? { telemetrySink } : {}),
-        ...(runtime !== undefined ? { runtime } : {}),
-        ...(jobKind !== undefined ? { jobKind } : {}),
-      });
+    const result =
+      source.kind === "fixture"
+        ? await runReview({
+            fixture: { ...source.fixture, runId },
+            now,
+            ...(stateStore !== undefined ? { stateStore } : {}),
+            ...(traceSink !== undefined ? { traceSink } : {}),
+            ...(tracePath !== undefined ? { tracePath } : {}),
+            ...(telemetrySink !== undefined ? { telemetrySink } : {}),
+            ...(runtime !== undefined ? { runtime } : {}),
+            ...(jobKind !== undefined ? { jobKind } : {}),
+          })
+        : await runReviewFromChange({
+            runId,
+            metadata: source.metadata,
+            diff: source.diff,
+            config: source.config,
+            ...(source.priorState !== undefined ? { priorState: source.priorState } : {}),
+            fakeFindings: source.fakeFindings,
+            now,
+            ...(stateStore !== undefined ? { stateStore } : {}),
+            ...(traceSink !== undefined ? { traceSink } : {}),
+            ...(tracePath !== undefined ? { tracePath } : {}),
+            ...(telemetrySink !== undefined ? { telemetrySink } : {}),
+            ...(runtime !== undefined ? { runtime } : {}),
+            ...(jobKind !== undefined ? { jobKind } : {}),
+          });
 
     if (publishOptions.publishInline) {
       if (source.kind !== "change" || source.adapter === undefined) {
@@ -243,7 +270,8 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
     const base = readFlag(args, "--base");
     const changeId = readFlag(args, "--change-id");
     const seedFixturePath = readFlag(args, "--seed-fixture");
-    const seedFixture = seedFixturePath === undefined ? undefined : await loadReviewFixture(seedFixturePath);
+    const seedFixture =
+      seedFixturePath === undefined ? undefined : await loadReviewFixture(seedFixturePath);
     const config = await loadProjectReviewConfig({
       ...(configPath !== undefined ? { path: configPath } : {}),
       base: seedFixture?.config ?? createDefaultReviewConfig(),
@@ -274,7 +302,8 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
   const changeId = requiredFlag(args, "--change-id");
   const headSha = readFlag(args, "--head-sha") ?? "unknown";
   const seedFixturePath = readFlag(args, "--seed-fixture");
-  const seedFixture = seedFixturePath === undefined ? undefined : await loadReviewFixture(seedFixturePath);
+  const seedFixture =
+    seedFixturePath === undefined ? undefined : await loadReviewFixture(seedFixturePath);
   const config = await loadProjectReviewConfig({
     ...(configPath !== undefined ? { path: configPath } : {}),
     base: seedFixture?.config ?? createDefaultReviewConfig(),
@@ -285,16 +314,17 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
     provider,
     repository: {
       provider,
-      name: repo.includes("/") ? repo.split("/").at(-1) ?? repo : repo,
+      name: repo.includes("/") ? (repo.split("/").at(-1) ?? repo) : repo,
       slug: repo,
       ...(repo.includes("/") ? { owner: repo.split("/")[0] } : {}),
     },
     changeId,
     headSha,
   };
-  const adapter = provider === "github"
-    ? new GitHubVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) })
-    : new GitLabVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) });
+  const adapter =
+    provider === "github"
+      ? new GitHubVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) })
+      : new GitLabVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) });
   const [metadata, diff, priorState] = await Promise.all([
     adapter.getChange(ref),
     adapter.getDiff(ref),
@@ -305,7 +335,11 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
   // base branch, never the PR head. A PR cannot grant itself an exception; only config already
   // on the protected branch counts. The --git-diff and --fixture paths are local/trusted — left unchanged.
   const resolved = await resolveBaseConfig({ adapter, metadata, config });
-  const effectiveConfig = { ...config, conventions: resolved.conventions, acknowledgements: resolved.acknowledgements };
+  const effectiveConfig = {
+    ...config,
+    conventions: resolved.conventions,
+    acknowledgements: resolved.acknowledgements,
+  };
 
   return {
     kind: "change",
@@ -321,16 +355,18 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
 
 function readProviderToken(provider: "github" | "gitlab", args: string[]): string {
   const tokenEnv = readFlag(args, "--token-env");
-  const value = tokenEnv !== undefined
-    ? process.env[tokenEnv]
-    : provider === "github"
-      ? process.env.AI_REVIEW_GITHUB_TOKEN ?? process.env.GITHUB_TOKEN
-      : process.env.AI_REVIEW_GITLAB_TOKEN ?? process.env.GITLAB_TOKEN;
+  const value =
+    tokenEnv !== undefined
+      ? process.env[tokenEnv]
+      : provider === "github"
+        ? (process.env.AI_REVIEW_GITHUB_TOKEN ?? process.env.GITHUB_TOKEN)
+        : (process.env.AI_REVIEW_GITLAB_TOKEN ?? process.env.GITLAB_TOKEN);
 
   if (value === undefined || value.length === 0) {
-    const defaults = provider === "github"
-      ? "AI_REVIEW_GITHUB_TOKEN or GITHUB_TOKEN"
-      : "AI_REVIEW_GITLAB_TOKEN or GITLAB_TOKEN";
+    const defaults =
+      provider === "github"
+        ? "AI_REVIEW_GITHUB_TOKEN or GITHUB_TOKEN"
+        : "AI_REVIEW_GITLAB_TOKEN or GITLAB_TOKEN";
     throw new Error(`provider mode requires a read token in ${tokenEnv ?? defaults}`);
   }
 
@@ -365,16 +401,30 @@ function printHelp(): void {
   console.log("Commands:");
   console.log("  schemas                              Print reviewer/coordinator output schemas");
   console.log("  run --fixture <path> [--config <path>] [--output-dir] [--runtime dummy|pi]");
-  console.log("      [--format json|markdown] [--ci-exit] [--job-kind <string>] [--redact-trace] [--pi-provider <name> --pi-model <id>]");
-  console.log("  run --git-diff [--base <ref>] [--change-id <id>] [--config <path>] [--seed-fixture <path>]");
-  console.log("      [--runtime dummy|pi] [--output-dir <path>] [--format json|markdown] [--ci-exit] [--redact-trace]");
+  console.log(
+    "      [--format json|markdown] [--ci-exit] [--job-kind <string>] [--redact-trace] [--pi-provider <name> --pi-model <id>]",
+  );
+  console.log(
+    "  run --git-diff [--base <ref>] [--change-id <id>] [--config <path>] [--seed-fixture <path>]",
+  );
+  console.log(
+    "      [--runtime dummy|pi] [--output-dir <path>] [--format json|markdown] [--ci-exit] [--redact-trace]",
+  );
   console.log("      [--job-kind <string>] [--pi-provider <name> --pi-model <id>]");
   console.log("                                       Review local git changes; no publish.");
-  console.log("                                       --base default HEAD = uncommitted changes only; pass --base <branch>");
-  console.log("                                       for committed branch work. Untracked files need `git add -N` first.");
+  console.log(
+    "                                       --base default HEAD = uncommitted changes only; pass --base <branch>",
+  );
+  console.log(
+    "                                       for committed branch work. Untracked files need `git add -N` first.",
+  );
   console.log("  run --provider github|gitlab --repo <owner/name> --change-id <id>");
-  console.log("      [--head-sha <sha>] [--api-base-url <url>] [--seed-fixture <path>] [--config <path>] [--runtime dummy|pi]");
-  console.log("      [--output-dir <path>] [--format json|markdown] [--publish-summary] [--publish-inline] [--ci-exit] [--redact-trace]");
+  console.log(
+    "      [--head-sha <sha>] [--api-base-url <url>] [--seed-fixture <path>] [--config <path>] [--runtime dummy|pi]",
+  );
+  console.log(
+    "      [--output-dir <path>] [--format json|markdown] [--publish-summary] [--publish-inline] [--ci-exit] [--redact-trace]",
+  );
   console.log("      [--job-kind <string>] [--pi-provider <name> --pi-model <id>]");
   console.log("                                       Run deterministic local review");
 }

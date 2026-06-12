@@ -1,4 +1,9 @@
-import type { ChangeMetadata, ChangedFile, ChangedFileStatus, DiffSummary } from "../contracts/index.ts";
+import type {
+  ChangedFile,
+  ChangedFileStatus,
+  ChangeMetadata,
+  DiffSummary,
+} from "../contracts/index.ts";
 
 // Local git-diff review source. Builds the same ChangeMetadata + DiffSummary the
 // VCS adapters produce, but from the local repository instead of a provider PR —
@@ -25,7 +30,10 @@ export interface GitDiffChange {
   diff: DiffSummary;
 }
 
-export async function loadGitDiffChange(options: GitDiffSourceOptions, run: GitRunner): Promise<GitDiffChange> {
+export async function loadGitDiffChange(
+  options: GitDiffSourceOptions,
+  run: GitRunner,
+): Promise<GitDiffChange> {
   const base = options.base ?? "HEAD";
   // The base ref is interpolated into `git diff <base>` / `git rev-parse <base>`.
   // Reject a leading dash so a ref like `--upload-pack=…` can't be parsed as a
@@ -34,16 +42,17 @@ export async function loadGitDiffChange(options: GitDiffSourceOptions, run: GitR
     throw new Error(`invalid --base ref: ${base} (must not start with "-")`);
   }
 
-  const [rawDiff, headSha, baseSha, branch, authorName, authorEmail, remoteUrl, topLevel] = await Promise.all([
-    run(["diff", "--no-color", base]),
-    runValue(run, ["rev-parse", "HEAD"]),
-    runValue(run, ["rev-parse", base]),
-    runValue(run, ["rev-parse", "--abbrev-ref", "HEAD"]),
-    runValue(run, ["config", "user.name"]),
-    runValue(run, ["config", "user.email"]),
-    runValue(run, ["remote", "get-url", "origin"]),
-    runValue(run, ["rev-parse", "--show-toplevel"]),
-  ]);
+  const [rawDiff, headSha, baseSha, branch, authorName, authorEmail, remoteUrl, topLevel] =
+    await Promise.all([
+      run(["diff", "--no-color", base]),
+      runValue(run, ["rev-parse", "HEAD"]),
+      runValue(run, ["rev-parse", base]),
+      runValue(run, ["rev-parse", "--abbrev-ref", "HEAD"]),
+      runValue(run, ["config", "user.name"]),
+      runValue(run, ["config", "user.email"]),
+      runValue(run, ["remote", "get-url", "origin"]),
+      runValue(run, ["rev-parse", "--show-toplevel"]),
+    ]);
 
   const files = parseUnifiedDiff(rawDiff);
   const diff: DiffSummary = {
@@ -57,7 +66,8 @@ export async function loadGitDiffChange(options: GitDiffSourceOptions, run: GitR
   const repoName = repoNameFromRemote(remoteUrl) ?? basename(topLevel) ?? "local-repo";
   // Prefer the configured name over the email as the identity, so a raw email
   // address is not the default value carried into telemetry/traces.
-  const username = authorName.length > 0 ? authorName : authorEmail.length > 0 ? authorEmail : "local";
+  const username =
+    authorName.length > 0 ? authorName : authorEmail.length > 0 ? authorEmail : "local";
 
   const metadata: ChangeMetadata = {
     provider: "local",

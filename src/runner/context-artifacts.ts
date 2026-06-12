@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import type { ChangedFile, DiffSummary, ReviewContext, ReviewContextArtifacts } from "../contracts/index.ts";
+import type {
+  ChangedFile,
+  DiffSummary,
+  ReviewContext,
+  ReviewContextArtifacts,
+} from "../contracts/index.ts";
 
 const CONTEXT_SCHEMA_VERSION = "ai-review.context.v1";
 const CHANGE_CONTEXT_FILENAME = "change-context.json";
@@ -92,15 +97,16 @@ function createPatchArtifactFilename(index: number, file: ChangedFile): string {
     .update(file.oldPath ?? "")
     .digest("hex")
     .slice(0, 12);
-  const safePathHint = file.path
-    .replaceAll("\\", "/")
-    .split("/")
-    .filter((segment) => segment.length > 0 && segment !== "." && segment !== "..")
-    .join("__")
-    .replaceAll(/[^A-Za-z0-9._-]/g, "_")
-    .replaceAll(/_+/g, "_")
-    .replaceAll(/^\.+|\.+$/g, "")
-    .slice(0, 80) || "file";
+  const safePathHint =
+    file.path
+      .replaceAll("\\", "/")
+      .split("/")
+      .filter((segment) => segment.length > 0 && segment !== "." && segment !== "..")
+      .join("__")
+      .replaceAll(/[^A-Za-z0-9._-]/g, "_")
+      .replaceAll(/_+/g, "_")
+      .replaceAll(/^\.+|\.+$/g, "")
+      .slice(0, 80) || "file";
 
   return `${ordinal}-${safePathHint}-${hash}.patch`;
 }

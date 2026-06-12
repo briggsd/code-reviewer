@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 describe("Fortis GitLab beta onboarding documentation", () => {
   test("documents self-managed GitLab beta onboarding, operations, and safety", async () => {

@@ -13,7 +13,11 @@ export interface TelemetryDeliveryError {
   stack?: string;
 }
 
-export type TelemetryDeliveryFailureReason = "queue_full" | "delivery_timeout" | "transport_error" | "closed";
+export type TelemetryDeliveryFailureReason =
+  | "queue_full"
+  | "delivery_timeout"
+  | "transport_error"
+  | "closed";
 
 export interface TelemetryDeliveryFailure {
   reason: TelemetryDeliveryFailureReason;

@@ -1,7 +1,7 @@
 import type { JsonValue } from "../contracts/common.ts";
 import type { TelemetryEvent } from "../contracts/telemetry.ts";
-import { NON_REAL_RUNTIME_KINDS } from "../runtime/runtime-kind.ts";
 import { assessThinReview } from "../runner/thin-review.ts";
+import { NON_REAL_RUNTIME_KINDS } from "../runtime/runtime-kind.ts";
 
 // Local copies of asNumber/isPlainObject/incrementMap — intentional local copy,
 // do NOT import from run-metrics-rollup.ts (keep each analytics module self-contained,
@@ -118,9 +118,8 @@ export function analyzeRunMetrics(
   for (const event of realEvents) {
     const data = event.data;
 
-    const tier = typeof data.riskTier === "string" && data.riskTier.length > 0
-      ? data.riskTier
-      : "unknown";
+    const tier =
+      typeof data.riskTier === "string" && data.riskTier.length > 0 ? data.riskTier : "unknown";
 
     const tierAcc = getOrCreateTierAccumulator(tierAccumulators, tier);
     tierAcc.runCount += 1;
@@ -173,10 +172,16 @@ export function analyzeRunMetrics(
     // are never flagged. Explicit --thin-floor wins for all events; otherwise legacy
     // events lacking reviewedFileCount fall back to the flat pre-#91 floor (see comment
     // at LEGACY_FLAT_THIN_FLOOR) so historical analyze output stays comparable.
-    const hasFileCount = typeof data.reviewedFileCount === "number" && Number.isFinite(data.reviewedFileCount);
-    const flatFloor = options?.thinReviewOutputTokenFloor ?? (hasFileCount ? undefined : LEGACY_FLAT_THIN_FLOOR);
+    const hasFileCount =
+      typeof data.reviewedFileCount === "number" && Number.isFinite(data.reviewedFileCount);
+    const flatFloor =
+      options?.thinReviewOutputTokenFloor ?? (hasFileCount ? undefined : LEGACY_FLAT_THIN_FLOOR);
     const assessment = assessThinReview(
-      { riskTier: tier, reviewedFileCount: hasFileCount ? (data.reviewedFileCount as number) : 0, outputTokens },
+      {
+        riskTier: tier,
+        reviewedFileCount: hasFileCount ? (data.reviewedFileCount as number) : 0,
+        outputTokens,
+      },
       flatFloor !== undefined ? { flatFloor } : undefined,
     );
     if (assessment.thin) {
@@ -186,17 +191,29 @@ export function analyzeRunMetrics(
 
     // Optional block presence rates
     const groundingBlock = data.grounding;
-    if (groundingBlock !== undefined && isPlainObject(groundingBlock) && Object.keys(groundingBlock).length > 0) {
+    if (
+      groundingBlock !== undefined &&
+      isPlainObject(groundingBlock) &&
+      Object.keys(groundingBlock).length > 0
+    ) {
       groundingRunCount += 1;
     }
 
     const locationBackfillBlock = data.locationBackfill;
-    if (locationBackfillBlock !== undefined && isPlainObject(locationBackfillBlock) && Object.keys(locationBackfillBlock).length > 0) {
+    if (
+      locationBackfillBlock !== undefined &&
+      isPlainObject(locationBackfillBlock) &&
+      Object.keys(locationBackfillBlock).length > 0
+    ) {
       locationBackfillRunCount += 1;
     }
 
     const acknowledgementsBlock = data.acknowledgements;
-    if (acknowledgementsBlock !== undefined && isPlainObject(acknowledgementsBlock) && Object.keys(acknowledgementsBlock).length > 0) {
+    if (
+      acknowledgementsBlock !== undefined &&
+      isPlainObject(acknowledgementsBlock) &&
+      Object.keys(acknowledgementsBlock).length > 0
+    ) {
       acknowledgementRunCount += 1;
     }
   }
@@ -274,16 +291,16 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
     lines.push("  (no data)");
   } else {
     lines.push(
-      padRight("Tier", 10)
-        + padLeft("Runs", 6)
-        + padLeft("Findings/run", 14)
-        + padLeft("Out tok/run", 13)
-        + padLeft("In tok/run", 12)
-        + padLeft("Dur ms/run", 12)
-        + padLeft("Cost/run", 10)
-        + padLeft("Cost/finding", 14)
-        + padLeft("Thin", 6)
-        + padLeft("ThinRate", 10),
+      padRight("Tier", 10) +
+        padLeft("Runs", 6) +
+        padLeft("Findings/run", 14) +
+        padLeft("Out tok/run", 13) +
+        padLeft("In tok/run", 12) +
+        padLeft("Dur ms/run", 12) +
+        padLeft("Cost/run", 10) +
+        padLeft("Cost/finding", 14) +
+        padLeft("Thin", 6) +
+        padLeft("ThinRate", 10),
     );
     for (const tier of tierKeys) {
       const seg = analysis.byTier[tier];
@@ -291,16 +308,19 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
         continue;
       }
       lines.push(
-        padRight(tier, 10)
-          + padLeft(String(seg.runCount), 6)
-          + padLeft(seg.findingsPerRun.toFixed(2), 14)
-          + padLeft(seg.outputTokensPerRun.toFixed(0), 13)
-          + padLeft(seg.inputTokensPerRun.toFixed(0), 12)
-          + padLeft(seg.durationMsPerRun.toFixed(0), 12)
-          + padLeft(`$${seg.costPerRunUsd.toFixed(4)}`, 10)
-          + padLeft(seg.costPerFindingUsd === null ? "n/a" : `$${seg.costPerFindingUsd.toFixed(4)}`, 14)
-          + padLeft(String(seg.thinReviewRunCount), 6)
-          + padLeft(`${(seg.thinReviewRate * 100).toFixed(1)}%`, 10),
+        padRight(tier, 10) +
+          padLeft(String(seg.runCount), 6) +
+          padLeft(seg.findingsPerRun.toFixed(2), 14) +
+          padLeft(seg.outputTokensPerRun.toFixed(0), 13) +
+          padLeft(seg.inputTokensPerRun.toFixed(0), 12) +
+          padLeft(seg.durationMsPerRun.toFixed(0), 12) +
+          padLeft(`$${seg.costPerRunUsd.toFixed(4)}`, 10) +
+          padLeft(
+            seg.costPerFindingUsd === null ? "n/a" : `$${seg.costPerFindingUsd.toFixed(4)}`,
+            14,
+          ) +
+          padLeft(String(seg.thinReviewRunCount), 6) +
+          padLeft(`${(seg.thinReviewRate * 100).toFixed(1)}%`, 10),
       );
     }
   }
@@ -316,7 +336,9 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
     for (const reviewer of reviewerKeys) {
       const count = analysis.byReviewer[reviewer] ?? 0;
       const share = analysis.reviewerShare[reviewer] ?? 0;
-      lines.push(`  ${padRight(reviewer, 20)} ${padLeft(String(count), 5)} findings  (${(share * 100).toFixed(1)}%)`);
+      lines.push(
+        `  ${padRight(reviewer, 20)} ${padLeft(String(count), 5)} findings  (${(share * 100).toFixed(1)}%)`,
+      );
     }
   }
 
@@ -376,7 +398,10 @@ function incrementMap(map: Map<string, number>, key: string, amount: number): vo
   map.set(key, (map.get(key) ?? 0) + amount);
 }
 
-function getOrCreateTierAccumulator(map: Map<string, TierAccumulator>, key: string): TierAccumulator {
+function getOrCreateTierAccumulator(
+  map: Map<string, TierAccumulator>,
+  key: string,
+): TierAccumulator {
   let acc = map.get(key);
   if (acc === undefined) {
     acc = {

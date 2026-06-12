@@ -8,8 +8,8 @@ import type {
   RiskAssessment,
   SafetyMode,
 } from "../contracts/index.ts";
-import { createDefaultReviewConfig } from "./default-config.ts";
 import { normalizeReviewConfig } from "./config.ts";
+import { createDefaultReviewConfig } from "./default-config.ts";
 
 export interface ReviewFixture {
   runId?: string;
@@ -49,13 +49,17 @@ export function normalizeReviewFixture(value: unknown, source = "<inline>"): Rev
   return {
     ...(typeof value.runId === "string" ? { runId: value.runId } : {}),
     safetyMode: isSafetyMode(value.safetyMode) ? value.safetyMode : "trusted",
-    workingDirectory: typeof value.workingDirectory === "string" ? value.workingDirectory : process.cwd(),
-    contextDirectory: typeof value.contextDirectory === "string" ? value.contextDirectory : ".ai-review/context",
+    workingDirectory:
+      typeof value.workingDirectory === "string" ? value.workingDirectory : process.cwd(),
+    contextDirectory:
+      typeof value.contextDirectory === "string" ? value.contextDirectory : ".ai-review/context",
     metadata: value.metadata as unknown as ChangeMetadata,
     diff: value.diff as unknown as DiffSummary,
     config,
     ...(isRecord(value.risk) ? { risk: value.risk as unknown as RiskAssessment } : {}),
-    ...(isRecord(value.priorState) ? { priorState: value.priorState as unknown as PriorReviewState } : {}),
+    ...(isRecord(value.priorState)
+      ? { priorState: value.priorState as unknown as PriorReviewState }
+      : {}),
     fakeFindings: Array.isArray(value.fakeFindings) ? (value.fakeFindings as Finding[]) : [],
   };
 }

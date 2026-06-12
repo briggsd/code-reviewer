@@ -4,7 +4,16 @@ import type { CiOutcome, ReviewDecision, Severity } from "../contracts/index.ts"
 export type EvalCriterion =
   // At least one finding matches ALL provided filters (omitted filters are wildcards).
   // `minSeverity` matches that severity OR higher (critical > warning > suggestion).
-  | { kind: "has_finding"; label: string; severity?: Severity; minSeverity?: Severity; category?: string; reviewer?: string; pathIncludes?: string; textIncludes?: string }
+  | {
+      kind: "has_finding";
+      label: string;
+      severity?: Severity;
+      minSeverity?: Severity;
+      category?: string;
+      reviewer?: string;
+      pathIncludes?: string;
+      textIncludes?: string;
+    }
   // No finding at or above the given severity (e.g. clean diff must not raise warning+).
   | { kind: "no_findings_at_or_above"; label: string; severity: Severity }
   // At most `count` findings at or above `atOrAbove` (default: all severities) — signal-to-noise.

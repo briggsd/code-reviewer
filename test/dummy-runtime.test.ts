@@ -1,14 +1,9 @@
+import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
-import {
-  DummyAgentRuntime,
-  JsonlTraceSink,
-  loadReviewFixture,
-  runReview,
-} from "../src/index.ts";
 import type { RuntimeEvent } from "../src/index.ts";
+import { DummyAgentRuntime, JsonlTraceSink, loadReviewFixture, runReview } from "../src/index.ts";
 
 describe("DummyAgentRuntime", () => {
   test("runs coordinator and reviewers through the AgentRuntime boundary", async () => {
@@ -30,7 +25,10 @@ describe("DummyAgentRuntime", () => {
       "documentation",
       "performance",
     ]);
-    expect(result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "security")?.findings).toHaveLength(1);
+    expect(
+      result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "security")
+        ?.findings,
+    ).toHaveLength(1);
     expect(result.summary.decision).toBe("significant_concerns");
     expect(result.summary.outcome).toBe("fail");
   });
@@ -62,16 +60,24 @@ describe("DummyAgentRuntime", () => {
       const agentEvents = events.filter((event) => event.type.startsWith("agent."));
 
       expect(events[0]?.type).toBe("review.started");
-      expect(agentEvents.map((event) => `${event.type}:${event.role}`)).toContain("agent.started:coordinator");
-      const securityCompleted = agentEvents.find((event) => event.type === "agent.completed" && event.role === "security");
+      expect(agentEvents.map((event) => `${event.type}:${event.role}`)).toContain(
+        "agent.started:coordinator",
+      );
+      const securityCompleted = agentEvents.find(
+        (event) => event.type === "agent.completed" && event.role === "security",
+      );
 
-      expect(agentEvents.map((event) => `${event.type}:${event.role}`)).toContain("agent.completed:security");
+      expect(agentEvents.map((event) => `${event.type}:${event.role}`)).toContain(
+        "agent.completed:security",
+      );
       expect(securityCompleted?.data?.usage).toEqual({
         inputTokens: 0,
         outputTokens: 0,
         estimatedCostUsd: 0,
       });
-      expect(agentEvents.map((event) => `${event.type}:${event.role}`)).toContain("agent.output:coordinator");
+      expect(agentEvents.map((event) => `${event.type}:${event.role}`)).toContain(
+        "agent.output:coordinator",
+      );
       expect(events.at(-1)?.type).toBe("review.completed");
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });

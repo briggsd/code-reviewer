@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
-import { GitHubVcsAdapter, loadReviewFixture, runReview } from "../src/index.ts";
+import { readFile } from "node:fs/promises";
 import type { ChangeMetadata, ChangeRef, FetchLike, Finding } from "../src/index.ts";
+import { GitHubVcsAdapter, loadReviewFixture, runReview } from "../src/index.ts";
 
 const changeRef: ChangeRef = {
   provider: "github",
@@ -60,7 +60,9 @@ describe("GitHubVcsAdapter", () => {
     });
     expect(change.labels).toEqual(["security", "api"]);
     expect(fetchCalls[0]?.url).toBe("https://api.github.com/repos/example/payments-api/pulls/42");
-    expect((fetchCalls[0]?.init?.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
+    expect((fetchCalls[0]?.init?.headers as Record<string, string>).Authorization).toBe(
+      "Bearer test-token",
+    );
   });
 
   test("normalizes paginated GitHub changed files", async () => {
@@ -116,15 +118,22 @@ describe("GitHubVcsAdapter", () => {
           return jsonResponse({ id: 99, login: "ai-review-bot" });
         }
 
-        if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100") {
+        if (
+          url ===
+          "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100"
+        ) {
           return jsonResponse([]);
         }
 
         if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments") {
-          return jsonResponse({
-            id: 987,
-            html_url: "https://github.com/example/payments-api/pull/17#issuecomment-987",
-          }, {}, 201);
+          return jsonResponse(
+            {
+              id: 987,
+              html_url: "https://github.com/example/payments-api/pull/17#issuecomment-987",
+            },
+            {},
+            201,
+          );
         }
 
         return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
@@ -146,11 +155,17 @@ describe("GitHubVcsAdapter", () => {
 
     // No existing summary → a fresh comment is POSTed. Look up by method (the /user + comments-GET
     // calls run concurrently, so positional indexing is non-deterministic).
-    const postCall = calls.find((c) => c.url.endsWith("/issues/17/comments") && c.init?.method === "POST");
+    const postCall = calls.find(
+      (c) => c.url.endsWith("/issues/17/comments") && c.init?.method === "POST",
+    );
     const requestBody = JSON.parse(String(postCall?.init?.body)) as { body: string };
     expect(postCall).toBeDefined();
-    expect((postCall?.init?.headers as Record<string, string>).Authorization).toBe("Bearer write-token");
-    expect((postCall?.init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    expect((postCall?.init?.headers as Record<string, string>).Authorization).toBe(
+      "Bearer write-token",
+    );
+    expect((postCall?.init?.headers as Record<string, string>)["Content-Type"]).toBe(
+      "application/json",
+    );
     expect(requestBody.body).toContain("Account lookup misses authorization");
     expect(requestBody.body).toContain("<!-- ai-code-review-factory");
     expect(requestBody.body).toContain("fixture-auth-pr");
@@ -176,15 +191,21 @@ describe("GitHubVcsAdapter", () => {
           return jsonResponse({ id: 99, login: "bot-user" });
         }
 
-        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+        if (
+          url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100"
+        ) {
           return jsonResponse([]);
         }
 
         if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments") {
-          return jsonResponse({
-            id: 456,
-            html_url: "https://github.com/example/payments-api/pull/17#discussion_r456",
-          }, {}, 201);
+          return jsonResponse(
+            {
+              id: 456,
+              html_url: "https://github.com/example/payments-api/pull/17#discussion_r456",
+            },
+            {},
+            201,
+          );
         }
 
         return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
@@ -219,12 +240,22 @@ describe("GitHubVcsAdapter", () => {
 
     // Use URL/method-based lookup rather than positional index since GET /user is now
     // fetched concurrently with the comments list (Promise.all in findExistingInlineComments).
-    const postCall = calls.find((c) => c.url === "https://api.github.com/repos/example/payments-api/pulls/17/comments" && c.init?.method === "POST");
+    const postCall = calls.find(
+      (c) =>
+        c.url === "https://api.github.com/repos/example/payments-api/pulls/17/comments" &&
+        c.init?.method === "POST",
+    );
     const requestBody = JSON.parse(String(postCall?.init?.body)) as Record<string, unknown>;
-    expect(calls.map((c) => c.url)).toContain("https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100");
-    expect(postCall?.url).toBe("https://api.github.com/repos/example/payments-api/pulls/17/comments");
+    expect(calls.map((c) => c.url)).toContain(
+      "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100",
+    );
+    expect(postCall?.url).toBe(
+      "https://api.github.com/repos/example/payments-api/pulls/17/comments",
+    );
     expect(postCall?.init?.method).toBe("POST");
-    expect((postCall?.init?.headers as Record<string, string>).Authorization).toBe("Bearer write-token");
+    expect((postCall?.init?.headers as Record<string, string>).Authorization).toBe(
+      "Bearer write-token",
+    );
     expect(requestBody).toMatchObject({
       commit_id: "abc123",
       path: "src/auth/accounts.ts",
@@ -234,9 +265,13 @@ describe("GitHubVcsAdapter", () => {
     expect(String(requestBody.body)).toContain("### AI review: 🚨 Critical · authorization");
     expect(String(requestBody.body)).toContain("**Account lookup misses authorization**");
     expect(String(requestBody.body)).toContain("<summary>Evidence</summary>");
-    expect(String(requestBody.body)).toContain("- The handler reads accountId and returns data without an ownership check.");
+    expect(String(requestBody.body)).toContain(
+      "- The handler reads accountId and returns data without an ownership check.",
+    );
     expect(String(requestBody.body)).toContain("**Recommendation**");
-    expect(String(requestBody.body)).toContain("CI status and the summary comment remain authoritative");
+    expect(String(requestBody.body)).toContain(
+      "CI status and the summary comment remain authoritative",
+    );
     expect(String(requestBody.body)).toContain("<!-- ai-code-review-factory-inline");
     expect(String(requestBody.body)).toContain("fnd_auth_missing_owner_check");
     expect(String(requestBody.body)).toContain("abc123");
@@ -263,7 +298,9 @@ describe("GitHubVcsAdapter", () => {
     const adapter = new GitHubVcsAdapter({
       fetch: async (input) => {
         const url = String(input);
-        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+        if (
+          url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100"
+        ) {
           return jsonResponse([]);
         }
 
@@ -312,7 +349,9 @@ describe("GitHubVcsAdapter", () => {
     expect(result.skippedInlineCount).toBe(1);
     expect(result.failedInlineCount).toBe(1);
     expect(result.findings.map((finding) => finding.disposition)).toEqual(["skipped", "failed"]);
-    expect(result.findings[1]?.reason).toContain("GitHub API request failed: 422 Unprocessable Entity");
+    expect(result.findings[1]?.reason).toContain(
+      "GitHub API request failed: 422 Unprocessable Entity",
+    );
   });
 
   test("skips duplicate inline comments for the same finding and head sha", async () => {
@@ -327,7 +366,9 @@ describe("GitHubVcsAdapter", () => {
           return jsonResponse({ id: 99, login: "bot-user" });
         }
 
-        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+        if (
+          url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100"
+        ) {
           return jsonResponse([
             {
               id: 456,
@@ -409,7 +450,9 @@ describe("GitHubVcsAdapter", () => {
         const url = String(input);
         calls.push({ url, ...(init !== undefined ? { init } : {}) });
 
-        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+        if (
+          url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100"
+        ) {
           return jsonResponse([
             {
               id: 111,
@@ -427,10 +470,14 @@ describe("GitHubVcsAdapter", () => {
         }
 
         if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments") {
-          return jsonResponse({
-            id: 789,
-            html_url: "https://github.com/example/payments-api/pull/17#discussion_r789",
-          }, {}, 201);
+          return jsonResponse(
+            {
+              id: 789,
+              html_url: "https://github.com/example/payments-api/pull/17#discussion_r789",
+            },
+            {},
+            201,
+          );
         }
 
         return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
@@ -466,8 +513,12 @@ describe("GitHubVcsAdapter", () => {
     // GET /user is now fetched alongside the comments list; use contains checks rather than
     // an exact ordered list (#84). The /user call returns 404 here → botId undefined → dedup
     // map is empty (safe-on-failure); the finding is still posted.
-    expect(calls.map((call) => call.url)).toContain("https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100");
-    expect(calls.map((call) => call.url)).toContain("https://api.github.com/repos/example/payments-api/pulls/17/comments");
+    expect(calls.map((call) => call.url)).toContain(
+      "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100",
+    );
+    expect(calls.map((call) => call.url)).toContain(
+      "https://api.github.com/repos/example/payments-api/pulls/17/comments",
+    );
     expect(result.postedInlineCount).toBe(1);
     expect(result.skippedInlineCount).toBe(0);
     expect(result.findings[0]).toMatchObject({
@@ -482,7 +533,10 @@ describe("GitHubVcsAdapter", () => {
       fetch: async (input) => {
         const url = String(input);
 
-        if (url === "https://api.github.com/repos/example/payments-api/issues/42/comments?per_page=100") {
+        if (
+          url ===
+          "https://api.github.com/repos/example/payments-api/issues/42/comments?per_page=100"
+        ) {
           return jsonResponse([
             { id: 111, body: "unrelated comment" },
             {
@@ -515,7 +569,10 @@ describe("GitHubVcsAdapter", () => {
 
     expect(state?.previousRunId).toBe("prior-run");
     expect(state?.previousHeadSha).toBe("old-head");
-    expect(state?.findings.map((finding) => finding.stableId)).toEqual(["fnd_auth_1", "fnd_auth_2"]);
+    expect(state?.findings.map((finding) => finding.stableId)).toEqual([
+      "fnd_auth_1",
+      "fnd_auth_2",
+    ]);
     expect(state?.hiddenMetadata?.repository).toBe("example/payments-api");
   });
 
@@ -530,11 +587,18 @@ describe("GitHubVcsAdapter", () => {
           return jsonResponse({ id: 99, login: "ai-review-bot" });
         }
 
-        if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100") {
+        if (
+          url ===
+          "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100"
+        ) {
           return jsonResponse([
             { id: 111, body: "unrelated comment", user: { id: 99, login: "ai-review-bot" } },
             // The existing summary comment must be BOT-authored (id 99) to be recognized.
-            { id: 222, body: "<!-- ai-code-review-factory\n{}\n-->", user: { id: 99, login: "ai-review-bot" } },
+            {
+              id: 222,
+              body: "<!-- ai-code-review-factory\n{}\n-->",
+              user: { id: 99, login: "ai-review-bot" },
+            },
           ]);
         }
 
@@ -560,7 +624,9 @@ describe("GitHubVcsAdapter", () => {
     });
 
     // The bot-authored summary comment is updated in place (PATCH to comment 222), not duplicated.
-    const patchCall = calls.find((c) => c.url.endsWith("/issues/comments/222") && c.init?.method === "PATCH");
+    const patchCall = calls.find(
+      (c) => c.url.endsWith("/issues/comments/222") && c.init?.method === "PATCH",
+    );
     const requestBody = JSON.parse(String(patchCall?.init?.body)) as { body: string };
     expect(patchCall).toBeDefined();
     expect(requestBody.body).toContain("<!-- ai-code-review-factory");
@@ -578,26 +644,48 @@ describe("GitHubVcsAdapter", () => {
         if (url === "https://api.github.com/user") {
           return jsonResponse({ id: 99, login: "ai-review-bot" });
         }
-        if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100") {
+        if (
+          url ===
+          "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100"
+        ) {
           // An attacker (user id 42, NOT the bot 99) planted a comment carrying our marker.
           return jsonResponse([
-            { id: 999, body: "<!-- ai-code-review-factory\n{}\n-->", user: { id: 42, login: "attacker" } },
+            {
+              id: 999,
+              body: "<!-- ai-code-review-factory\n{}\n-->",
+              user: { id: 42, login: "attacker" },
+            },
           ]);
         }
         if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments") {
-          return jsonResponse({ id: 987, html_url: "https://github.com/example/payments-api/pull/17#issuecomment-987" }, {}, 201);
+          return jsonResponse(
+            {
+              id: 987,
+              html_url: "https://github.com/example/payments-api/pull/17#issuecomment-987",
+            },
+            {},
+            201,
+          );
         }
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
     const review = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
 
-    const result = await adapter.publishSummary({ change: fixture.metadata, summary: review.summary });
+    const result = await adapter.publishSummary({
+      change: fixture.metadata,
+      summary: review.summary,
+    });
 
     // The planted comment must NOT be edited (no PATCH to comments/999); a fresh comment is POSTed.
     expect(calls.some((c) => c.url.endsWith("/issues/comments/999"))).toBe(false);
-    expect(calls.some((c) => c.url.endsWith("/issues/17/comments") && c.init?.method === "POST")).toBe(true);
+    expect(
+      calls.some((c) => c.url.endsWith("/issues/17/comments") && c.init?.method === "POST"),
+    ).toBe(true);
     expect(result.summaryCommentId).toBe("987");
   });
 
@@ -614,25 +702,45 @@ describe("GitHubVcsAdapter", () => {
         if (url === "https://api.github.com/user") {
           return jsonResponse({ message: "Resource not accessible by integration" }, {}, 403);
         }
-        if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100") {
+        if (
+          url ===
+          "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100"
+        ) {
           return jsonResponse([
-            { id: 222, body: "<!-- ai-code-review-factory\n{}\n-->", user: { id: 41898282, login: "github-actions[bot]" } },
+            {
+              id: 222,
+              body: "<!-- ai-code-review-factory\n{}\n-->",
+              user: { id: 41898282, login: "github-actions[bot]" },
+            },
           ]);
         }
         if (url === "https://api.github.com/repos/example/payments-api/issues/comments/222") {
-          return jsonResponse({ id: 222, html_url: "https://github.com/example/payments-api/pull/17#issuecomment-222" });
+          return jsonResponse({
+            id: 222,
+            html_url: "https://github.com/example/payments-api/pull/17#issuecomment-222",
+          });
         }
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
     const review = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
 
-    const result = await adapter.publishSummary({ change: fixture.metadata, summary: review.summary });
+    const result = await adapter.publishSummary({
+      change: fixture.metadata,
+      summary: review.summary,
+    });
 
-    const patchCall = calls.find((c) => c.url.endsWith("/issues/comments/222") && c.init?.method === "PATCH");
+    const patchCall = calls.find(
+      (c) => c.url.endsWith("/issues/comments/222") && c.init?.method === "PATCH",
+    );
     expect(patchCall).toBeDefined();
-    expect(calls.some((c) => c.url.endsWith("/issues/17/comments") && c.init?.method === "POST")).toBe(false);
+    expect(
+      calls.some((c) => c.url.endsWith("/issues/17/comments") && c.init?.method === "POST"),
+    ).toBe(false);
     expect(result.summaryCommentId).toBe("222");
   });
 
@@ -647,37 +755,62 @@ describe("GitHubVcsAdapter", () => {
         if (url === "https://api.github.com/user") {
           return jsonResponse({ message: "Resource not accessible by integration" }, {}, 403);
         }
-        if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100") {
+        if (
+          url ===
+          "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100"
+        ) {
           // Attacker-authored marker comment: the actions-bot fallback id must NOT match user id 42.
           return jsonResponse([
-            { id: 999, body: "<!-- ai-code-review-factory\n{}\n-->", user: { id: 42, login: "attacker" } },
+            {
+              id: 999,
+              body: "<!-- ai-code-review-factory\n{}\n-->",
+              user: { id: 42, login: "attacker" },
+            },
           ]);
         }
         if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments") {
-          return jsonResponse({ id: 987, html_url: "https://github.com/example/payments-api/pull/17#issuecomment-987" }, {}, 201);
+          return jsonResponse(
+            {
+              id: 987,
+              html_url: "https://github.com/example/payments-api/pull/17#issuecomment-987",
+            },
+            {},
+            201,
+          );
         }
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
     const review = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
 
-    const result = await adapter.publishSummary({ change: fixture.metadata, summary: review.summary });
+    const result = await adapter.publishSummary({
+      change: fixture.metadata,
+      summary: review.summary,
+    });
 
     expect(calls.some((c) => c.url.endsWith("/issues/comments/999"))).toBe(false);
-    expect(calls.some((c) => c.url.endsWith("/issues/17/comments") && c.init?.method === "POST")).toBe(true);
+    expect(
+      calls.some((c) => c.url.endsWith("/issues/17/comments") && c.init?.method === "POST"),
+    ).toBe(true);
     expect(result.summaryCommentId).toBe("987");
   });
 
   test("throws a clear error on GitHub API failures", async () => {
     const adapter = new GitHubVcsAdapter({
-      fetch: async () => new Response(JSON.stringify({ message: "bad credentials" }), {
-        status: 401,
-        statusText: "Unauthorized",
-      }),
+      fetch: async () =>
+        new Response(JSON.stringify({ message: "bad credentials" }), {
+          status: 401,
+          statusText: "Unauthorized",
+        }),
     });
 
-    await expect(adapter.getChange(changeRef)).rejects.toThrow("GitHub API request failed: 401 Unauthorized");
+    await expect(adapter.getChange(changeRef)).rejects.toThrow(
+      "GitHub API request failed: 401 Unauthorized",
+    );
   });
 
   test("readBaseBranchFile returns decoded UTF-8 content from base64 contents API response", async () => {
@@ -702,15 +835,18 @@ describe("GitHubVcsAdapter", () => {
     expect(contentsUrl).toContain("/contents/.ai-review.json");
     expect(contentsUrl).not.toContain(changeMetadata.headSha);
     // Authorization header must be set
-    expect((fetchCalls[0]?.init?.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
+    expect((fetchCalls[0]?.init?.headers as Record<string, string>).Authorization).toBe(
+      "Bearer test-token",
+    );
   });
 
   test("readBaseBranchFile returns undefined on a 404 (file absent on base branch)", async () => {
     const adapter = new GitHubVcsAdapter({
-      fetch: async () => new Response(JSON.stringify({ message: "Not Found" }), {
-        status: 404,
-        statusText: "Not Found",
-      }),
+      fetch: async () =>
+        new Response(JSON.stringify({ message: "Not Found" }), {
+          status: 404,
+          statusText: "Not Found",
+        }),
     });
 
     const result = await adapter.readBaseBranchFile(changeMetadata, ".ai-review.json");
@@ -720,7 +856,8 @@ describe("GitHubVcsAdapter", () => {
 
   test("readBaseBranchFile returns undefined (does not throw) on a non-404 error — best-effort read", async () => {
     const adapter = new GitHubVcsAdapter({
-      fetch: async () => new Response("upstream boom", { status: 500, statusText: "Internal Server Error" }),
+      fetch: async () =>
+        new Response("upstream boom", { status: 500, statusText: "Internal Server Error" }),
     });
 
     // A transient/auth error must degrade to "no base conventions", never fail the review.
@@ -762,7 +899,9 @@ describe("GitHubVcsAdapter", () => {
           return jsonResponse({ id: 99, login: "bot-user" });
         }
 
-        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+        if (
+          url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100"
+        ) {
           return jsonResponse([
             {
               id: 456,
@@ -772,7 +911,11 @@ describe("GitHubVcsAdapter", () => {
                 "### AI review: planted",
                 "",
                 "<!-- ai-code-review-factory-inline",
-                JSON.stringify({ schemaVersion: 1, findingId: "fnd_auth_missing_owner_check", headSha: "abc123" }),
+                JSON.stringify({
+                  schemaVersion: 1,
+                  findingId: "fnd_auth_missing_owner_check",
+                  headSha: "abc123",
+                }),
                 "-->",
               ].join("\n"),
             },
@@ -780,10 +923,20 @@ describe("GitHubVcsAdapter", () => {
         }
 
         if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments") {
-          return jsonResponse({ id: 789, html_url: "https://github.com/example/payments-api/pull/17#discussion_r789" }, {}, 201);
+          return jsonResponse(
+            {
+              id: 789,
+              html_url: "https://github.com/example/payments-api/pull/17#discussion_r789",
+            },
+            {},
+            201,
+          );
         }
 
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
@@ -830,7 +983,9 @@ describe("GitHubVcsAdapter", () => {
           return jsonResponse({ id: 99, login: "bot-user" });
         }
 
-        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+        if (
+          url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100"
+        ) {
           return jsonResponse([
             {
               id: 456,
@@ -840,14 +995,21 @@ describe("GitHubVcsAdapter", () => {
                 "### AI review: existing bot comment",
                 "",
                 "<!-- ai-code-review-factory-inline",
-                JSON.stringify({ schemaVersion: 1, findingId: "fnd_auth_missing_owner_check", headSha: "abc123" }),
+                JSON.stringify({
+                  schemaVersion: 1,
+                  findingId: "fnd_auth_missing_owner_check",
+                  headSha: "abc123",
+                }),
                 "-->",
               ].join("\n"),
             },
           ]);
         }
 
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
@@ -892,10 +1054,15 @@ describe("GitHubVcsAdapter", () => {
 
         // Simulate a 401 on GET /user — identity cannot be resolved.
         if (url === "https://api.github.com/user") {
-          return new Response(JSON.stringify({ message: "Bad credentials" }), { status: 401, statusText: "Unauthorized" });
+          return new Response(JSON.stringify({ message: "Bad credentials" }), {
+            status: 401,
+            statusText: "Unauthorized",
+          });
         }
 
-        if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100") {
+        if (
+          url === "https://api.github.com/repos/example/payments-api/pulls/17/comments?per_page=100"
+        ) {
           return jsonResponse([
             {
               id: 456,
@@ -905,7 +1072,11 @@ describe("GitHubVcsAdapter", () => {
                 "### AI review: would-be duplicate",
                 "",
                 "<!-- ai-code-review-factory-inline",
-                JSON.stringify({ schemaVersion: 1, findingId: "fnd_auth_missing_owner_check", headSha: "abc123" }),
+                JSON.stringify({
+                  schemaVersion: 1,
+                  findingId: "fnd_auth_missing_owner_check",
+                  headSha: "abc123",
+                }),
                 "-->",
               ].join("\n"),
             },
@@ -913,10 +1084,20 @@ describe("GitHubVcsAdapter", () => {
         }
 
         if (url === "https://api.github.com/repos/example/payments-api/pulls/17/comments") {
-          return jsonResponse({ id: 789, html_url: "https://github.com/example/payments-api/pull/17#discussion_r789" }, {}, 201);
+          return jsonResponse(
+            {
+              id: 789,
+              html_url: "https://github.com/example/payments-api/pull/17#discussion_r789",
+            },
+            {},
+            201,
+          );
         }
 
-        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
       },
     });
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
@@ -979,7 +1160,11 @@ async function readFixture(filename: string): Promise<unknown> {
   return JSON.parse(await readFile(`test/fixtures/github/${filename}`, "utf8")) as unknown;
 }
 
-function jsonResponse(value: unknown, headers: Record<string, string> = {}, status = 200): Response {
+function jsonResponse(
+  value: unknown,
+  headers: Record<string, string> = {},
+  status = 200,
+): Response {
   return new Response(JSON.stringify(value), {
     status,
     statusText: status >= 200 && status < 300 ? "OK" : "Error",

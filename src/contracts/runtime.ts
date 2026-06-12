@@ -3,12 +3,12 @@ import type {
   AgentRole,
   JsonValue,
   ModelSelection,
+  ReviewErrorClassification,
   Severity,
   TokenUsage,
   TraceEventType,
 } from "./common.ts";
 import type { ChangedFile, Finding, ReviewContext, ReviewSummary } from "./review.ts";
-import type { ReviewErrorClassification } from "./common.ts";
 
 export interface RuntimeToolPolicy {
   allowRead: boolean;

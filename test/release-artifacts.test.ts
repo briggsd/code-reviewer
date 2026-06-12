@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 describe("release artifact workflow", () => {
   test("is manual-only, read-only, and uploads an npm tarball artifact", async () => {
@@ -17,7 +17,8 @@ describe("release artifact workflow", () => {
     expect(workflow).toContain("bun run check");
     expect(workflow).toContain("bun run pack:smoke");
     expect(workflow).toContain("npm pack --pack-destination dist");
-    expect(workflow).toContain("actions/upload-artifact@v4");
+    // Actions are SHA-pinned repo-wide (#96); the trailing comment preserves the version tag.
+    expect(workflow).toMatch(/actions\/upload-artifact@[0-9a-f]{40} # v4/);
     expect(workflow).not.toContain("npm publish");
 
     expect(readme).toContain("[Release artifacts](docs/release-artifacts.md)");
@@ -26,7 +27,9 @@ describe("release artifact workflow", () => {
     expect(guide).toContain("contents: read");
     expect(guide).toContain("immutable URL");
     expect(guide).toContain("Fortis/self-managed GitLab beta");
-    expect(guide).toContain("https://gitlab.example.com/fortis/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz");
+    expect(guide).toContain(
+      "https://gitlab.example.com/fortis/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz",
+    );
     expect(readiness).toContain("manual release artifact workflow");
   });
 });

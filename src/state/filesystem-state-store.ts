@@ -51,12 +51,14 @@ export class FileSystemReviewStateStore implements ReviewStateStore {
     const priorState: PriorReviewState = {
       previousRunId: runId,
       previousHeadSha: record.context.metadata.headSha,
-      findings: summary.findings.map((finding, index): PriorFindingState => ({
-        stableId: finding.id ?? `${runId}:${index}`,
-        finding,
-        status: "open",
-        lastSeenHeadSha: record.context.metadata.headSha,
-      })),
+      findings: summary.findings.map(
+        (finding, index): PriorFindingState => ({
+          stableId: finding.id ?? `${runId}:${index}`,
+          finding,
+          status: "open",
+          lastSeenHeadSha: record.context.metadata.headSha,
+        }),
+      ),
       hiddenMetadata: {
         decision: summary.decision,
         outcome: summary.outcome,

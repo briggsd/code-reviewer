@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 describe("inline publishing documentation", () => {
   test("documents the opt-in GitHub inline path and conservative readiness gates", async () => {

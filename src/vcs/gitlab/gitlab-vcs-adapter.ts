@@ -1,8 +1,8 @@
 import type {
-  ChangeMetadata,
-  ChangeRef,
   ChangedFile,
   ChangedFileStatus,
+  ChangeMetadata,
+  ChangeRef,
   DiffSummary,
   Finding,
   PriorReviewState,
@@ -12,9 +12,16 @@ import type {
   PublishSummaryResult,
   VcsAdapter,
 } from "../../contracts/index.ts";
-import { formatInlineFindingComment, inlineCommentKey, parseInlineCommentMetadata } from "../../publisher/inline-comment-markdown.ts";
+import {
+  formatInlineFindingComment,
+  inlineCommentKey,
+  parseInlineCommentMetadata,
+} from "../../publisher/inline-comment-markdown.ts";
 import { formatReviewSummaryMarkdown } from "../../publisher/summary-markdown.ts";
-import { createPriorReviewStateFromMetadata, parseSummaryHiddenMetadata } from "../../publisher/summary-metadata.ts";
+import {
+  createPriorReviewStateFromMetadata,
+  parseSummaryHiddenMetadata,
+} from "../../publisher/summary-metadata.ts";
 
 export type GitLabFetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -78,8 +85,17 @@ interface GitLabNoteResponse {
 }
 
 // Inline diff-discussion types — GitLab discussion IDs are hashes (strings), note IDs are numbers.
-interface GitLabDiscussionNote { id: number; body?: string; web_url?: string; author?: GitLabUserResponse; system?: boolean }
-interface GitLabDiscussionResponse { id: string; notes?: GitLabDiscussionNote[] }
+interface GitLabDiscussionNote {
+  id: number;
+  body?: string;
+  web_url?: string;
+  author?: GitLabUserResponse;
+  system?: boolean;
+}
+interface GitLabDiscussionResponse {
+  id: string;
+  notes?: GitLabDiscussionNote[];
+}
 
 export class GitLabVcsAdapter implements VcsAdapter {
   readonly provider = "gitlab" as const;
@@ -108,11 +124,13 @@ export class GitLabVcsAdapter implements VcsAdapter {
     if (this.botUserIdPromise === undefined) {
       this.botUserIdPromise = (async () => {
         try {
-          const response = await this.fetchImpl(`${this.apiBaseUrl}/user`, { headers: this.headers() });
+          const response = await this.fetchImpl(`${this.apiBaseUrl}/user`, {
+            headers: this.headers(),
+          });
           if (!response.ok) {
             return undefined;
           }
-          const data = await response.json() as { id?: unknown };
+          const data = (await response.json()) as { id?: unknown };
           return typeof data.id === "number" ? data.id : undefined;
         } catch {
           return undefined;
@@ -135,7 +153,9 @@ export class GitLabVcsAdapter implements VcsAdapter {
         name: ref.repository.name,
         slug: ref.repository.slug,
         ...(ref.repository.webUrl !== undefined ? { webUrl: ref.repository.webUrl } : {}),
-        ...(ref.repository.defaultBranch !== undefined ? { defaultBranch: ref.repository.defaultBranch } : {}),
+        ...(ref.repository.defaultBranch !== undefined
+          ? { defaultBranch: ref.repository.defaultBranch }
+          : {}),
       },
       changeId: String(response.iid),
       headSha,
@@ -143,7 +163,9 @@ export class GitLabVcsAdapter implements VcsAdapter {
       sourceBranch: response.source_branch,
       targetBranch: response.target_branch,
       title: response.title,
-      ...(response.description !== null && response.description !== undefined ? { description: response.description } : {}),
+      ...(response.description !== null && response.description !== undefined
+        ? { description: response.description }
+        : {}),
       author: {
         ...(response.author.id !== undefined ? { id: String(response.author.id) } : {}),
         username: response.author.username,
@@ -158,17 +180,27 @@ export class GitLabVcsAdapter implements VcsAdapter {
   }
 
   async getDiff(ref: ChangeRef): Promise<DiffSummary> {
-    const response = await this.request<GitLabChangesResponse>(`${this.mergeRequestPath(ref)}/changes`);
+    const response = await this.request<GitLabChangesResponse>(
+      `${this.mergeRequestPath(ref)}/changes`,
+    );
     const files = response.changes.map((change) => normalizeChangedFile(change));
     const hasOmittedDiff = response.changes.some((change) => isOmittedDiff(change));
-    const truncated = response.overflow === true || response.changes.some((change) => change.too_large === true || change.collapsed === true) || hasOmittedDiff;
+    const truncated =
+      response.overflow === true ||
+      response.changes.some((change) => change.too_large === true || change.collapsed === true) ||
+      hasOmittedDiff;
 
     return {
       files,
       totalAdditions: files.reduce((sum, file) => sum + file.additions, 0),
       totalDeletions: files.reduce((sum, file) => sum + file.deletions, 0),
       truncated,
-      ...(truncated ? { truncationReason: "One or more GitLab merge request diffs were omitted or marked overflow/collapsed." } : {}),
+      ...(truncated
+        ? {
+            truncationReason:
+              "One or more GitLab merge request diffs were omitted or marked overflow/collapsed.",
+          }
+        : {}),
     };
   }
 
@@ -186,15 +218,19 @@ export class GitLabVcsAdapter implements VcsAdapter {
       ...(input.hiddenMetadata !== undefined ? { hiddenMetadata: input.hiddenMetadata } : {}),
     });
     const existing = await this.findExistingSummaryNote(input.change);
-    const response = existing === undefined
-      ? await this.request<GitLabNoteResponse>(this.mergeRequestNotesPath(input.change), {
-        method: "POST",
-        body: { body },
-      })
-      : await this.request<GitLabNoteResponse>(this.mergeRequestNotePath(input.change, existing.id), {
-        method: "PUT",
-        body: { body },
-      });
+    const response =
+      existing === undefined
+        ? await this.request<GitLabNoteResponse>(this.mergeRequestNotesPath(input.change), {
+            method: "POST",
+            body: { body },
+          })
+        : await this.request<GitLabNoteResponse>(
+            this.mergeRequestNotePath(input.change, existing.id),
+            {
+              method: "PUT",
+              body: { body },
+            },
+          );
 
     return {
       provider: "gitlab",
@@ -225,7 +261,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
       return undefined;
     }
 
-    const data = await response.json() as { content?: unknown; encoding?: unknown };
+    const data = (await response.json()) as { content?: unknown; encoding?: unknown };
     if (data.encoding !== "base64" || typeof data.content !== "string") {
       return undefined;
     }
@@ -233,11 +269,15 @@ export class GitLabVcsAdapter implements VcsAdapter {
     return Buffer.from(data.content, "base64").toString("utf8");
   }
 
-  async publishInlineFindings(input: PublishInlineFindingsInput): Promise<PublishInlineFindingsResult> {
+  async publishInlineFindings(
+    input: PublishInlineFindingsInput,
+  ): Promise<PublishInlineFindingsResult> {
     // Fetch diff_refs from the MR — these three SHAs are required to position inline comments
     // as GitLab diff discussions.  A hard fetch failure propagates like other adapter methods
     // (publish-inline is already inside the publish path — mirror publishSummary's request usage).
-    const mrResponse = await this.request<GitLabMergeRequestResponse>(this.mergeRequestPath(input.change));
+    const mrResponse = await this.request<GitLabMergeRequestResponse>(
+      this.mergeRequestPath(input.change),
+    );
     const diffRefs = mrResponse.diff_refs;
 
     // If any of the three positioning SHAs is absent we cannot place comments — skip everything
@@ -274,7 +314,9 @@ export class GitLabVcsAdapter implements VcsAdapter {
     // empty — worst case is a duplicate comment, which is the safe direction; suppression
     // (skipping a real finding) is the unsafe one (#84).
     const [discussions, botId] = await Promise.all([
-      this.request<GitLabDiscussionResponse[]>(`${this.mergeRequestPath(input.change)}/discussions`),
+      this.request<GitLabDiscussionResponse[]>(
+        `${this.mergeRequestPath(input.change)}/discussions`,
+      ),
       this.resolveBotUserId(),
     ]);
     const existingByKey = new Map<string, GitLabDiscussionNote>();
@@ -311,7 +353,10 @@ export class GitLabVcsAdapter implements VcsAdapter {
       }
 
       const findingId = finding.id;
-      const duplicate = findingId === undefined ? undefined : existingByKey.get(inlineCommentKey(findingId, input.change.headSha));
+      const duplicate =
+        findingId === undefined
+          ? undefined
+          : existingByKey.get(inlineCommentKey(findingId, input.change.headSha));
       if (duplicate !== undefined && findingId !== undefined) {
         outcomes.push({
           findingId,
@@ -383,7 +428,9 @@ export class GitLabVcsAdapter implements VcsAdapter {
     return `${this.mergeRequestNotesPath(change)}/${encodeURIComponent(String(noteId))}`;
   }
 
-  private async findExistingSummaryNote(change: ChangeMetadata): Promise<GitLabNoteResponse | undefined> {
+  private async findExistingSummaryNote(
+    change: ChangeMetadata,
+  ): Promise<GitLabNoteResponse | undefined> {
     // Only treat a BOT-authored note as the existing summary to update (#84). A planted
     // `<!-- ai-code-review-factory` marker from another author would otherwise be picked as the
     // "existing" summary and make publishSummary PUT a note the bot can't edit → the summary post
@@ -394,14 +441,19 @@ export class GitLabVcsAdapter implements VcsAdapter {
       this.resolveBotUserId(),
     ]);
 
-    return notes.findLast((note) =>
-      note.system !== true &&
-      note.body?.includes("<!-- ai-code-review-factory") === true &&
-      botId !== undefined &&
-      note.author?.id === botId);
+    return notes.findLast(
+      (note) =>
+        note.system !== true &&
+        note.body?.includes("<!-- ai-code-review-factory") === true &&
+        botId !== undefined &&
+        note.author?.id === botId,
+    );
   }
 
-  private async request<T>(pathOrUrl: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+  private async request<T>(
+    pathOrUrl: string,
+    options: { method?: string; body?: unknown } = {},
+  ): Promise<T> {
     const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${this.apiBaseUrl}${pathOrUrl}`;
     const response = await this.fetchImpl(url, {
       ...(options.method !== undefined ? { method: options.method } : {}),
@@ -410,10 +462,12 @@ export class GitLabVcsAdapter implements VcsAdapter {
     });
 
     if (!response.ok) {
-      throw new Error(`GitLab API request failed: ${response.status} ${response.statusText} for ${url}`);
+      throw new Error(
+        `GitLab API request failed: ${response.status} ${response.statusText} for ${url}`,
+      );
     }
 
-    return await response.json() as T;
+    return (await response.json()) as T;
   }
 
   private headers(hasJsonBody = false): HeadersInit {
@@ -529,5 +583,7 @@ function isLockfilePath(path: string): boolean {
 }
 
 function isBinaryLike(path: string): boolean {
-  return /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tar|tgz|woff2?|ttf|otf|mp4|mov|mp3|wav)$/i.test(path);
+  return /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tar|tgz|woff2?|ttf|otf|mp4|mov|mp3|wav)$/i.test(
+    path,
+  );
 }

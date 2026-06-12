@@ -55,9 +55,7 @@ export class DummyAgentRuntime implements AgentRuntime {
 
     // No reviewer-failure guard here (unlike PiAgentRuntime): reviewers run via Promise.all,
     // so any failure throws before this point — zero findings can only mean all succeeded empty.
-    const shortCircuited =
-      input.shortCircuitOnZeroFindings === true &&
-      findings.length === 0;
+    const shortCircuited = input.shortCircuitOnZeroFindings === true && findings.length === 0;
 
     this.emit({
       type: "agent.output",

@@ -122,7 +122,7 @@ describe("assessFindingGrounding", () => {
     const diff = makeDiff("+  return db.accounts.findById(accountId);");
     const finding = makeFinding({
       quotedCode: [
-        "return db.accounts.deleteEverything();",  // fabricated
+        "return db.accounts.deleteEverything();", // fabricated
         "return db.accounts.findById(accountId);", // real
       ],
     });
@@ -160,7 +160,9 @@ describe("assessFindingGrounding", () => {
 
   test("diff scaffolding lines (@@, diff , index , --- , +++ ) are not matched", () => {
     // Trying to ground on the @@ header should fail (it's excluded from corpus)
-    const diff = makeDiff("@@ -20,6 +20,20 @@ export async function getAccount(req) {\n+  return real.code();");
+    const diff = makeDiff(
+      "@@ -20,6 +20,20 @@ export async function getAccount(req) {\n+  return real.code();",
+    );
     const finding = makeFinding({
       quotedCode: ["-20,6 +20,20 @@ export async function getAccount"],
     });
@@ -186,10 +188,14 @@ describe("assessFindingGrounding", () => {
   });
 
   test("multi-line quotedCode matches across lines (whole-corpus normalization); fabricated multi-line is dropped", () => {
-    const diff = makeDiff("+  const accountId = req.query.accountId;\n+  return db.accounts.findById(accountId);");
+    const diff = makeDiff(
+      "+  const accountId = req.query.accountId;\n+  return db.accounts.findById(accountId);",
+    );
     // A real multi-line span — its internal newline is collapsed to a space by normalize().
     const realSpan = makeFinding({
-      quotedCode: ["const accountId = req.query.accountId;\n  return db.accounts.findById(accountId);"],
+      quotedCode: [
+        "const accountId = req.query.accountId;\n  return db.accounts.findById(accountId);",
+      ],
     });
     const fabricatedSpan = makeFinding({
       quotedCode: ["const token = req.headers.auth;\n  return verifyAndLoad(token);"],
@@ -261,8 +267,13 @@ describe("assessFindingGrounding", () => {
   });
 
   test("order of grounded findings is preserved", () => {
-    const diff = makeDiff("+  return db.accounts.findById(accountId);\n+  const x = doSomething();");
-    const f1 = makeFinding({ title: "first", quotedCode: ["return db.accounts.findById(accountId);"] });
+    const diff = makeDiff(
+      "+  return db.accounts.findById(accountId);\n+  const x = doSomething();",
+    );
+    const f1 = makeFinding({
+      title: "first",
+      quotedCode: ["return db.accounts.findById(accountId);"],
+    });
     const f2 = makeFinding({ title: "second", quotedCode: ["const x = doSomething();"] });
     const f3 = makeFinding({ title: "third" }); // no quotedCode
 

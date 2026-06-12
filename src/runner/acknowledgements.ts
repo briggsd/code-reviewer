@@ -2,7 +2,7 @@ import type { Acknowledgement, Finding } from "../contracts/index.ts";
 import { matchesGlob } from "./path-match.ts";
 
 export interface AcknowledgementResult {
-  findings: Finding[];        // acknowledged ones annotated + kept; suppressed ones removed; order preserved
+  findings: Finding[]; // acknowledged ones annotated + kept; suppressed ones removed; order preserved
   acknowledgedCount: number;
   suppressedCount: number;
 }

@@ -37,10 +37,7 @@ const NOW = new Date("2026-06-11T00:00:00.000Z");
 
 describe("applyAcknowledgements", () => {
   test("no acknowledgements → all findings unchanged, counts 0", () => {
-    const findings = [
-      makeFinding({ title: "Finding A" }),
-      makeFinding({ title: "Finding B" }),
-    ];
+    const findings = [makeFinding({ title: "Finding A" }), makeFinding({ title: "Finding B" })];
 
     const result = applyAcknowledgements(findings, [], NOW);
 
@@ -213,9 +210,7 @@ describe("applyAcknowledgements", () => {
   });
 
   test("inputs are not mutated", () => {
-    const findings: Finding[] = [
-      makeFinding({ location: { path: "src/auth.ts" } }),
-    ];
+    const findings: Finding[] = [makeFinding({ location: { path: "src/auth.ts" } })];
     const acks: Acknowledgement[] = [makeAck({ path: "src/**" })];
     const findingsBefore = [...findings];
     const acksBefore = [...acks];

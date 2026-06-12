@@ -10,10 +10,7 @@
     "login": "octo-dev",
     "html_url": "https://github.com/octo-dev"
   },
-  "labels": [
-    { "name": "security" },
-    { "name": "api" }
-  ],
+  "labels": [{ "name": "security" }, { "name": "api" }],
   "head": {
     "ref": "feature/account-lookup",
     "sha": "headsha123",

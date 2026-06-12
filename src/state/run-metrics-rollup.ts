@@ -130,11 +130,12 @@ export function rollupRunMetrics(events: readonly TelemetryEvent[]): RunMetricsR
 
         const roleValue = agent.role;
         const kindValue = agent.kind;
-        const role = typeof roleValue === "string" && roleValue.length > 0
-          ? roleValue
-          : typeof kindValue === "string" && kindValue.length > 0
-            ? kindValue
-            : "unknown";
+        const role =
+          typeof roleValue === "string" && roleValue.length > 0
+            ? roleValue
+            : typeof kindValue === "string" && kindValue.length > 0
+              ? kindValue
+              : "unknown";
 
         const usageValue = agent.usage;
         if (usageValue !== undefined && isPlainObject(usageValue)) {
@@ -172,11 +173,12 @@ export function rollupRunMetrics(events: readonly TelemetryEvent[]): RunMetricsR
 
         const roleValue = failure.role;
         const kindValue = failure.kind;
-        const role = typeof roleValue === "string" && roleValue.length > 0
-          ? roleValue
-          : typeof kindValue === "string" && kindValue.length > 0
-            ? kindValue
-            : "unknown";
+        const role =
+          typeof roleValue === "string" && roleValue.length > 0
+            ? roleValue
+            : typeof kindValue === "string" && kindValue.length > 0
+              ? kindValue
+              : "unknown";
 
         const retryCountValue = failure.retryCount;
         const retryCountNumber = asNumber(retryCountValue);
@@ -252,7 +254,9 @@ function mapToRecord(map: Map<string, number>): Record<string, number> {
   return record;
 }
 
-function mapToAgentRecord(map: Map<string, AgentTokenAggregate>): Record<string, AgentTokenAggregate> {
+function mapToAgentRecord(
+  map: Map<string, AgentTokenAggregate>,
+): Record<string, AgentTokenAggregate> {
   const record: Record<string, AgentTokenAggregate> = {};
   for (const [key, value] of map.entries()) {
     record[key] = { ...value };
@@ -260,7 +264,10 @@ function mapToAgentRecord(map: Map<string, AgentTokenAggregate>): Record<string,
   return record;
 }
 
-function getOrCreateAgentAggregate(map: Map<string, AgentTokenAggregate>, key: string): AgentTokenAggregate {
+function getOrCreateAgentAggregate(
+  map: Map<string, AgentTokenAggregate>,
+  key: string,
+): AgentTokenAggregate {
   let aggregate = map.get(key);
   if (aggregate === undefined) {
     aggregate = {

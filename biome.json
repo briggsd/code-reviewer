@@ -10,6 +10,7 @@
       "**",
       "!node_modules",
       "!.ai-review",
+      "!.claude",
       "!dist",
       "!coverage",
       "!examples/fixtures",
@@ -49,6 +50,16 @@
         "rules": {
           "suspicious": {
             "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["test/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noNonNullAssertion": "off"
           }
         }
       }

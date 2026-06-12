@@ -7,7 +7,9 @@ import { join } from "node:path";
 const enabled = process.env.AI_REVIEW_LIVE_GITLAB === "1";
 
 if (!enabled) {
-  console.log("GitLab live smoke skipped: set AI_REVIEW_LIVE_GITLAB=1 to run against a real merge request.");
+  console.log(
+    "GitLab live smoke skipped: set AI_REVIEW_LIVE_GITLAB=1 to run against a real merge request.",
+  );
   process.exit(0);
 }
 
@@ -23,7 +25,9 @@ const apiBaseUrl = process.env.AI_REVIEW_GITLAB_API_BASE_URL;
 const runtime = process.env.AI_REVIEW_GITLAB_RUNTIME ?? "dummy";
 const seedFixture = process.env.AI_REVIEW_GITLAB_SEED_FIXTURE;
 const publishSummary = process.env.AI_REVIEW_GITLAB_PUBLISH_SUMMARY === "1";
-const outputDirectory = process.env.AI_REVIEW_GITLAB_OUTPUT_DIR ?? await mkdtemp(join(tmpdir(), "ai-review-gitlab-live-"));
+const outputDirectory =
+  process.env.AI_REVIEW_GITLAB_OUTPUT_DIR ??
+  (await mkdtemp(join(tmpdir(), "ai-review-gitlab-live-")));
 
 const args = [
   "run",

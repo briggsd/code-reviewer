@@ -17,8 +17,11 @@ export interface PublishReviewSummaryInput {
   hiddenMetadata?: Record<string, JsonValue>;
 }
 
-export async function publishReviewSummary(input: PublishReviewSummaryInput): Promise<PublishSummaryResult> {
-  const hiddenMetadata = input.hiddenMetadata ?? createPublishHiddenMetadata(input.runId, input.change, input.summary);
+export async function publishReviewSummary(
+  input: PublishReviewSummaryInput,
+): Promise<PublishSummaryResult> {
+  const hiddenMetadata =
+    input.hiddenMetadata ?? createPublishHiddenMetadata(input.runId, input.change, input.summary);
   const publishResult = await input.adapter.publishSummary({
     change: input.change,
     summary: input.summary,
@@ -31,7 +34,9 @@ export async function publishReviewSummary(input: PublishReviewSummaryInput): Pr
     timestamp: input.timestamp ?? new Date().toISOString(),
     data: {
       provider: publishResult.provider,
-      ...(publishResult.summaryCommentId !== undefined ? { summaryCommentId: publishResult.summaryCommentId } : {}),
+      ...(publishResult.summaryCommentId !== undefined
+        ? { summaryCommentId: publishResult.summaryCommentId }
+        : {}),
       ...(publishResult.summaryUrl !== undefined ? { summaryUrl: publishResult.summaryUrl } : {}),
       postedInlineCount: publishResult.postedInlineCount,
       failedInlineCount: publishResult.failedInlineCount,
@@ -54,7 +59,11 @@ export function createPublishHiddenMetadata(
     repository: change.repository.slug,
     changeId: change.changeId,
     ...(summary !== undefined
-      ? { findingIds: summary.findings.map((finding) => finding.id ?? "").filter((id) => id.length > 0) }
+      ? {
+          findingIds: summary.findings
+            .map((finding) => finding.id ?? "")
+            .filter((id) => id.length > 0),
+        }
       : {}),
   };
 }

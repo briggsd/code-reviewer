@@ -11,10 +11,7 @@
     "name": "GitLab Dev",
     "web_url": "https://gitlab.com/gitlab-dev"
   },
-  "labels": [
-    "security",
-    "api"
-  ],
+  "labels": ["security", "api"],
   "source_branch": "feature/account-lookup",
   "target_branch": "main",
   "sha": "headsha-fallback",

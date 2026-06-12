@@ -10,7 +10,11 @@ test("assessThinReview: trivial tier is never thin (0 tokens, 5 files)", () => {
 });
 
 test("assessThinReview: trivial tier is never thin (undefined tokens)", () => {
-  const result = assessThinReview({ riskTier: "trivial", reviewedFileCount: 3, outputTokens: undefined });
+  const result = assessThinReview({
+    riskTier: "trivial",
+    reviewedFileCount: 3,
+    outputTokens: undefined,
+  });
   expect(result.thin).toBe(false);
   expect(result.expectedFloor).toBe(0);
   expect(result.outputTokens).toBe(0);
@@ -50,14 +54,22 @@ test("assessThinReview: full tier engaged (2 files, 2000 tokens) is NOT thin", (
 
 // outputTokens: undefined → resolves to 0 → thin for non-trivial (floor > 0)
 test("assessThinReview: undefined outputTokens resolves to 0 and is thin for non-trivial", () => {
-  const result = assessThinReview({ riskTier: "full", reviewedFileCount: 1, outputTokens: undefined });
+  const result = assessThinReview({
+    riskTier: "full",
+    reviewedFileCount: 1,
+    outputTokens: undefined,
+  });
   expect(result.thin).toBe(true);
   expect(result.outputTokens).toBe(0);
   expect(result.expectedFloor).toBe(360);
 });
 
 test("assessThinReview: undefined outputTokens, lite tier with files → thin", () => {
-  const result = assessThinReview({ riskTier: "lite", reviewedFileCount: 3, outputTokens: undefined });
+  const result = assessThinReview({
+    riskTier: "lite",
+    reviewedFileCount: 3,
+    outputTokens: undefined,
+  });
   expect(result.thin).toBe(true);
   expect(result.outputTokens).toBe(0);
   expect(result.expectedFloor).toBe(180);

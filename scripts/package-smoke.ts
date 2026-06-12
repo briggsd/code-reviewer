@@ -1,13 +1,16 @@
-import { mkdtemp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const tempDirectory = await mkdtemp(join(tmpdir(), "ai-review-pack-"));
 
 try {
   const pack = await run(["npm", "pack", "--json", "--pack-destination", tempDirectory]);
-  const packed = JSON.parse(pack.stdout) as Array<{ filename: string; files: Array<{ path: string }> }>;
+  const packed = JSON.parse(pack.stdout) as Array<{
+    filename: string;
+    files: Array<{ path: string }>;
+  }>;
   const artifact = packed[0];
   if (artifact === undefined) {
     throw new Error("npm pack did not report an artifact");

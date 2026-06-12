@@ -1,6 +1,13 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "bun:test";
-import type { AgentRuntime, ChangeMetadata, Finding, PublishInlineFindingsResult, ReviewerDefinition, ReviewSummary } from "../src/index.ts";
+import { readFile } from "node:fs/promises";
+import type {
+  AgentRuntime,
+  ChangeMetadata,
+  Finding,
+  PublishInlineFindingsResult,
+  ReviewerDefinition,
+  ReviewSummary,
+} from "../src/index.ts";
 import { reviewConfigSchema, reviewOutputSchemas } from "../src/index.ts";
 
 describe("contract exports", () => {
@@ -18,18 +25,20 @@ describe("contract exports", () => {
     expect(ackSchema).toBeDefined();
     expect(ackSchema?.type).toBe("array");
     expect(ackSchema?.maxItems).toBe(100);
-    const items = ackSchema?.items as { type?: string; required?: readonly string[]; properties?: Record<string, unknown> } | undefined;
+    const items = ackSchema?.items as
+      | { type?: string; required?: readonly string[]; properties?: Record<string, unknown> }
+      | undefined;
     expect(items?.type).toBe("object");
     expect(items?.required).toContain("path");
     expect(items?.required).toContain("mode");
     // reason is non-optional in the Acknowledgement TS type — the schema must require it too.
     expect(items?.required).toContain("reason");
-    expect(items?.properties?.["path"]).toBeDefined();
-    expect(items?.properties?.["mode"]).toBeDefined();
-    expect(items?.properties?.["reason"]).toBeDefined();
-    expect(items?.properties?.["category"]).toBeDefined();
-    expect(items?.properties?.["stableFindingId"]).toBeDefined();
-    expect(items?.properties?.["expires"]).toBeDefined();
+    expect(items?.properties?.path).toBeDefined();
+    expect(items?.properties?.mode).toBeDefined();
+    expect(items?.properties?.reason).toBeDefined();
+    expect(items?.properties?.category).toBeDefined();
+    expect(items?.properties?.stableFindingId).toBeDefined();
+    expect(items?.properties?.expires).toBeDefined();
   });
 
   test("quotedCode contract (#54.2 prereq): finding output schema includes quotedCode property and it is not required", () => {
@@ -152,6 +161,10 @@ describe("contract exports", () => {
       ],
     };
 
-    expect(result.findings.map((finding) => finding.disposition)).toEqual(["posted", "skipped", "failed"]);
+    expect(result.findings.map((finding) => finding.disposition)).toEqual([
+      "posted",
+      "skipped",
+      "failed",
+    ]);
   });
 });

@@ -1,8 +1,8 @@
 import type {
-  ChangeMetadata,
-  ChangeRef,
   ChangedFile,
   ChangedFileStatus,
+  ChangeMetadata,
+  ChangeRef,
   DiffSummary,
   Finding,
   PriorReviewState,
@@ -12,9 +12,16 @@ import type {
   PublishSummaryResult,
   VcsAdapter,
 } from "../../contracts/index.ts";
-import { formatInlineFindingComment, inlineCommentKey, parseInlineCommentMetadata } from "../../publisher/inline-comment-markdown.ts";
+import {
+  formatInlineFindingComment,
+  inlineCommentKey,
+  parseInlineCommentMetadata,
+} from "../../publisher/inline-comment-markdown.ts";
 import { formatReviewSummaryMarkdown } from "../../publisher/summary-markdown.ts";
-import { createPriorReviewStateFromMetadata, parseSummaryHiddenMetadata } from "../../publisher/summary-metadata.ts";
+import {
+  createPriorReviewStateFromMetadata,
+  parseSummaryHiddenMetadata,
+} from "../../publisher/summary-metadata.ts";
 
 export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -124,14 +131,16 @@ export class GitHubVcsAdapter implements VcsAdapter {
     if (this.botUserIdPromise === undefined) {
       this.botUserIdPromise = (async () => {
         try {
-          const response = await this.fetchImpl(`${this.apiBaseUrl}/user`, { headers: this.headers() });
+          const response = await this.fetchImpl(`${this.apiBaseUrl}/user`, {
+            headers: this.headers(),
+          });
           if (response.status === 403) {
             return GITHUB_ACTIONS_BOT_USER_ID;
           }
           if (!response.ok) {
             return undefined;
           }
-          const data = await response.json() as { id?: unknown };
+          const data = (await response.json()) as { id?: unknown };
           return typeof data.id === "number" ? data.id : undefined;
         } catch {
           return undefined;
@@ -170,7 +179,9 @@ export class GitHubVcsAdapter implements VcsAdapter {
       sourceBranch: response.head.ref,
       targetBranch: response.base.ref,
       title: response.title,
-      ...(response.body !== null && response.body !== undefined ? { description: response.body } : {}),
+      ...(response.body !== null && response.body !== undefined
+        ? { description: response.body }
+        : {}),
       author: {
         ...(response.user?.id !== undefined ? { id: String(response.user.id) } : {}),
         username: response.user?.login ?? "unknown",
@@ -191,16 +202,24 @@ export class GitHubVcsAdapter implements VcsAdapter {
       files: normalizedFiles,
       totalAdditions: normalizedFiles.reduce((sum, file) => sum + file.additions, 0),
       totalDeletions: normalizedFiles.reduce((sum, file) => sum + file.deletions, 0),
-      truncated: files.some((file) => file.patch === undefined && file.changes > 0 && !isBinaryLike(file.filename)),
-      ...(files.some((file) => file.patch === undefined && file.changes > 0 && !isBinaryLike(file.filename))
+      truncated: files.some(
+        (file) => file.patch === undefined && file.changes > 0 && !isBinaryLike(file.filename),
+      ),
+      ...(files.some(
+        (file) => file.patch === undefined && file.changes > 0 && !isBinaryLike(file.filename),
+      )
         ? { truncationReason: "One or more GitHub file patches were omitted by the API." }
         : {}),
     };
   }
 
   async getPriorReviewState(ref: ChangeRef): Promise<PriorReviewState | undefined> {
-    const comments = await this.requestAllPages<GitHubIssueCommentResponse>(this.issueCommentsPath(ref));
-    const existing = comments.findLast((comment) => parseSummaryHiddenMetadata(comment.body) !== undefined);
+    const comments = await this.requestAllPages<GitHubIssueCommentResponse>(
+      this.issueCommentsPath(ref),
+    );
+    const existing = comments.findLast(
+      (comment) => parseSummaryHiddenMetadata(comment.body) !== undefined,
+    );
     const metadata = parseSummaryHiddenMetadata(existing?.body);
 
     return metadata === undefined ? undefined : createPriorReviewStateFromMetadata(metadata, ref);
@@ -212,15 +231,19 @@ export class GitHubVcsAdapter implements VcsAdapter {
       ...(input.hiddenMetadata !== undefined ? { hiddenMetadata: input.hiddenMetadata } : {}),
     });
     const existing = await this.findExistingSummaryComment(input.change);
-    const response = existing === undefined
-      ? await this.request<GitHubIssueCommentResponse>(this.issueCommentsPath(input.change), {
-        method: "POST",
-        body: { body },
-      })
-      : await this.request<GitHubIssueCommentResponse>(this.issueCommentPath(input.change, existing.id), {
-        method: "PATCH",
-        body: { body },
-      });
+    const response =
+      existing === undefined
+        ? await this.request<GitHubIssueCommentResponse>(this.issueCommentsPath(input.change), {
+            method: "POST",
+            body: { body },
+          })
+        : await this.request<GitHubIssueCommentResponse>(
+            this.issueCommentPath(input.change, existing.id),
+            {
+              method: "PATCH",
+              body: { body },
+            },
+          );
 
     return {
       provider: "github",
@@ -252,7 +275,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
       return undefined;
     }
 
-    const data = await response.json() as { content?: unknown; encoding?: unknown };
+    const data = (await response.json()) as { content?: unknown; encoding?: unknown };
     if (data.encoding !== "base64" || typeof data.content !== "string") {
       return undefined;
     }
@@ -260,7 +283,9 @@ export class GitHubVcsAdapter implements VcsAdapter {
     return Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8");
   }
 
-  async publishInlineFindings(input: PublishInlineFindingsInput): Promise<PublishInlineFindingsResult> {
+  async publishInlineFindings(
+    input: PublishInlineFindingsInput,
+  ): Promise<PublishInlineFindingsResult> {
     const outcomes: PublishInlineFindingsResult["findings"] = [];
     const existingInlineComments = await this.findExistingInlineComments(input.change);
 
@@ -276,7 +301,10 @@ export class GitHubVcsAdapter implements VcsAdapter {
       }
 
       const findingId = finding.id;
-      const duplicate = findingId === undefined ? undefined : existingInlineComments.get(inlineCommentKey(findingId, input.change.headSha));
+      const duplicate =
+        findingId === undefined
+          ? undefined
+          : existingInlineComments.get(inlineCommentKey(findingId, input.change.headSha));
       if (duplicate !== undefined && findingId !== undefined) {
         outcomes.push({
           findingId,
@@ -289,16 +317,19 @@ export class GitHubVcsAdapter implements VcsAdapter {
       }
 
       try {
-        const response = await this.request<GitHubPullReviewCommentResponse>(this.pullCommentsPath(input.change), {
-          method: "POST",
-          body: {
-            body: formatInlineFindingComment(finding, input.change, input.runId),
-            commit_id: input.change.headSha,
-            path: coordinate.path,
-            line: coordinate.line,
-            side: coordinate.side,
+        const response = await this.request<GitHubPullReviewCommentResponse>(
+          this.pullCommentsPath(input.change),
+          {
+            method: "POST",
+            body: {
+              body: formatInlineFindingComment(finding, input.change, input.runId),
+              commit_id: input.change.headSha,
+              path: coordinate.path,
+              line: coordinate.line,
+              side: coordinate.side,
+            },
           },
-        });
+        );
         outcomes.push({
           ...(finding.id !== undefined ? { findingId: finding.id } : {}),
           disposition: "posted",
@@ -352,7 +383,9 @@ export class GitHubVcsAdapter implements VcsAdapter {
     return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/comments/${encodeURIComponent(String(commentId))}`;
   }
 
-  private async findExistingSummaryComment(change: ChangeMetadata): Promise<GitHubIssueCommentResponse | undefined> {
+  private async findExistingSummaryComment(
+    change: ChangeMetadata,
+  ): Promise<GitHubIssueCommentResponse | undefined> {
     // Only treat a BOT-authored comment as the existing summary to update (#84). An attacker who
     // can comment could otherwise plant a `<!-- ai-code-review-factory` marker, get picked as the
     // "existing" summary, and make publishSummary PATCH a comment the bot can't edit → 403 → the
@@ -364,13 +397,17 @@ export class GitHubVcsAdapter implements VcsAdapter {
       this.resolveBotUserId(),
     ]);
 
-    return comments.findLast((comment) =>
-      comment.body?.includes("<!-- ai-code-review-factory") === true &&
-      botId !== undefined &&
-      comment.user?.id === botId);
+    return comments.findLast(
+      (comment) =>
+        comment.body?.includes("<!-- ai-code-review-factory") === true &&
+        botId !== undefined &&
+        comment.user?.id === botId,
+    );
   }
 
-  private async findExistingInlineComments(change: ChangeMetadata): Promise<Map<string, GitHubPullReviewCommentResponse>> {
+  private async findExistingInlineComments(
+    change: ChangeMetadata,
+  ): Promise<Map<string, GitHubPullReviewCommentResponse>> {
     // Resolve the bot's own user id before scanning comments so we can reject planted
     // markers from other authors. Safe-on-failure: if botId is undefined the filter matches
     // nothing and the map stays empty — worst case is a duplicate comment, which is the
@@ -396,7 +433,10 @@ export class GitHubVcsAdapter implements VcsAdapter {
     return byFindingAndHead;
   }
 
-  private async request<T>(pathOrUrl: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+  private async request<T>(
+    pathOrUrl: string,
+    options: { method?: string; body?: unknown } = {},
+  ): Promise<T> {
     const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${this.apiBaseUrl}${pathOrUrl}`;
     const response = await this.fetchImpl(url, {
       ...(options.method !== undefined ? { method: options.method } : {}),
@@ -405,10 +445,12 @@ export class GitHubVcsAdapter implements VcsAdapter {
     });
 
     if (!response.ok) {
-      throw new Error(`GitHub API request failed: ${response.status} ${response.statusText} for ${url}`);
+      throw new Error(
+        `GitHub API request failed: ${response.status} ${response.statusText} for ${url}`,
+      );
     }
 
-    return await response.json() as T;
+    return (await response.json()) as T;
   }
 
   private async requestAllPages<T>(path: string): Promise<T[]> {
@@ -421,10 +463,12 @@ export class GitHubVcsAdapter implements VcsAdapter {
       });
 
       if (!response.ok) {
-        throw new Error(`GitHub API request failed: ${response.status} ${response.statusText} for ${nextUrl}`);
+        throw new Error(
+          `GitHub API request failed: ${response.status} ${response.statusText} for ${nextUrl}`,
+        );
       }
 
-      const page = await response.json() as T[];
+      const page = (await response.json()) as T[];
       results.push(...page);
       nextUrl = parseNextLink(response.headers.get("link"));
     }
@@ -443,7 +487,9 @@ export class GitHubVcsAdapter implements VcsAdapter {
   }
 }
 
-function githubInlineCoordinateForFinding(finding: Finding): { path: string; line: number; side: "LEFT" | "RIGHT" } | undefined {
+function githubInlineCoordinateForFinding(
+  finding: Finding,
+): { path: string; line: number; side: "LEFT" | "RIGHT" } | undefined {
   const location = finding.location;
   const line = location?.line ?? location?.startLine;
   if (location === undefined || line === undefined || location.side === undefined) {
@@ -535,5 +581,7 @@ function isLockfilePath(path: string): boolean {
 }
 
 function isBinaryLike(path: string): boolean {
-  return /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tar|tgz|woff2?|ttf|otf|mp4|mov|mp3|wav)$/i.test(path);
+  return /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tar|tgz|woff2?|ttf|otf|mp4|mov|mp3|wav)$/i.test(
+    path,
+  );
 }

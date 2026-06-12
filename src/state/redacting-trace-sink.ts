@@ -72,9 +72,7 @@ function redactEvent(event: RuntimeEvent): RuntimeEvent {
  * replaced by the redaction marker. Applies identically to `message_start` and
  * `message_end`; all other fields — including numeric `usage` — are preserved.
  */
-function redactMessageContent(
-  messageRecord: Record<string, JsonValue>,
-): Record<string, JsonValue> {
+function redactMessageContent(messageRecord: Record<string, JsonValue>): Record<string, JsonValue> {
   const result: Record<string, JsonValue> = {};
 
   for (const [key, value] of Object.entries(messageRecord)) {

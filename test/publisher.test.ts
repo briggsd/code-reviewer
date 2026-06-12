@@ -1,16 +1,26 @@
+import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
+import type {
+  ChangeMetadata,
+  DiffSummary,
+  Finding,
+  PublishInlineFindingsInput,
+  PublishInlineFindingsResult,
+  PublishSummaryInput,
+  PublishSummaryResult,
+  RuntimeEvent,
+  VcsAdapter,
+} from "../src/index.ts";
 import {
-  JsonlTraceSink,
   createPublishHiddenMetadata,
+  JsonlTraceSink,
   loadReviewFixture,
   publishReviewInlineFindings,
   publishReviewSummary,
   runReview,
 } from "../src/index.ts";
-import type { ChangeMetadata, DiffSummary, Finding, PublishInlineFindingsInput, PublishInlineFindingsResult, PublishSummaryInput, PublishSummaryResult, RuntimeEvent, VcsAdapter } from "../src/index.ts";
 
 describe("summary publishing orchestration", () => {
   test("publishes a summary and writes a publisher.completed trace event", async () => {
@@ -90,14 +100,16 @@ describe("summary publishing orchestration", () => {
         },
       };
 
-      await expect(publishReviewSummary({
-        adapter: publisher,
-        change: review.context.metadata,
-        summary: review.summary,
-        runId: review.context.runId,
-        traceSink,
-        timestamp: "2026-06-09T00:00:01.000Z",
-      })).rejects.toThrow("provider write failed");
+      await expect(
+        publishReviewSummary({
+          adapter: publisher,
+          change: review.context.metadata,
+          summary: review.summary,
+          runId: review.context.runId,
+          traceSink,
+          timestamp: "2026-06-09T00:00:01.000Z",
+        }),
+      ).rejects.toThrow("provider write failed");
       await traceSink.close();
 
       const rawTrace = await readFile(tracePath, "utf8").catch((error: unknown) => {
@@ -294,7 +306,9 @@ class RecordingInlinePublisher implements Pick<VcsAdapter, "provider" | "publish
 
   readonly inputs: PublishInlineFindingsInput[] = [];
 
-  async publishInlineFindings(input: PublishInlineFindingsInput): Promise<PublishInlineFindingsResult> {
+  async publishInlineFindings(
+    input: PublishInlineFindingsInput,
+  ): Promise<PublishInlineFindingsResult> {
     this.inputs.push(input);
     return {
       provider: "github",

@@ -1,18 +1,7 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
-import {
-  DummyAgentRuntime,
-  FileSystemReviewStateStore,
-  createTelemetryFailureTraceLogger,
-  JsonlTelemetryTransport,
-  JsonlTraceSink,
-  loadReviewFixture,
-  NonBlockingTelemetrySink,
-  RedactingTraceSink,
-  runReview,
-} from "../src/index.ts";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   AgentRuntime,
   CoordinatorRunInput,
@@ -30,6 +19,17 @@ import type {
   TelemetrySink,
   TelemetryTransport,
   TraceSink,
+} from "../src/index.ts";
+import {
+  createTelemetryFailureTraceLogger,
+  DummyAgentRuntime,
+  FileSystemReviewStateStore,
+  JsonlTelemetryTransport,
+  JsonlTraceSink,
+  loadReviewFixture,
+  NonBlockingTelemetrySink,
+  RedactingTraceSink,
+  runReview,
 } from "../src/index.ts";
 
 class FailingRuntime implements AgentRuntime {
@@ -240,7 +240,9 @@ describe("JSONL trace and filesystem state", () => {
       // output tokens, full tier → below floor). Exclude it from the fixed-ordering
       // assertion so this test stays robust to the thin flag changing; its presence/absence
       // is covered by the dedicated thin-emission tests below.
-      expect(events.map((event) => event.type).filter((type) => type !== "review.thin_detected")).toEqual([
+      expect(
+        events.map((event) => event.type).filter((type) => type !== "review.thin_detected"),
+      ).toEqual([
         "review.started",
         "context.built",
         "risk.assessed",
@@ -262,7 +264,9 @@ describe("JSONL trace and filesystem state", () => {
       const summary = JSON.parse(
         await readFile(join(outputDirectory, "runs", runId, "summary.json"), "utf8"),
       ) as ReviewSummary;
-      const latestState = await stateStore.load(result.context.metadata) as PriorReviewState | undefined;
+      const latestState = (await stateStore.load(result.context.metadata)) as
+        | PriorReviewState
+        | undefined;
 
       expect(runRecord.tracePath).toBe(tracePath);
       expect(runRecord.completedAt).toBe(reviewCompleted?.timestamp);
@@ -359,7 +363,7 @@ describe("JSONL trace and filesystem state", () => {
     });
 
     expect(telemetrySink.events).toHaveLength(1);
-    expect(Object.prototype.hasOwnProperty.call(telemetrySink.events[0]?.data, "jobKind")).toBe(false);
+    expect(Object.hasOwn(telemetrySink.events[0]?.data ?? {}, "jobKind")).toBe(false);
   });
 
   test("runner tags failed run metrics with runtime", async () => {
@@ -367,12 +371,14 @@ describe("JSONL trace and filesystem state", () => {
     const telemetrySink = new RecordingTelemetrySink();
     const runtime = new FailingRuntime();
 
-    await expect(runReview({
-      fixture,
-      clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
-      runtime,
-      telemetrySink,
-    })).rejects.toThrow("synthetic runtime failure");
+    await expect(
+      runReview({
+        fixture,
+        clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+        runtime,
+        telemetrySink,
+      }),
+    ).rejects.toThrow("synthetic runtime failure");
 
     expect(telemetrySink.events).toHaveLength(1);
     expect(telemetrySink.events[0]).toMatchObject({
@@ -390,13 +396,15 @@ describe("JSONL trace and filesystem state", () => {
     const telemetrySink = new RecordingTelemetrySink();
     const runtime = new FailingRuntime();
 
-    await expect(runReview({
-      fixture,
-      clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
-      runtime,
-      telemetrySink,
-      jobKind: "dry-run",
-    })).rejects.toThrow("synthetic runtime failure");
+    await expect(
+      runReview({
+        fixture,
+        clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+        runtime,
+        telemetrySink,
+        jobKind: "dry-run",
+      }),
+    ).rejects.toThrow("synthetic runtime failure");
 
     expect(telemetrySink.events[0]).toMatchObject({
       type: "ai_review.run_metrics",
@@ -419,7 +427,9 @@ describe("JSONL trace and filesystem state", () => {
     });
 
     expect(result.summary.decision).toBe("significant_concerns");
-    expect(traceSink.events.find((event) => event.data?.event === "telemetry.emit_failed")).toMatchObject({
+    expect(
+      traceSink.events.find((event) => event.data?.event === "telemetry.emit_failed"),
+    ).toMatchObject({
       type: "runtime.event",
       runId: "fixture-auth-pr",
       message: "Telemetry emit failed",
@@ -460,8 +470,12 @@ describe("JSONL trace and filesystem state", () => {
         estimatedCostUsd: 0,
       });
       expect(runRecord.metrics?.agents).toHaveLength(5);
-      expect(runRecord.metrics?.agents?.map((agent) => `${agent.kind}:${agent.role}`)).toContain("coordinator:coordinator");
-      expect(runRecord.metrics?.agents?.map((agent) => `${agent.kind}:${agent.role}`)).toContain("reviewer:security");
+      expect(runRecord.metrics?.agents?.map((agent) => `${agent.kind}:${agent.role}`)).toContain(
+        "coordinator:coordinator",
+      );
+      expect(runRecord.metrics?.agents?.map((agent) => `${agent.kind}:${agent.role}`)).toContain(
+        "reviewer:security",
+      );
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
     }
@@ -477,14 +491,16 @@ describe("JSONL trace and filesystem state", () => {
       const traceSink = new JsonlTraceSink(tracePath);
       const stateStore = new FileSystemReviewStateStore(outputDirectory);
 
-      await expect(runReview({
-        fixture,
-        clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
-        stateStore,
-        traceSink,
-        tracePath,
-        runtime: new FailingRuntime(),
-      })).rejects.toThrow("synthetic runtime failure");
+      await expect(
+        runReview({
+          fixture,
+          clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+          stateStore,
+          traceSink,
+          tracePath,
+          runtime: new FailingRuntime(),
+        }),
+      ).rejects.toThrow("synthetic runtime failure");
       await traceSink.close();
 
       const events = (await readFile(tracePath, "utf8"))
@@ -545,7 +561,9 @@ describe("JSONL trace and filesystem state", () => {
     });
     // expectedFloor is a number > 0 (contextual floor for full tier + 1 file = 360)
     expect(typeof (thinTelemetryBlock as Record<string, unknown>)?.expectedFloor).toBe("number");
-    expect((thinTelemetryBlock as Record<string, unknown>)?.expectedFloor as number).toBeGreaterThan(0);
+    expect(
+      (thinTelemetryBlock as Record<string, unknown>)?.expectedFloor as number,
+    ).toBeGreaterThan(0);
 
     // Trace: review.thin_detected marker must be emitted
     const thinTrace = traceSink.events.find((e) => e.type === "review.thin_detected");
@@ -627,9 +645,7 @@ function makeMessageStartEvent(): RuntimeEvent {
         type: "message_start",
         message: {
           role: "user",
-          content: [
-            { type: "text", text: "You are a trusted reviewer. SYSTEM PROMPT TEXT HERE." },
-          ],
+          content: [{ type: "text", text: "You are a trusted reviewer. SYSTEM PROMPT TEXT HERE." }],
         },
       },
     },
@@ -821,7 +837,10 @@ function telemetryEvent(type: string): TelemetryEvent {
   };
 }
 
-async function waitForTelemetryStarts(transport: DeferredTelemetryTransport, expectedCount: number): Promise<void> {
+async function waitForTelemetryStarts(
+  transport: DeferredTelemetryTransport,
+  expectedCount: number,
+): Promise<void> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     if (transport.startedCount >= expectedCount) {
       return;
@@ -829,7 +848,9 @@ async function waitForTelemetryStarts(transport: DeferredTelemetryTransport, exp
     await new Promise((resolve) => setTimeout(resolve, 1));
   }
 
-  throw new Error(`Telemetry transport started ${transport.startedCount} events, expected ${expectedCount}`);
+  throw new Error(
+    `Telemetry transport started ${transport.startedCount} events, expected ${expectedCount}`,
+  );
 }
 
 class RecordingTelemetrySink implements TelemetrySink {

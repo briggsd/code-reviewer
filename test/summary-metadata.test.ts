@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { createPriorReviewStateFromMetadata, parseSummaryHiddenMetadata } from "../src/index.ts";
 import type { ChangeRef } from "../src/index.ts";
+import { createPriorReviewStateFromMetadata, parseSummaryHiddenMetadata } from "../src/index.ts";
 
 const ref: ChangeRef = {
   provider: "github",
@@ -16,21 +16,27 @@ const ref: ChangeRef = {
 
 describe("summary hidden metadata parsing", () => {
   test("parses ai-code-review-factory hidden metadata", () => {
-    const metadata = parseSummaryHiddenMetadata([
-      "## AI Review",
-      "",
-      "<!-- ai-code-review-factory",
-      JSON.stringify({
-        schemaVersion: 1,
-        runId: "run-1",
-        headSha: "old-head",
-        provider: "github",
-        repository: "example/demo",
-        changeId: "42",
-        findingIds: ["fnd_111", "", 123, "fnd_222"],
-      }, null, 2),
-      "-->",
-    ].join("\n"));
+    const metadata = parseSummaryHiddenMetadata(
+      [
+        "## AI Review",
+        "",
+        "<!-- ai-code-review-factory",
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            runId: "run-1",
+            headSha: "old-head",
+            provider: "github",
+            repository: "example/demo",
+            changeId: "42",
+            findingIds: ["fnd_111", "", 123, "fnd_222"],
+          },
+          null,
+          2,
+        ),
+        "-->",
+      ].join("\n"),
+    );
 
     expect(metadata).toMatchObject({
       schemaVersion: 1,
@@ -45,20 +51,24 @@ describe("summary hidden metadata parsing", () => {
 
   test("returns undefined for missing or malformed metadata", () => {
     expect(parseSummaryHiddenMetadata("plain comment")).toBeUndefined();
-    expect(parseSummaryHiddenMetadata("<!-- ai-code-review-factory\nnot json\n-->")).toBeUndefined();
+    expect(
+      parseSummaryHiddenMetadata("<!-- ai-code-review-factory\nnot json\n-->"),
+    ).toBeUndefined();
   });
 
   test("creates prior review state from parsed metadata", () => {
-    const metadata = parseSummaryHiddenMetadata([
-      "<!-- ai-code-review-factory",
-      JSON.stringify({
-        schemaVersion: 1,
-        runId: "run-1",
-        headSha: "old-head",
-        findingIds: ["fnd_111"],
-      }),
-      "-->",
-    ].join("\n"));
+    const metadata = parseSummaryHiddenMetadata(
+      [
+        "<!-- ai-code-review-factory",
+        JSON.stringify({
+          schemaVersion: 1,
+          runId: "run-1",
+          headSha: "old-head",
+          findingIds: ["fnd_111"],
+        }),
+        "-->",
+      ].join("\n"),
+    );
 
     if (metadata === undefined) {
       throw new Error("expected metadata to parse");

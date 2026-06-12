@@ -5,7 +5,10 @@ export function classifyReviewError(error: unknown): ReviewErrorClassification {
   const status = collectHttpStatus(error);
 
   if (matchesAny(text, ["unsafe fork", "untrusted fork", "fork pipeline", "pull_request_target"])) {
-    return nonRetryable("unsafe_fork", "privileged credentials were blocked for an untrusted change context");
+    return nonRetryable(
+      "unsafe_fork",
+      "privileged credentials were blocked for an untrusted change context",
+    );
   }
 
   // Terminal provider rejections (bad request, quota/billing exhaustion, unknown
@@ -14,58 +17,69 @@ export function classifyReviewError(error: unknown): ReviewErrorClassification {
   // 429, and an out-of-usage message can read "...keep going" / "try again".
   // Retrying these only burns budget. Generic/unknown provider envelopes (handled
   // lower) stay below the transient branch so an overloaded_error still retries.
-  if (matchesAny(text, [
-    "invalid_request_error",
-    "out of extra usage",
-    "out of usage",
-    "insufficient_quota",
-    "quota exceeded",
-    "billing",
-    "credit",
-    "model not found",
-    "invalid model",
-  ])) {
+  if (
+    matchesAny(text, [
+      "invalid_request_error",
+      "out of extra usage",
+      "out of usage",
+      "insufficient_quota",
+      "quota exceeded",
+      "billing",
+      "credit",
+      "model not found",
+      "invalid model",
+    ])
+  ) {
     return nonRetryable("provider_error", "provider rejected the request");
   }
 
-  if (status === 429 || matchesAny(text, ["rate limit", "rate_limit", "too many requests", "http 429", "status 429"])) {
+  if (
+    status === 429 ||
+    matchesAny(text, ["rate limit", "rate_limit", "too many requests", "http 429", "status 429"])
+  ) {
     return retryable("rate_limited", "provider or runtime rate limit");
   }
 
-  if (matchesAny(text, [
-    "timed out",
-    "timeout",
-    "aborted",
-    "aborterror",
-    "deadline exceeded",
-    "no output",
-    "inactive",
-    "inactivity",
-  ])) {
+  if (
+    matchesAny(text, [
+      "timed out",
+      "timeout",
+      "aborted",
+      "aborterror",
+      "deadline exceeded",
+      "no output",
+      "inactive",
+      "inactivity",
+    ])
+  ) {
     return retryable("timeout", "runtime exceeded a timeout or inactivity budget");
   }
 
-  if (matchesAny(text, [
-    "truncated",
-    "length limit",
-    "finish reason length",
-    "finish_reason\":\"length",
-    "reason\":\"length",
-    "max output tokens",
-    "max_output_tokens",
-  ])) {
+  if (
+    matchesAny(text, [
+      "truncated",
+      "length limit",
+      "finish reason length",
+      'finish_reason":"length',
+      'reason":"length',
+      "max output tokens",
+      "max_output_tokens",
+    ])
+  ) {
     return retryable("truncated", "model output ended because of a length limit");
   }
 
-  if (matchesAny(text, [
-    "context overflow",
-    "context length",
-    "context window",
-    "prompt too long",
-    "too many tokens",
-    "maximum context",
-    "input is too long",
-  ])) {
+  if (
+    matchesAny(text, [
+      "context overflow",
+      "context length",
+      "context window",
+      "prompt too long",
+      "too many tokens",
+      "maximum context",
+      "input is too long",
+    ])
+  ) {
     return nonRetryable("context_overflow", "prompt or context exceeded the model limit");
   }
 
@@ -90,50 +104,59 @@ export function classifyReviewError(error: unknown): ReviewErrorClassification {
     return retryable("retryable_transient", "transient provider/runtime failure");
   }
 
-  if (status === 401 || status === 403 || matchesAny(text, [
-    "unauthorized",
-    "forbidden",
-    "authentication",
-    "api key",
-    "invalid key",
-    "invalid token",
-    "permission denied",
-    "credentials",
-  ])) {
+  if (
+    status === 401 ||
+    status === 403 ||
+    matchesAny(text, [
+      "unauthorized",
+      "forbidden",
+      "authentication",
+      "api key",
+      "invalid key",
+      "invalid token",
+      "permission denied",
+      "credentials",
+    ])
+  ) {
     return nonRetryable("auth", "authentication or authorization failed");
   }
 
   // Generic provider error envelopes whose type wasn't matched above. Kept below
   // the transient branch so a retryable envelope (e.g. overloaded_error) is not
   // swept up here.
-  if (matchesAny(text, [
-    "providerruntimeerror",
-    "provider error",
-  ])) {
+  if (matchesAny(text, ["providerruntimeerror", "provider error"])) {
     return nonRetryable("provider_error", "provider returned an error envelope");
   }
 
-  if (matchesAny(text, [
-    "schema",
-    "valid json",
-    "invalid json",
-    "did not contain valid json",
-    "expected json object",
-    "invalid finding",
-    "output did not contain",
-    "structured output",
-  ])) {
+  if (
+    matchesAny(text, [
+      "schema",
+      "valid json",
+      "invalid json",
+      "did not contain valid json",
+      "expected json object",
+      "invalid finding",
+      "output did not contain",
+      "structured output",
+    ])
+  ) {
     return nonRetryable("schema_invalid", "model output failed the structured response contract");
   }
 
   return nonRetryable("unknown", "unclassified runtime failure");
 }
 
-function retryable(category: ReviewErrorClassification["category"], reason: string): ReviewErrorClassification {
+function retryable(
+  category: ReviewErrorClassification["category"],
+  reason: string,
+): ReviewErrorClassification {
   return { category, retryable: true, reason };
 }
 
-function nonRetryable(category: ReviewErrorClassification["category"], reason: string): ReviewErrorClassification {
+function nonRetryable(
+  category: ReviewErrorClassification["category"],
+  reason: string,
+): ReviewErrorClassification {
   return { category, retryable: false, reason };
 }
 

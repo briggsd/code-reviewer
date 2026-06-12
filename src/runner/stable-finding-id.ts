@@ -57,7 +57,9 @@ export function assignStableFindingIds(summary: ReviewSummary): ReviewSummary {
   return {
     ...summary,
     findings: summary.findings.map((finding, index) =>
-      hasAssignedId(finding) ? finding : { ...finding, id: generatedIdByIndex.get(index) as string },
+      hasAssignedId(finding)
+        ? finding
+        : { ...finding, id: generatedIdByIndex.get(index) as string },
     ),
   };
 }
@@ -70,7 +72,11 @@ function hasAssignedId(finding: Finding): finding is Finding & { id: string } {
 // body are used ONLY to order siblings deterministically — they are not part of
 // the identity hash, so reworded prose still maps to the same base ID.
 function collisionSortKey(finding: Finding): string {
-  return JSON.stringify([finding.severity, normalizeText(finding.title), normalizeText(finding.body)]);
+  return JSON.stringify([
+    finding.severity,
+    normalizeText(finding.title),
+    normalizeText(finding.body),
+  ]);
 }
 
 // First member of a collision group keeps the bare base ID; subsequent members
@@ -120,12 +126,7 @@ function normalizeLocation(location: FindingLocation | undefined): string {
   const endLine = location.endLine ?? line;
   const side = location.side ?? "unknown-side";
 
-  return [
-    normalizePath(location.path),
-    String(line),
-    String(endLine),
-    side,
-  ].join(":");
+  return [normalizePath(location.path), String(line), String(endLine), side].join(":");
 }
 
 function normalizeText(value: string): string {

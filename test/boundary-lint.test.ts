@@ -1,7 +1,7 @@
+import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { describe, expect, test } from "bun:test";
 
 const requireCjs = createRequire(import.meta.url);
 

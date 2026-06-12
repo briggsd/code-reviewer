@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { loadReviewFixture, runReview } from "../src/index.ts";
 import type {
   Finding,
   RuntimeEvent,
@@ -8,6 +7,7 @@ import type {
   TelemetrySink,
   TraceSink,
 } from "../src/index.ts";
+import { loadReviewFixture, runReview } from "../src/index.ts";
 
 // ---------------------------------------------------------------------------
 // Minimal in-test sinks (mirrors evidence-grounding-spine.test.ts pattern)

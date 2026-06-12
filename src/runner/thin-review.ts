@@ -43,7 +43,10 @@ export interface ThinReviewOptions {
 const PER_FILE = 60;
 const FULL_BASE = 300;
 
-export function assessThinReview(input: ThinReviewInput, options?: ThinReviewOptions): ThinReviewAssessment {
+export function assessThinReview(
+  input: ThinReviewInput,
+  options?: ThinReviewOptions,
+): ThinReviewAssessment {
   const outputTokens = input.outputTokens ?? 0;
 
   // Trivial tier is never thin — an empty/fast review on a trivial diff is expected
@@ -53,12 +56,19 @@ export function assessThinReview(input: ThinReviewInput, options?: ThinReviewOpt
   }
 
   // Guard reviewedFileCount: clamp NaN/negative → 0
-  const fileCount = Math.max(0, Number.isFinite(input.reviewedFileCount) ? input.reviewedFileCount : 0);
+  const fileCount = Math.max(
+    0,
+    Number.isFinite(input.reviewedFileCount) ? input.reviewedFileCount : 0,
+  );
 
   let expectedFloor: number;
   // Use the flat override only when it is a finite, non-negative number — a NaN/negative
   // override would make `outputTokens < floor` always false and silently disable detection.
-  if (options?.flatFloor !== undefined && Number.isFinite(options.flatFloor) && options.flatFloor >= 0) {
+  if (
+    options?.flatFloor !== undefined &&
+    Number.isFinite(options.flatFloor) &&
+    options.flatFloor >= 0
+  ) {
     // Flat override provided (e.g. via --thin-floor CLI flag)
     expectedFloor = options.flatFloor;
   } else {

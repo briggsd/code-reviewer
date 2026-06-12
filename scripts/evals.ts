@@ -14,12 +14,12 @@
  */
 
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
-import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import type { ReviewSummary, RiskAssessment } from "../src/contracts/index.ts";
-import type { EvalScenario } from "../src/evals/types.ts";
-import { scoreScenario } from "../src/evals/score.ts";
 import type { ScenarioScore } from "../src/evals/score.ts";
+import { scoreScenario } from "../src/evals/score.ts";
+import type { EvalScenario } from "../src/evals/types.ts";
 
 // ---------------------------------------------------------------------------
 // Argument parsing (simple process.argv, mirrors pi-live-smoke.ts style)
@@ -52,11 +52,15 @@ const gate = hasFlag("--gate");
 // produce 0 runs (NaN > 0 is false) or always-fail thresholds (x >= NaN is false), reporting a
 // misleading "all scenarios failed" with no diagnostic (#85 review).
 if (!Number.isInteger(runs) || runs < 1) {
-  console.error(`Invalid --runs value: must be a positive integer (got ${JSON.stringify(readFlag("--runs"))}).`);
+  console.error(
+    `Invalid --runs value: must be a positive integer (got ${JSON.stringify(readFlag("--runs"))}).`,
+  );
   process.exit(1);
 }
 if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
-  console.error(`Invalid --threshold value: must be a number in [0, 1] (got ${JSON.stringify(readFlag("--threshold"))}).`);
+  console.error(
+    `Invalid --threshold value: must be a number in [0, 1] (got ${JSON.stringify(readFlag("--threshold"))}).`,
+  );
   process.exit(1);
 }
 
@@ -67,7 +71,7 @@ const model = readOptionalEnv("AI_REVIEW_PI_MODEL");
 // Gate: require AI_REVIEW_LIVE_EVAL=1 for pi runtime
 // ---------------------------------------------------------------------------
 
-const enabled = runtime === "dummy" || process.env["AI_REVIEW_LIVE_EVAL"] === "1";
+const enabled = runtime === "dummy" || process.env.AI_REVIEW_LIVE_EVAL === "1";
 if (!enabled) {
   console.log("Skipping eval harness (runtime=pi requires AI_REVIEW_LIVE_EVAL=1 to run).");
   console.log("Usage: AI_REVIEW_LIVE_EVAL=1 bun run evals [--runtime dummy|pi] [--runs K]");
@@ -205,15 +209,19 @@ for (const file of scenarioFiles) {
   // `bun run evals` on CI) could otherwise point --fixture at any file on disk (#85 review).
   // Require a repo-relative .json path that resolves inside the project root.
   const resolvedFixture = resolve(projectRoot, scenario.fixture);
-  if (!scenario.fixture.endsWith(".json") || !resolvedFixture.startsWith(projectRoot + "/")) {
-    console.error(`Scenario ${file}: fixture path must be a .json file inside the repo (got ${JSON.stringify(scenario.fixture)}).`);
+  if (!scenario.fixture.endsWith(".json") || !resolvedFixture.startsWith(`${projectRoot}/`)) {
+    console.error(
+      `Scenario ${file}: fixture path must be a .json file inside the repo (got ${JSON.stringify(scenario.fixture)}).`,
+    );
     process.exit(1);
   }
 
   // Per-scenario `runs` override must also be a positive integer (same guard as the --runs flag).
   const effectiveRuns = scenario.runs ?? runs;
   if (!Number.isInteger(effectiveRuns) || effectiveRuns < 1) {
-    console.error(`Scenario ${file}: "runs" must be a positive integer (got ${JSON.stringify(scenario.runs)}).`);
+    console.error(
+      `Scenario ${file}: "runs" must be a positive integer (got ${JSON.stringify(scenario.runs)}).`,
+    );
     process.exit(1);
   }
 
@@ -224,7 +232,9 @@ for (const file of scenarioFiles) {
     process.stdout.write(`  run ${i + 1}/${effectiveRuns}... `);
     const summary = await runOnce(scenario);
     summaries.push(summary);
-    process.stdout.write(`done (${summary.findings.length} findings, outcome=${summary.outcome})\n`);
+    process.stdout.write(
+      `done (${summary.findings.length} findings, outcome=${summary.outcome})\n`,
+    );
   }
 
   const score = scoreScenario(scenario, summaries, threshold);
@@ -232,7 +242,9 @@ for (const file of scenarioFiles) {
 
   // Per-scenario table
   const passStr = score.passed ? "PASS" : "FAIL";
-  console.log(`  ${score.name}: satisfaction=${(score.satisfaction * 100).toFixed(1)}% (threshold=${(score.threshold * 100).toFixed(0)}%) → ${passStr}`);
+  console.log(
+    `  ${score.name}: satisfaction=${(score.satisfaction * 100).toFixed(1)}% (threshold=${(score.threshold * 100).toFixed(0)}%) → ${passStr}`,
+  );
   for (const c of score.perCriterion) {
     const pct = (c.passRate * 100).toFixed(0).padStart(3);
     console.log(`    ${pct}%  ${c.label}`);
