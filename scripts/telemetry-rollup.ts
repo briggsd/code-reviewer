@@ -3,7 +3,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-import { rollupRunMetrics } from "../src/state/run-metrics-rollup.ts";
+import { createRollupExport } from "../src/state/rollup-export.ts";
 import { collectTelemetryEvents } from "./telemetry-artifacts.ts";
 
 const DEFAULT_RUN_LIMIT = 20;
@@ -49,9 +49,9 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const rollup = rollupRunMetrics(telemetryEvents);
+  const exportRecord = createRollupExport(telemetryEvents, new Date().toISOString());
 
-  if (rollup.runCount === 0) {
+  if (exportRecord.runCount === 0) {
     console.warn(
       "Warning: collected telemetry but no real-runtime run_metrics events remained after " +
         "excluding dummy/deterministic runs. The rollup contains zero runs — confirm that " +
@@ -60,11 +60,27 @@ async function main(): Promise<void> {
   }
 
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify(rollup, null, 2)}\n`);
+  await writeFile(outputPath, `${JSON.stringify(exportRecord, null, 2)}\n`);
 
   console.log(
-    `Aggregated ${rollup.runCount} ai_review.run_metrics events from ${telemetryFileCount} telemetry files across ${artifactCount} artifacts.`,
+    `Aggregated ${exportRecord.runCount} ai_review.run_metrics events from ${telemetryFileCount} telemetry files across ${artifactCount} artifacts.`,
   );
+  if (
+    exportRecord.droppedRepositoryCount !== undefined &&
+    exportRecord.droppedRepositoryCount > 0
+  ) {
+    console.warn(
+      `Warning: ${exportRecord.droppedRepositoryCount} repository value(s) failed the slug shape check and were dropped from the export.`,
+    );
+  }
+  if (
+    exportRecord.sanitizedAggregateKeyCount !== undefined &&
+    exportRecord.sanitizedAggregateKeyCount > 0
+  ) {
+    console.warn(
+      `Warning: ${exportRecord.sanitizedAggregateKeyCount} aggregate key(s) failed the shape check and were folded into "__other__".`,
+    );
+  }
   console.log(`Wrote ${outputPath}`);
 }
 

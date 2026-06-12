@@ -24,6 +24,7 @@ This repository starts as an architecture/design workspace. The implementation t
 - [Re-review state](docs/re-review-state.md) — stable finding IDs and hidden metadata for future incremental review.
 - [Research findings](research/ci-vcs-runtime-findings.md) — CI/VCS/runtime questions researched before drafting the architecture.
 - [Evals](docs/evals.md) — holdout scenario eval harness: behavioral scoring, holdout hygiene, and how to run.
+- [Telemetry export](docs/telemetry-export.md) — export schema (`ai-review.rollup_export.v1`), identifier policy, shape-bounded key rule, and reserved `ai_review.run_event` vocabulary (#20/#22).
 
 ## Development
 
