@@ -1,6 +1,29 @@
-# Continue — AI Code Review Factory / #69 withheld classification SHIPPED (PR #94); also this session #95 CI gates + #90 telemetry:analyze; next = triage Biome debt → flip blocking (#96) / #91 / #92 / M014
+# Continue — AI Code Review Factory / Biome advisory trimmed to real signal (PR #97); prior: #69 withheld (PR #94), #95 CI gates, #90 telemetry:analyze; next = #91 / #92 / decide formatter+flip-blocking (#96) / M014
 
 ## Last action
+
+**Biome advisory trustworthy-signal pass SHIPPED — PR #97 (squash `8acdb7c`, gate 434/0, AI review
+`approved`/0, trivial tier).** The #95 advisory `quality` job emitted ~146 noisy findings nobody reads,
+so it caught nothing in practice. **First PR to exercise #95's blocking `check` job end-to-end** (passed).
+Minimal pass — **NOT** a full lint cleanup, **NOT** the formatter, **NOT** flipping Biome to blocking:
+- **Disabled 2 confirmed false-positive rules** (`biome.json`): `noTemplateCurlyInString` (18 — all tests
+  asserting on literal GitHub Actions `${{ }}` / shell `${VAR}` template strings) + `noControlCharactersInRegex`
+  (8 — all in `prompt-boundary.ts`/`runtime-kind.ts` security sanitization, load-bearing).
+- **Removed 7 genuinely-unused type imports** (real dead code tsc doesn't flag) in two spine test files.
+- **GOTCHA:** this `biome.json` is parsed as **strict JSON** — inline `//` comments silently revert the
+  override to defaults (false positives came back). Rationale lives in the PR/commit + #96, not the file.
+- **Triage verdict (recorded on #96):** of the original 66 lint findings, only ~5 had real value (the
+  unused imports); the rest were cosmetic/false-positive. **~38 remain** (all genuine but cosmetic:
+  `useLiteralKeys` ×28, test-only `noNonNullAssertion` ×4, `noPrototypeBuiltins` ×3, escape/template nits).
+  **#96 stays OPEN** for the deferred decisions: adopt the Biome **formatter** (~20-file reformat) or
+  disable it; **flip Biome to blocking** — only worth it once those settle. Coordinator-applied (no subagent).
+
+**Recommended next:** **#91** (thin-review flag — now unblocked, #90 landed) / **#92** (doc-staleness) /
+decide formatter + flip-to-blocking (#96) / **M014** #50/#51.
+
+---
+
+**Earlier last action:**
 
 **#69 SHIPPED & CLOSED — `withheld` re-review classification (PR #94, squash `0ad2a19`, gate 418/0,
 AI review `minor_issues`/pass).** Grounding drops ungrounded findings BEFORE re-review classification,
@@ -450,9 +473,9 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   → 5/5 @ 100%), **#88** (#84 inline+summary dedup author-trust, closed #84), **#89** (#87 location backfill, closed #87).
 - **MERGED this session: #95** (CI quality gates — `ci.yml` blocking check + advisory Biome/knip/jscpd,
   squash `acba8d9`). Also **#90 (telemetry:analyze) merged as PR #93** during this window.
-- **Issues open:** **NEW #96** (CI quality-gate follow-ups: triage Biome debt → blocking; repo-wide
-  Action SHA-pinning — the one deferred #95 review item). **#91** (thin-review flag), **#92**
-  (doc-staleness detection). #57
+- **Issues open:** **#96** (CI quality-gate follow-ups — trustworthy-trim DONE in PR #97; STILL OPEN for:
+  adopt/disable Biome formatter, flip Biome to blocking, repo-wide Action SHA-pinning). **#91** (thin-review
+  flag), **#92** (doc-staleness detection). #57
   (partial — telemetry redaction), #46 (needs prev-head..head ref read), **M014** #50/#51 (telemetry
   egress), **M013** #26/#27/#29/#33, #41/#42/#20, **M012** parking lot #15/#16/#22/#23/#24.
   **GitLab parity COMPLETE** (base-read #80 + inline publish #82 + dedup author-trust #84). **#77 PROVEN
@@ -532,7 +555,7 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   vs `git diff` and re-run `bun run check`. Do not `git add -A` when committing delegated work
   (it swept `M009-SUMMARY.md` in once).
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80/#82/#28
-  #84/#87/#69/#90 or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85/#86/#88/#89/#93/#94/#95
+  #84/#87/#69/#90 or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85/#86/#88/#89/#93/#94/#95/#97
   unless new regressions appear. Closed issues #60/#65/#67 likewise stay closed.
 - Do not tune `src/runner/reviewer-definitions.ts` (or coordinator prompts) against the `evals/`
   holdout scenarios to make them pass — that destroys the holdout discipline (#28). The eval set is a
