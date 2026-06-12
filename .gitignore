@@ -8,3 +8,6 @@ node_modules/
 coverage/
 dist/
 telemetry-rollup.json
+
+# Session-local working state — never tracked (handoff lives on the machine, not in history)
+continue.md

@@ -72,7 +72,8 @@ src/
   schemas/                     # review-config + review-output JSON schemas
 test/                          # bun:test specs (~32)   examples/fixtures/ # PR/MR fixtures
 docs/                          # canonical design docs (see README "Documents" index)
-M0xx-ROADMAP.md / -SUMMARY.md  # sequential milestone roadmaps + completion notes
+  milestones/                  #   M0xx-ROADMAP/-SUMMARY: sequential milestone plans + completion notes
+continue.md                    # session handoff — LOCAL/UNTRACKED (gitignored), machine-only
 ```
 
 **Extending or testing the codebase?** Start with **docs/extending.md** — integration
@@ -112,17 +113,20 @@ Details + diagram: **docs/architecture.md**.
 
 ## How work is planned here (spec-driven)
 
-- **Plan and status are kept in separate systems — do not duplicate.** `M0xx-ROADMAP.md`
-  holds the *plan and reasoning*: vision, success criteria, sequencing, cross-milestone
-  boundaries, and named slices `S01..` (each with `risk:`/`depends:` plan metadata and a
-  `→ #NN` link to its GitHub issue). **Status lives in GitHub** — the milestone progress
-  bar and each issue's open/closed state. Roadmaps carry **no `[x]`/`[ ]` checkboxes** and
-  are never hand-updated when an issue closes; that mirroring is what drifts. Each
-  actionable slice = one GitHub issue in the matching milestone. Completed milestones get
-  an `M0xx-SUMMARY.md` design/decision record (history GitHub doesn't capture well).
-  `M013-ROADMAP.md` is the reference example of this format.
-- **`continue.md`** is the session-to-session handoff: last action, next action,
-  open threads, and an explicit **Do not** list. Read it first; update it before you stop.
+- **Plan and status are kept in separate systems — do not duplicate.**
+  `docs/milestones/M0xx-ROADMAP.md` holds the *plan and reasoning*: vision, success
+  criteria, sequencing, cross-milestone boundaries, and named slices `S01..` (each with
+  `risk:`/`depends:` plan metadata and a `→ #NN` link to its GitHub issue). **Status lives
+  in GitHub** — the milestone progress bar and each issue's open/closed state. Roadmaps
+  carry **no `[x]`/`[ ]` checkboxes** and are never hand-updated when an issue closes;
+  that mirroring is what drifts. Each actionable slice = one GitHub issue in the matching
+  milestone. Completed milestones get an `M0xx-SUMMARY.md` design/decision record (history
+  GitHub doesn't capture well). `docs/milestones/M013-ROADMAP.md` is the reference example
+  of this format.
+- **`continue.md`** (repo root, **local/untracked — gitignored on purpose**) is the
+  session-to-session handoff: last action, next action, open threads, and an explicit
+  **Do not** list. Read it first; update it before you stop. It is machine-local working
+  state — never commit it.
 
 ## Conventions & known gotchas
 
