@@ -84,6 +84,10 @@ interface GitHubPullReviewCommentResponse {
   user?: GitHubUserResponse | null;
 }
 
+// The fixed user id GitHub assigns to comments authored via an Actions installation token
+// (login `github-actions[bot]`). Server-assigned and unforgeable by commenters.
+const GITHUB_ACTIONS_BOT_USER_ID = 41_898_282;
+
 export class GitHubVcsAdapter implements VcsAdapter {
   readonly provider = "github" as const;
 
@@ -108,11 +112,22 @@ export class GitHubVcsAdapter implements VcsAdapter {
   // Resolves the numeric id of the authenticated token's user via GET /user.
   // Best-effort: any non-2xx response or network error yields undefined — a dedup-identity
   // hiccup must never fail publish. Memoized so repeated calls in one publish cycle are free.
+  //
+  // Installation tokens (GITHUB_TOKEN in Actions) get 403 from GET /user, and their comments
+  // are authored as github-actions[bot] — a server-assigned identity an attacker cannot forge,
+  // so accepting its well-known id preserves the #84 planted-marker defense. Without this
+  // fallback every CI run posts a duplicate summary instead of updating in place. 403 only:
+  // transient failures on user tokens still yield undefined (the duplicate-over-suppression
+  // direction). Tokens of other GitHub Apps also 403 here, but their comments are authored
+  // under each app's own [bot] id, so the mismatch just falls back to a fresh POST as before.
   private resolveBotUserId(): Promise<number | undefined> {
     if (this.botUserIdPromise === undefined) {
       this.botUserIdPromise = (async () => {
         try {
           const response = await this.fetchImpl(`${this.apiBaseUrl}/user`, { headers: this.headers() });
+          if (response.status === 403) {
+            return GITHUB_ACTIONS_BOT_USER_ID;
+          }
           if (!response.ok) {
             return undefined;
           }

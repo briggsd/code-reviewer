@@ -601,6 +601,74 @@ describe("GitHubVcsAdapter", () => {
     expect(result.summaryCommentId).toBe("987");
   });
 
+  test("GET /user 403 (Actions installation token) → existing github-actions[bot] summary is updated in place", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const adapter = new GitHubVcsAdapter({
+      token: "installation-token",
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        // GITHUB_TOKEN cannot call GET /user — the adapter must fall back to the
+        // well-known github-actions[bot] id instead of posting a duplicate.
+        if (url === "https://api.github.com/user") {
+          return jsonResponse({ message: "Resource not accessible by integration" }, {}, 403);
+        }
+        if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100") {
+          return jsonResponse([
+            { id: 222, body: "<!-- ai-code-review-factory\n{}\n-->", user: { id: 41898282, login: "github-actions[bot]" } },
+          ]);
+        }
+        if (url === "https://api.github.com/repos/example/payments-api/issues/comments/222") {
+          return jsonResponse({ id: 222, html_url: "https://github.com/example/payments-api/pull/17#issuecomment-222" });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const review = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    const result = await adapter.publishSummary({ change: fixture.metadata, summary: review.summary });
+
+    const patchCall = calls.find((c) => c.url.endsWith("/issues/comments/222") && c.init?.method === "PATCH");
+    expect(patchCall).toBeDefined();
+    expect(calls.some((c) => c.url.endsWith("/issues/17/comments") && c.init?.method === "POST")).toBe(false);
+    expect(result.summaryCommentId).toBe("222");
+  });
+
+  test("GET /user 403 + planted non-Actions marker → fresh comment is POSTed (#84 defense preserved)", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const adapter = new GitHubVcsAdapter({
+      token: "installation-token",
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, ...(init !== undefined ? { init } : {}) });
+
+        if (url === "https://api.github.com/user") {
+          return jsonResponse({ message: "Resource not accessible by integration" }, {}, 403);
+        }
+        if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments?per_page=100") {
+          // Attacker-authored marker comment: the actions-bot fallback id must NOT match user id 42.
+          return jsonResponse([
+            { id: 999, body: "<!-- ai-code-review-factory\n{}\n-->", user: { id: 42, login: "attacker" } },
+          ]);
+        }
+        if (url === "https://api.github.com/repos/example/payments-api/issues/17/comments") {
+          return jsonResponse({ id: 987, html_url: "https://github.com/example/payments-api/pull/17#issuecomment-987" }, {}, 201);
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), { status: 404, statusText: "Not Found" });
+      },
+    });
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const review = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    const result = await adapter.publishSummary({ change: fixture.metadata, summary: review.summary });
+
+    expect(calls.some((c) => c.url.endsWith("/issues/comments/999"))).toBe(false);
+    expect(calls.some((c) => c.url.endsWith("/issues/17/comments") && c.init?.method === "POST")).toBe(true);
+    expect(result.summaryCommentId).toBe("987");
+  });
+
   test("throws a clear error on GitHub API failures", async () => {
     const adapter = new GitHubVcsAdapter({
       fetch: async () => new Response(JSON.stringify({ message: "bad credentials" }), {
