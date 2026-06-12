@@ -1,6 +1,64 @@
-# Continue — AI Code Review Factory / #91 thin-review flag (PR #98) + coordinator JSON-parse robustness fix (PR #103) SHIPPED; prior: #97 Biome trim, #95 CI gates; next = #92 / decide formatter+flip-blocking (#96) / M014
+# Continue — AI Code Review Factory / Foundation A SHIPPED: tier-profile consolidation #100/#101 (PR #104); next = Foundation B (#96+#27 one toolchain decision) / C (#50 schema w/ #20+#22 events) / D (#33+#22-P1)
 
 ## Last action
+
+**Foundation A SHIPPED — tier-profile consolidation, PR #104 (squash `4f4ee4c`, gate 477/0, closed
+#101, progress note on #100).** This session first produced a **cross-cutting analysis of all 20 open
+issues** (user asked for shared slices), collapsing ~14 of them into four foundations:
+- **A — tier-profile consolidation** (#100+#101; unlocks #23/#26/#46) — DONE this session.
+- **B — one toolchain decision** (#96 formatter/flip-blocking + #27 S01 tool choice are the SAME
+  decision; Biome can't express import-direction rules → likely Biome-for-style + dependency-cruiser
+  for #27 invariants; #92's deterministic doc-staleness checks then ride that lint family).
+- **C — telemetry schema designed once** (#50 counts-only schema should include #20's 3-event run
+  schema + #22-P2's `run.override` event UP FRONT, not retrofit; then #57 artifact scoping; #51 stays
+  trigger-gated). #20's old blocker #31 is fixed; #69's `withheld` classification improved the signal.
+- **D — summary renderer rewrite** (#33 + #22-P1 break-glass doc/footer bundled into the same PR;
+  must preserve grounding/ack/withheld notes + hidden metadata + re-review section added since #33 was filed).
+- Standalones (no shared seam): #42 (--pi-api-key), #41 (heartbeat), #24 (generated markers).
+  #16/#15 stay trigger-gated decision records. Suggested order: B → C → D.
+
+**What A shipped (PR #104):** new `src/runner/tier-profile.ts` — ONE declarative `TierProfile` table
+(`reviewerRoleCap` / `shortCircuitCoordinatorOnZeroFindings` / `timeoutScale` / `denyContextTools`);
+the three scattered tier mechanisms (reviewer selection in `reviewer-definitions.ts`, timeout scaling +
+tool policy in `run-review.ts`) now all read `getTierProfile()`. Two cost levers from the 29-run
+telemetry (#100/#101): **trivial roster capped to `["code_quality"]`** (was 3 specialists; cap
+intersects `reviewerPolicy`, never re-enables disabled) and **trivial/lite skip the coordinator call
+when all dispatched reviewers succeed with zero findings** (coordinator = 27% of spend; deterministic
+`summarizeReview` approved summary instead; any failure or finding → coordinator runs). Contract:
+optional `shortCircuitOnZeroFindings` on `CoordinatorRunInput` (spine computes from profile — policy
+stays deterministic), `coordinatorShortCircuited` on `CoordinatorRunResult`; Pi + dummy runtimes honor
+it. Counts-only observability: `coordinatorShortCircuited` in `coordinator.completed` trace +
+`run_metrics` (only when true; thinReview pattern, schema stays v1). No new config surface (profiles
+factory-owned this slice). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator); clean report,
+reconciled, no confabulation.
+
+- **Review triage (R1 full-tier, 8 findings → fixed 4 / held 2 / cheap-fixed 1-dup):** REAL: (1)
+  vacuous short-circuit on EMPTY roster (trivial + `code_quality:"disabled"` → approved with zero
+  review) — kept the behavior (outcome parity with pre-cap semantics: coordinator fusing zero results
+  also approved), LOCKED with e2e test (e) + documented as a `reviewerPolicy` footgun in
+  configuration.md; (2) the sharp one — **original test (c) passed for the wrong reason** (1 reviewer
+  on trivial → all-failed THROW fires before the short-circuit guard; `reviewerFailures.length === 0`
+  was never exercised) → new test (c2): lite tier, security fails, others succeed-empty → coordinator
+  IS spawned (would fail if the guard were removed); (3+4) lite/full doc-table rows implied fixed
+  rosters (uncapped, config-driven). HELD: "trace field mismatch" (reviewer conflated the runtime
+  `agent.completed` `shortCircuited` with the spine `coordinator.completed` `coordinatorShortCircuited`
+  — doc was accurate); trivial security-waiver (deliberate #101 design; documented the tradeoff +
+  `sensitivePaths` as the escalation lever). R2 (5 findings): ALL recurring/re-litigations of R1 holds
+  → noise-floor stop, merged. One legit follow-up idea inside R2's re-litigation: a config-overridable
+  tier roster cap (e.g. `trivialRoleCap`) — NOT filed (file only if a consumer actually wants it).
+- **#100 stays OPEN** (progress note posted): trivial duplication largely solved by the roster cap;
+  the LITE context-sharing question remains (3 specialists on `inline_fallback` still duplicate cache
+  writes on non-empty runs). Remaining directions: write-once/read-many inline payload sharing without
+  re-enabling read tools; surface `cacheWrite` per tier in `telemetry:analyze`. The profile now has a
+  natural home for a future `contextMode` field.
+
+**Recommended next:** **Foundation B** (settle #96 formatter+flip-blocking AND #27 tool choice in one
+sitting) / **Foundation C** (#50 schema designed to carry #20+#22 events) / **Foundation D** (#33+#22-P1)
+/ standalones #41/#42/#24.
+
+---
+
+**Earlier last action:**
 
 **Coordinator/reviewer JSON-extraction robustness fix SHIPPED — PR #103 (squash `f0a459c`, gate
 455/0, AI review `approved`/0 — the same pipeline that FAILED 3× on #98 now parses).** While
@@ -529,9 +587,8 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## State
 
-- `main` @ `f0a459c` (PR #103 coordinator JSON-parse robustness; PR #98 #91 thin-review under it),
-  pushed/synced, gate **455/0**, working tree CLEAN except an intentional `CLAUDE.md` "Workflow" note
-  (user-added, uncommitted) + this `continue.md` edit.
+- `main` @ `4f4ee4c` (PR #104 tier-profile consolidation, closed #101), pushed/synced, gate **477/0**,
+  working tree CLEAN except this `continue.md` edit.
 - **MERGED last big session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
@@ -543,11 +600,12 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   → 5/5 @ 100%), **#88** (#84 inline+summary dedup author-trust, closed #84), **#89** (#87 location backfill, closed #87).
 - **MERGED this session: #95** (CI quality gates — `ci.yml` blocking check + advisory Biome/knip/jscpd,
   squash `acba8d9`). Also **#90 (telemetry:analyze) merged as PR #93** during this window.
-- **Issues open:** **#96** (CI quality-gate follow-ups — trustworthy-trim DONE in PR #97; STILL OPEN for:
-  adopt/disable Biome formatter, flip Biome to blocking, repo-wide Action SHA-pinning). **#91** (thin-review
-  flag), **#92** (doc-staleness detection). #57
+- **Issues open:** **#100** (lite context-sharing — trivial half SOLVED by PR #104, see progress note
+  on the issue; #101 CLOSED). **#96** (CI quality-gate follow-ups — trustworthy-trim DONE in PR #97; STILL OPEN for:
+  adopt/disable Biome formatter, flip Biome to blocking, repo-wide Action SHA-pinning — Foundation B
+  pairs these with #27's tool choice). **#92** (doc-staleness detection). #57
   (partial — telemetry redaction), #46 (needs prev-head..head ref read), **M014** #50/#51 (telemetry
-  egress), **M013** #26/#27/#29/#33, #41/#42/#20, **M012** parking lot #15/#16/#22/#23/#24.
+  egress — Foundation C), **M013** #26/#27/#29/#33, #41/#42/#20, **M012** parking lot #15/#16/#22/#23/#24.
   **GitLab parity COMPLETE** (base-read #80 + inline publish #82 + dedup author-trust #84). **#77 PROVEN
   end-to-end**; eval VALIDATED 5/5@100%. **#77 option 2** (generalized self-review signal / thin-review
   full-tier review). **#77 option 2** revisit only if needed.
@@ -626,6 +684,13 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   (it swept `M009-SUMMARY.md` in once).
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80/#82/#28
   #84/#87/#69/#90/#91 or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85/#86/#88/#89/#93/#94/#95/#97/#98/#103
+- Do not scatter new tier conditionals — ALL tier→behavior policy reads `getTierProfile()`
+  (`src/runner/tier-profile.ts`, PR #104). Do not remove the trivial `["code_quality"]` roster cap or
+  the coordinator zero-finding short-circuit guards (`reviewerFailures.length === 0` + every-result-
+  empty in `pi-agent-runtime.ts`) — test (c2) locks the mixed-failure case, test (e) locks the
+  empty-roster case (deliberate: deterministic approved, documented footgun in configuration.md).
+  The trivial security-waiver is BY DESIGN (#101; sensitive paths escalate to full; documented in
+  architecture.md) — the reviewer re-litigated it twice, hold the line. Do not reopen #101 / PR #104.
 - Do not re-chase the #98 AI-review JSON-parse failures as a thin-review bug — they were two
   pre-existing `pi-agent-runtime.ts` JSON-EXTRACTION gaps (preamble-before-fence + nested-quote-
   before-comma), **FIXED in PR #103**, independent of #91's post-coordinator code. Do not revert
