@@ -3,7 +3,6 @@ import { loadReviewFixture, runReview } from "../src/index.ts";
 import type {
   Finding,
   RuntimeEvent,
-  RuntimeEventSubscription,
   TelemetryEvent,
   TelemetryFlushResult,
   TelemetrySink,

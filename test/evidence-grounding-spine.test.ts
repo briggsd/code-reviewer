@@ -1,15 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createStableFindingId, loadReviewFixture, runReview } from "../src/index.ts";
 import type {
-  CoordinatorRunInput,
-  CoordinatorRunResult,
   Finding,
-  AgentRuntime,
   PriorReviewState,
-  ReviewerRunInput,
-  ReviewerRunResult,
   RuntimeEvent,
-  RuntimeEventSubscription,
   TelemetryEvent,
   TelemetryFlushResult,
   TelemetrySink,
