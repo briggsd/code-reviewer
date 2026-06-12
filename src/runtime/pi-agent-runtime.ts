@@ -1321,18 +1321,27 @@ function parseJsonCandidate(candidate: string): unknown {
 }
 
 function extractFencedJson(trimmed: string): string | undefined {
-  const opening = trimmed.match(/^```(?:json)?[^\n]*\n/i);
-  if (opening === null) {
+  // Locate a fenced code block ANYWHERE in the output, not only at the start: models sometimes
+  // emit a prose preamble before the fenced JSON (e.g. "I have enough to validate… Summary: …"),
+  // and that preamble can itself contain `{`/`}` in inline code. Anchoring only to ^ missed those
+  // and the downstream `indexOf("{")` fallback would then slice from a brace in the prose, yielding
+  // a "JSON Parse error: Expected '}'". Prefer an explicitly json-labelled fence; fall back to a
+  // bare fence. The fence must start at a line boundary so a ``` inside a JSON string value is not
+  // mistaken for a block delimiter.
+  const opening = trimmed.match(/(?:^|\n)```json[^\n]*\n/i) ?? trimmed.match(/(?:^|\n)```[^\n]*\n/);
+  if (opening?.index === undefined) {
     return undefined;
   }
 
-  const body = trimmed.slice(opening[0].length);
-  const closing = body.match(/\n```[^\n]*$/);
-  if (closing?.index === undefined) {
+  const body = trimmed.slice(opening.index + opening[0].length);
+  // Closing fence: the last line that begins with ```. Using the LAST occurrence keeps extraction
+  // robust to a ``` appearing inside a JSON string value or to trailing prose after the block.
+  const lastClose = body.lastIndexOf("\n```");
+  if (lastClose === -1) {
     return undefined;
   }
 
-  return body.slice(0, closing.index).trim();
+  return body.slice(0, lastClose).trim();
 }
 
 function repairEscapedMarkdownBackticks(candidate: string): string {
@@ -1414,9 +1423,44 @@ function isLikelyJsonStringTerminator(candidate: string, quoteIndex: number): bo
       continue;
     }
 
-    return character === ":" || character === "," || character === "}" || character === "]";
+    if (character === ":" || character === "}" || character === "]") {
+      return true;
+    }
+
+    if (character === ",") {
+      // A quote followed by a comma is ambiguous: it is a real value terminator only when the
+      // next non-whitespace token actually begins a JSON value (the next object key/array element).
+      // When prose follows instead — e.g. `means "foo", but this is wrong` — the quote is a nested
+      // prose quote that must be escaped, not treated as the string end. Without this the repair
+      // would close the string at `foo"` and the trailing prose becomes invalid JSON.
+      return nextNonSpaceStartsJsonValue(candidate, index + 1);
+    }
+
+    return false;
   }
 
+  return true;
+}
+
+function nextNonSpaceStartsJsonValue(candidate: string, from: number): boolean {
+  for (let index = from; index < candidate.length; index += 1) {
+    const character = candidate[index] ?? "";
+    if (/\s/.test(character)) {
+      continue;
+    }
+
+    return character === "\""
+      || character === "{"
+      || character === "["
+      || character === "-"
+      || /[0-9]/.test(character)
+      || candidate.startsWith("true", index)
+      || candidate.startsWith("false", index)
+      || candidate.startsWith("null", index);
+  }
+
+  // Nothing but whitespace after the comma (e.g. a trailing comma before the close): treat the
+  // quote as a real terminator rather than escaping it.
   return true;
 }
 

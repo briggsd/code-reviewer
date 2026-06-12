@@ -341,10 +341,104 @@ class JsonWithUnescapedQuotePiProcessRunner implements PiProcessRunner {
   }
 }
 
+class NestedQuoteBeforeCommaPiProcessRunner implements PiProcessRunner {
+  // The model writes a nested prose quote immediately before a comma — `means "phrase", but …` —
+  // with the quotes unescaped. The repair must escape both nested quotes; the closing one is
+  // followed by `,` then prose (not a JSON token), so it is NOT a real string terminator. This
+  // reproduces the PR #98 second-review failure that the old comma-only heuristic mis-handled.
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    const nestedBody = "The PR claims the function means \"historical artifacts re-classify consistently\", but this is wrong for lite-tier events.";
+    const quotedFinding = {
+      ...securityFinding(),
+      severity: "suggestion" as const,
+      category: "docs",
+      title: "Nested prose quote before comma",
+      body: nestedBody,
+      confidence: "medium" as const,
+      evidence: "Nested quote before comma.",
+      recommendation: "Escape nested quotes; keep trailing prose.",
+    };
+    const output = input.role === "coordinator"
+      ? {
+        decision: "approved_with_comments",
+        outcome: "pass",
+        title: "AI review found suggestions",
+        body: nestedBody,
+        findings: [quotedFinding],
+        risk: {
+          tier: "lite",
+          reason: "Fake coordinator fallback risk.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      }
+      : input.role === "documentation"
+        ? { findings: [quotedFinding] }
+        : { findings: [] };
+    // Emit the body with UNESCAPED inner quotes (stringify escapes them, so undo that for the
+    // nested phrase to simulate the raw model output).
+    const finalText = `\`\`\`json\n${JSON.stringify(output, null, 2).replace(/\\"historical artifacts re-classify consistently\\"/g, "\"historical artifacts re-classify consistently\"")}\n\`\`\``;
+
+    return {
+      finalText,
+      events: [],
+      rawOutput: finalText,
+    };
+  }
+}
+
 class ExcessiveQuoteRepairPiProcessRunner implements PiProcessRunner {
   async run(_input: PiProcessRunInput): Promise<PiProcessRunResult> {
     const brokenQuotes = Array.from({ length: 21 }, (_value, index) => `\"q${index}\"`).join(" ");
     const finalText = `{"findings":[{"reviewer":"security","severity":"suggestion","category":"docs","title":"Too many quotes","body":"${brokenQuotes}","confidence":"medium","evidence":"quote repair budget","recommendation":"Keep JSON valid."}]}`;
+
+    return {
+      finalText,
+      events: [],
+      rawOutput: finalText,
+    };
+  }
+}
+
+class PreambleBeforeFencedJsonPiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    const preambleFinding = {
+      ...securityFinding(),
+      severity: "suggestion" as const,
+      category: "docs",
+      title: "Preamble finding",
+      body: "Reviewed with a prose preamble before the fenced JSON.",
+      confidence: "medium" as const,
+      evidence: "Preamble case.",
+      recommendation: "Parse the fenced block, not the prose.",
+    };
+    const output = input.role === "coordinator"
+      ? {
+        decision: "approved_with_comments",
+        outcome: "pass",
+        title: "AI review found suggestions",
+        body: "Coordinator emitted a preamble first.",
+        findings: [preambleFinding],
+        risk: {
+          tier: "lite",
+          reason: "Fake coordinator fallback risk.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      }
+      : input.role === "documentation"
+        ? { findings: [preambleFinding] }
+        : { findings: [] };
+    // Prose preamble that itself contains a brace in inline code (e.g. `return { thin: false }`),
+    // then the fenced JSON. This reproduces the real failure where `indexOf("{")` would otherwise
+    // slice from the prose brace and the parse fails with "Expected '}'".
+    const preamble = "I have enough to validate the findings. Summary:\n\n"
+      + "1. The helper has an early `return { thin: false }` branch for the trivial case.\n\n";
+    const finalText = `${preamble}\`\`\`json\n${JSON.stringify(output, null, 2)}\n\`\`\``;
 
     return {
       finalText,
@@ -1403,6 +1497,25 @@ describe("PiAgentRuntime", () => {
     expect(result.summary.findings[0]?.recommendation).toBe(expectedRecommendation);
   });
 
+  test("parses fenced JSON preceded by a prose preamble containing braces", async () => {
+    // Reproduces the real CI failure on PR #98: the coordinator emitted a prose preamble
+    // (with `{ thin: false }` inline) before the ```json block. extractFencedJson must find
+    // the fence despite the preamble; otherwise indexOf("{") slices a prose brace → "Expected '}'".
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new PiAgentRuntime({ processRunner: new PreambleBeforeFencedJsonPiProcessRunner() });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    expect(result.summary.decision).toBe("approved_with_comments");
+    expect(result.summary.body).toBe("Coordinator emitted a preamble first.");
+    const documentationResult = result.coordinatorResult?.reviewerResults.find((reviewer) => reviewer.role === "documentation");
+    expect(documentationResult?.findings[0]?.title).toBe("Preamble finding");
+  });
+
   test("rejects output that would require excessive quote repair", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
     const runtime = new PiAgentRuntime({ processRunner: new ExcessiveQuoteRepairPiProcessRunner() });
@@ -1428,6 +1541,22 @@ describe("PiAgentRuntime", () => {
     expect(documentationResult?.findings[0]?.body).toBe("The docs describe \"timeouts\" as enforced.");
     expect(result.summary.body).toBe("Coordinator preserved the \"timeouts\" suggestion.");
     expect(result.summary.findings[0]?.body).toBe("The docs describe \"timeouts\" as enforced.");
+  });
+
+  test("repairs a nested prose quote immediately before a comma (PR #98 case)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new PiAgentRuntime({ processRunner: new NestedQuoteBeforeCommaPiProcessRunner() });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const expectedBody = "The PR claims the function means \"historical artifacts re-classify consistently\", but this is wrong for lite-tier events.";
+    expect(result.summary.decision).toBe("approved_with_comments");
+    expect(result.summary.body).toBe(expectedBody);
+    expect(result.summary.findings[0]?.body).toBe(expectedBody);
   });
 
   test("rejects invalid structured reviewer output without retrying non-retryable schema errors", async () => {
