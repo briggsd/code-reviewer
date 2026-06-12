@@ -301,8 +301,10 @@ describe("JSONL trace and filesystem state", () => {
       telemetrySink,
     });
 
-    expect(telemetrySink.events).toHaveLength(1);
-    expect(telemetrySink.events[0]).toMatchObject({
+    // Now emits: run.start + run_metrics + run.completed (3 events for a successful run)
+    expect(telemetrySink.events).toHaveLength(3);
+    const runMetricsEvent = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
+    expect(runMetricsEvent).toMatchObject({
       type: "ai_review.run_metrics",
       runId: "fixture-auth-pr",
       data: {
@@ -344,8 +346,10 @@ describe("JSONL trace and filesystem state", () => {
       jobKind: "dry-run",
     });
 
-    expect(telemetrySink.events).toHaveLength(1);
-    expect(telemetrySink.events[0]?.data?.jobKind).toBe("dry-run");
+    // run.start + run_metrics + run.completed = 3 events
+    expect(telemetrySink.events).toHaveLength(3);
+    const runMetricsJobKind = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
+    expect(runMetricsJobKind?.data?.jobKind).toBe("dry-run");
   });
 
   test("runner omits jobKind from run_metrics when option is absent", async () => {
@@ -362,8 +366,12 @@ describe("JSONL trace and filesystem state", () => {
       telemetrySink,
     });
 
-    expect(telemetrySink.events).toHaveLength(1);
-    expect(Object.hasOwn(telemetrySink.events[0]?.data ?? {}, "jobKind")).toBe(false);
+    // run.start + run_metrics + run.completed = 3 events
+    expect(telemetrySink.events).toHaveLength(3);
+    const runMetricsNoJobKind = telemetrySink.events.find(
+      (e) => e.type === "ai_review.run_metrics",
+    );
+    expect(Object.hasOwn(runMetricsNoJobKind?.data ?? {}, "jobKind")).toBe(false);
   });
 
   test("runner tags failed run metrics with runtime", async () => {
@@ -380,8 +388,10 @@ describe("JSONL trace and filesystem state", () => {
       }),
     ).rejects.toThrow("synthetic runtime failure");
 
-    expect(telemetrySink.events).toHaveLength(1);
-    expect(telemetrySink.events[0]).toMatchObject({
+    // Failed run emits: run.start + run_metrics (failed path) = 2 events (no run.completed)
+    expect(telemetrySink.events).toHaveLength(2);
+    const failedMetrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
+    expect(failedMetrics).toMatchObject({
       type: "ai_review.run_metrics",
       runId: "fixture-auth-pr",
       data: {
@@ -406,7 +416,10 @@ describe("JSONL trace and filesystem state", () => {
       }),
     ).rejects.toThrow("synthetic runtime failure");
 
-    expect(telemetrySink.events[0]).toMatchObject({
+    const failedMetricsJobKind = telemetrySink.events.find(
+      (e) => e.type === "ai_review.run_metrics",
+    );
+    expect(failedMetricsJobKind).toMatchObject({
       type: "ai_review.run_metrics",
       data: {
         status: "failed",
@@ -427,9 +440,14 @@ describe("JSONL trace and filesystem state", () => {
     });
 
     expect(result.summary.decision).toBe("significant_concerns");
-    expect(
-      traceSink.events.find((event) => event.data?.event === "telemetry.emit_failed"),
-    ).toMatchObject({
+    // With run_events emission, the ThrowingTelemetrySink throws on every emitTelemetry
+    // call. Find the trace event for the run_metrics emit specifically.
+    const runMetricsFailedTrace = traceSink.events.find(
+      (event) =>
+        event.data?.event === "telemetry.emit_failed" &&
+        event.data?.telemetryEventType === "ai_review.run_metrics",
+    );
+    expect(runMetricsFailedTrace).toMatchObject({
       type: "runtime.event",
       runId: "fixture-auth-pr",
       message: "Telemetry emit failed",
@@ -553,8 +571,12 @@ describe("JSONL trace and filesystem state", () => {
     });
 
     // Telemetry: thinReview block must be present with flagged=true and correct counts
-    expect(telemetrySink.events).toHaveLength(1);
-    const thinTelemetryBlock = telemetrySink.events[0]?.data?.thinReview;
+    // (run.start + run_metrics + run.completed = 3 events; find the run_metrics one)
+    const thinRunMetricsEvent = telemetrySink.events.find(
+      (e) => e.type === "ai_review.run_metrics",
+    );
+    expect(thinRunMetricsEvent).toBeDefined();
+    const thinTelemetryBlock = thinRunMetricsEvent?.data?.thinReview;
     expect(thinTelemetryBlock).toMatchObject({
       flagged: true,
       outputTokens: 0,
@@ -609,12 +631,172 @@ describe("JSONL trace and filesystem state", () => {
     });
 
     // For a trivial run, no thinReview block in telemetry
-    const thinReviewField = telemetrySink.events[0]?.data?.thinReview;
+    const trivialRunMetricsEvent = telemetrySink.events.find(
+      (e) => e.type === "ai_review.run_metrics",
+    );
+    const thinReviewField = trivialRunMetricsEvent?.data?.thinReview;
     expect(thinReviewField).toBeUndefined();
 
     // No review.thin_detected trace event
     const thinTrace = traceSink.events.find((e) => e.type === "review.thin_detected");
     expect(thinTrace).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Run events spine emission tests (#20 S04/S05)
+// ---------------------------------------------------------------------------
+
+describe("run events spine emission", () => {
+  test("completed run with prior state emits run.start + run.completed + run.correction + run_metrics, all with same runId", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/re-review-pr.json");
+    const runtime = new DummyAgentRuntime({
+      defaultFindings: fixture.fakeFindings ?? [],
+    });
+    const telemetrySink = new RecordingTelemetrySink();
+
+    await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+      runtime,
+      telemetrySink,
+    });
+
+    const runId = fixture.runId ?? "fixture-re-review-pr";
+    const events = telemetrySink.events;
+
+    // Expect: run.start + run_metrics + run.completed + run.correction = 4 events
+    expect(events).toHaveLength(4);
+    expect(events.every((e) => e.runId === runId)).toBe(true);
+
+    const startEvent = events.find(
+      (e) => e.type === "ai_review.run_event" && e.data?.event === "run.start",
+    );
+    const completedEvent = events.find(
+      (e) => e.type === "ai_review.run_event" && e.data?.event === "run.completed",
+    );
+    const correctionEvent = events.find(
+      (e) => e.type === "ai_review.run_event" && e.data?.event === "run.correction",
+    );
+    const metricsEvent = events.find((e) => e.type === "ai_review.run_metrics");
+
+    expect(startEvent).toBeDefined();
+    expect(completedEvent).toBeDefined();
+    expect(correctionEvent).toBeDefined();
+    expect(metricsEvent).toBeDefined();
+
+    // run.start's selectedReviewerRoles matches the tier roster (full tier for re-review)
+    const roles = startEvent?.data?.selectedReviewerRoles as string[];
+    expect(Array.isArray(roles)).toBe(true);
+    expect(roles.length).toBeGreaterThan(0);
+  });
+
+  test("run WITHOUT prior state emits run.start + run.completed but NO run.correction", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new DummyAgentRuntime({
+      defaultFindings: fixture.fakeFindings ?? [],
+    });
+    const telemetrySink = new RecordingTelemetrySink();
+
+    await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+      runtime,
+      telemetrySink,
+    });
+
+    const events = telemetrySink.events;
+
+    // run.start + run_metrics + run.completed = 3 events (no correction)
+    expect(events).toHaveLength(3);
+
+    const startEvent = events.find(
+      (e) => e.type === "ai_review.run_event" && e.data?.event === "run.start",
+    );
+    const completedEvent = events.find(
+      (e) => e.type === "ai_review.run_event" && e.data?.event === "run.completed",
+    );
+    const correctionEvent = events.find(
+      (e) => e.type === "ai_review.run_event" && e.data?.event === "run.correction",
+    );
+
+    expect(startEvent).toBeDefined();
+    expect(completedEvent).toBeDefined();
+    expect(correctionEvent).toBeUndefined();
+  });
+
+  test("acknowledged-only run (no prior state) emits run.correction with zero re-review counts and rejected acceptance", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    fixture.config = {
+      ...fixture.config,
+      acknowledgements: [
+        {
+          path: "auth/**",
+          mode: "acknowledge",
+          reason: "tracked in TICKET-123; under remediation",
+        },
+      ],
+    };
+    const runtime = new DummyAgentRuntime({
+      defaultFindings: fixture.fakeFindings ?? [],
+    });
+    const telemetrySink = new RecordingTelemetrySink();
+
+    await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+      runtime,
+      telemetrySink,
+    });
+
+    const correctionEvent = telemetrySink.events.find(
+      (e) => e.type === "ai_review.run_event" && e.data?.event === "run.correction",
+    );
+    expect(correctionEvent).toBeDefined();
+
+    // No prior-state comparison → all four re-review counts are 0; the only
+    // signal is the acknowledged finding's rejected bucket.
+    expect(correctionEvent?.data?.newFindingCount).toBe(0);
+    expect(correctionEvent?.data?.recurringFindingCount).toBe(0);
+    expect(correctionEvent?.data?.fixedFindingCount).toBe(0);
+    expect(correctionEvent?.data?.withheldFindingCount).toBe(0);
+
+    const acceptance = correctionEvent?.data?.acceptanceByReviewer as Record<
+      string,
+      { accepted: number; notAccepted: number; rejected: number; withheldExcluded: number }
+    >;
+    expect(acceptance.security?.rejected).toBe(1);
+    expect(acceptance.security?.accepted).toBe(0);
+  });
+
+  test("FAILING run emits run.start but NO run.completed", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const telemetrySink = new RecordingTelemetrySink();
+    const runtime = new FailingRuntime();
+
+    await expect(
+      runReview({
+        fixture,
+        clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+        runtime,
+        telemetrySink,
+      }),
+    ).rejects.toThrow("synthetic runtime failure");
+
+    const events = telemetrySink.events;
+
+    // Failed run: run.start + run_metrics (failed path) = 2 events
+    expect(events).toHaveLength(2);
+
+    const startEvent = events.find(
+      (e) => e.type === "ai_review.run_event" && e.data?.event === "run.start",
+    );
+    const completedEvent = events.find(
+      (e) => e.type === "ai_review.run_event" && e.data?.event === "run.completed",
+    );
+
+    expect(startEvent).toBeDefined();
+    expect(completedEvent).toBeUndefined();
   });
 });
 

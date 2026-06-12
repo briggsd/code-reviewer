@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import type { TelemetryEvent } from "../src/contracts/telemetry.ts";
 import { analyzeRunMetrics, formatRunMetricsAnalysis } from "../src/state/run-metrics-analyze.ts";
@@ -312,4 +312,299 @@ test("formatRunMetricsAnalysis shows n/a for zero-findings tier costPerFinding",
   const analysis = analyzeRunMetrics(events);
   const output = formatRunMetricsAnalysis(analysis);
   expect(output).toContain("n/a");
+});
+
+// ---------------------------------------------------------------------------
+// S06: run_event analysis (#20)
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics with run_event stream", () => {
+  // Synthetic stream:
+  //   run-1: pi runtime (real) → run_metrics + run.start + run.completed + run.correction
+  //   run-2: pi runtime (real) → run_metrics + run.start + run.completed (no correction)
+  //   run-orphan: run.start with no matching run_metrics → IGNORED
+  //   run-dummy: dummy runtime run_metrics (excluded from real runs) → run_event ignored
+
+  const streamEvents: TelemetryEvent[] = [
+    // run-1: real run, full tier, has correction with acceptance data
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-12T00:00:00.000Z",
+      runId: "run-1",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 3000,
+        findingCount: 0,
+        findingsByReviewer: {},
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-12T00:00:00.100Z",
+      runId: "run-1",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.start",
+        repository: "acme/api",
+        riskTier: "full",
+        selectedReviewerRoles: ["security"],
+        modelIds: ["model-a"],
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-12T00:00:03.000Z",
+      runId: "run-1",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.completed",
+        repository: "acme/api",
+        riskTier: "full",
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 3000,
+        findingCount: 0,
+        findingsBySeverity: {},
+        findingsByReviewer: {},
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-12T00:00:03.100Z",
+      runId: "run-1",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.correction",
+        repository: "acme/api",
+        riskTier: "full",
+        newFindingCount: 0,
+        recurringFindingCount: 0,
+        fixedFindingCount: 2,
+        withheldFindingCount: 0,
+        acceptanceByReviewer: {
+          security: {
+            accepted: 2,
+            notAccepted: 0,
+            rejected: 0,
+            withheldExcluded: 0,
+          },
+        },
+      },
+    },
+    // run-2: real run, lite tier, no correction
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-12T01:00:00.000Z",
+      runId: "run-2",
+      data: {
+        runtime: "pi",
+        riskTier: "lite",
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 1000,
+        findingCount: 0,
+        findingsByReviewer: {},
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-12T01:00:00.100Z",
+      runId: "run-2",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.start",
+        repository: "acme/api",
+        riskTier: "lite",
+        selectedReviewerRoles: ["security"],
+        modelIds: ["model-a"],
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-12T01:00:01.000Z",
+      runId: "run-2",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.completed",
+        repository: "acme/api",
+        riskTier: "lite",
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 1000,
+        findingCount: 0,
+        findingsBySeverity: {},
+        findingsByReviewer: {},
+      },
+    },
+    // run-orphan: run.start with no matching run_metrics → must be IGNORED
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-12T02:00:00.000Z",
+      runId: "run-orphan",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.start",
+        repository: "orphan/repo",
+        riskTier: "full",
+        selectedReviewerRoles: [],
+        modelIds: [],
+      },
+    },
+    // run-dummy: dummy runtime run_metrics (not real) + run.start → run_event ignored
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-12T03:00:00.000Z",
+      runId: "run-dummy",
+      data: {
+        runtime: "dummy",
+        riskTier: "full",
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 100,
+        findingCount: 0,
+        findingsByReviewer: {},
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-12T03:00:00.100Z",
+      runId: "run-dummy",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.start",
+        repository: "acme/api",
+        riskTier: "full",
+        selectedReviewerRoles: [],
+        modelIds: [],
+      },
+    },
+  ];
+
+  test("completion rate: 2 started, 2 completed = 100%", () => {
+    const analysis = analyzeRunMetrics(streamEvents);
+    expect(analysis.runEvents).toBeDefined();
+    expect(analysis.runEvents?.startCount).toBe(2);
+    expect(analysis.runEvents?.completedCount).toBe(2);
+    expect(analysis.runEvents?.completionRate).toBeCloseTo(1.0, 5);
+  });
+
+  test("correctionCount = 1 (only run-1 has a correction)", () => {
+    const analysis = analyzeRunMetrics(streamEvents);
+    expect(analysis.runEvents?.correctionCount).toBe(1);
+    expect(analysis.runEvents?.correctionRunCount).toBe(1);
+  });
+
+  test("correction event WITHOUT acceptance data counts in correctionCount but not correctionRunCount", () => {
+    const noAcceptanceStream: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-12T00:00:00.000Z",
+        runId: "run-x",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 1000,
+          findingCount: 0,
+          findingsByReviewer: {},
+        },
+      },
+      {
+        type: "ai_review.run_event",
+        timestamp: "2026-06-12T00:00:01.000Z",
+        runId: "run-x",
+        data: {
+          schemaVersion: "ai-review.run_event.v1",
+          event: "run.correction",
+          repository: "acme/api",
+          riskTier: "full",
+          newFindingCount: 0,
+          recurringFindingCount: 0,
+          fixedFindingCount: 0,
+          withheldFindingCount: 0,
+          acceptanceByReviewer: {},
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(noAcceptanceStream);
+    expect(analysis.runEvents?.correctionCount).toBe(1);
+    expect(analysis.runEvents?.correctionRunCount).toBe(0);
+  });
+
+  test("acceptanceByReviewer: security accepted=2 from correction event", () => {
+    const analysis = analyzeRunMetrics(streamEvents);
+    const acceptance = analysis.runEvents?.acceptanceByReviewer;
+    expect(acceptance).toBeDefined();
+    expect(acceptance?.security?.accepted).toBe(2);
+    expect(acceptance?.security?.notAccepted).toBe(0);
+    expect(acceptance?.security?.rejected).toBe(0);
+    expect(acceptance?.security?.acceptanceRate).toBeCloseTo(1.0, 5);
+  });
+
+  test("acceptanceByTier: full tier has security's acceptance", () => {
+    const analysis = analyzeRunMetrics(streamEvents);
+    const byTier = analysis.runEvents?.acceptanceByTier;
+    expect(byTier).toBeDefined();
+    expect(byTier?.full?.accepted).toBe(2);
+  });
+
+  test("directional: true is set", () => {
+    const analysis = analyzeRunMetrics(streamEvents);
+    expect(analysis.runEvents?.directional).toBe(true);
+  });
+
+  test("orphan run_event (no matching run_metrics) is ignored", () => {
+    // orphan run.start should NOT count toward startCount
+    const analysis = analyzeRunMetrics(streamEvents);
+    // Only run-1 and run-2 have matching run_metrics → 2 starts
+    expect(analysis.runEvents?.startCount).toBe(2);
+  });
+
+  test("dummy runtime run_metrics excludes its run.start from analysis", () => {
+    // run-dummy is excluded by isRunMetricsEvent; its run.start is orphaned → ignored
+    const analysis = analyzeRunMetrics(streamEvents);
+    // Only run-1 and run-2 → 2 starts
+    expect(analysis.runEvents?.startCount).toBe(2);
+  });
+
+  test("runEvents is undefined when no run_event events in stream", () => {
+    const metricsOnly = streamEvents.filter((e) => e.type === "ai_review.run_metrics");
+    const analysis = analyzeRunMetrics(metricsOnly);
+    expect(analysis.runEvents).toBeUndefined();
+  });
+
+  test("runEvents is undefined when all run_events are orphans", () => {
+    // Only orphan run_event (no matching run_metrics)
+    const orphanOnly: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_event",
+        timestamp: "2026-06-12T00:00:00.000Z",
+        runId: "no-match",
+        data: { event: "run.start", schemaVersion: "ai-review.run_event.v1" },
+      },
+    ];
+    const analysis = analyzeRunMetrics(orphanOnly);
+    expect(analysis.runEvents).toBeUndefined();
+  });
+
+  test("formatted output contains the directional caveat line", () => {
+    const analysis = analyzeRunMetrics(streamEvents);
+    const output = formatRunMetricsAnalysis(analysis);
+    expect(output).toContain("directional");
+    expect(output).toContain("longitudinal signal");
+    expect(output).toContain("1 correction runs");
+  });
+
+  test("formatted output contains completionRate and counts", () => {
+    const analysis = analyzeRunMetrics(streamEvents);
+    const output = formatRunMetricsAnalysis(analysis);
+    expect(output).toContain("completionRate");
+    expect(output).toContain("startCount");
+    expect(output).toContain("completedCount");
+    expect(output).toContain("correctionCount");
+  });
 });

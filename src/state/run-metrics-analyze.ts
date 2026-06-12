@@ -46,6 +46,34 @@ export interface TierSegment {
   thinReviewRate: number;
 }
 
+export interface ReviewerAcceptanceStat {
+  accepted: number;
+  notAccepted: number;
+  rejected: number;
+  withheldExcluded: number;
+  /** accepted / (accepted + notAccepted + rejected); omitted when denominator is 0. */
+  acceptanceRate?: number;
+}
+
+export interface RunEventsAnalysis {
+  startCount: number;
+  completedCount: number;
+  correctionCount: number;
+  /** completed / started; null when startCount is 0. */
+  completionRate: number | null;
+  /** Per-reviewer acceptance signal from correction events (directional). */
+  acceptanceByReviewer: Record<string, ReviewerAcceptanceStat>;
+  /** Per-tier acceptance signal from correction events (directional). */
+  acceptanceByTier: Record<string, ReviewerAcceptanceStat>;
+  /** Number of correction runs contributing acceptance data. */
+  correctionRunCount: number;
+  /**
+   * Always true: this is a directional, longitudinal signal accumulated
+   * across many runs — not a per-PR score.
+   */
+  directional: true;
+}
+
 export interface RunMetricsAnalysis {
   runCount: number;
   /** Per risk-tier aggregates (keys are tier names, e.g. "trivial", "lite", "full"). */
@@ -68,6 +96,12 @@ export interface RunMetricsAnalysis {
     /** Fraction of non-trivial runs with output tokens below the thin-review floor. */
     thinReviewRate: number;
   };
+  /**
+   * Run-event aggregates. Present only when run_event events exist in the
+   * stream AND at least one run_event runId matches a real-runtime run_metrics
+   * event (orphan run_events are ignored).
+   */
+  runEvents?: RunEventsAnalysis;
 }
 
 interface TierAccumulator {
@@ -97,12 +131,33 @@ interface RunMetricsEventData extends Record<string, JsonValue> {
 
 type RunMetricsEvent = TelemetryEvent & { data: RunMetricsEventData };
 
+interface RunEventData extends Record<string, JsonValue> {
+  event?: string;
+  riskTier?: string;
+  acceptanceByReviewer?: Record<string, JsonValue>;
+}
+
+type RunEvent = TelemetryEvent & { data: RunEventData };
+
+interface AccumulatedAcceptance {
+  accepted: number;
+  notAccepted: number;
+  rejected: number;
+  withheldExcluded: number;
+}
+
 export function analyzeRunMetrics(
   events: readonly TelemetryEvent[],
   options?: AnalyzeOptions,
 ): RunMetricsAnalysis {
   const realEvents = events.filter(isRunMetricsEvent);
   const runCount = realEvents.length;
+
+  // Collect the set of runIds that belong to real-runtime run_metrics events.
+  // run_event events whose runId is not in this set are "orphans" and are ignored.
+  const realRunIds = new Set(
+    realEvents.map((e) => e.runId).filter((id): id is string => id !== undefined),
+  );
 
   const tierAccumulators = new Map<string, TierAccumulator>();
   const findingsByReviewer = new Map<string, number>();
@@ -262,6 +317,9 @@ export function analyzeRunMetrics(
   // Non-trivial run count for thin-review rate denominator
   const nonTrivialRunCount = runCount - (tierAccumulators.get("trivial")?.runCount ?? 0);
 
+  // S06: run_event analysis — filter to run_event events, match to real runs
+  const runEventAnalysis = buildRunEventsAnalysis(events, realRunIds);
+
   return {
     runCount,
     byTier,
@@ -275,7 +333,138 @@ export function analyzeRunMetrics(
       acknowledgementRunRate: runCount === 0 ? 0 : acknowledgementRunCount / runCount,
       thinReviewRate: nonTrivialRunCount === 0 ? 0 : thinReviewRunCount / nonTrivialRunCount,
     },
+    ...(runEventAnalysis !== undefined ? { runEvents: runEventAnalysis } : {}),
   };
+}
+
+function buildRunEventsAnalysis(
+  events: readonly TelemetryEvent[],
+  realRunIds: ReadonlySet<string>,
+): RunEventsAnalysis | undefined {
+  const runEvents = events.filter(isRunEvent);
+  if (runEvents.length === 0) {
+    return undefined;
+  }
+
+  // Filter to events whose runId belongs to a real-runtime run_metrics run.
+  // Orphan run_events (from dummy/test runs with no matching run_metrics) are ignored.
+  const matchedEvents = runEvents.filter((e) => e.runId !== undefined && realRunIds.has(e.runId));
+
+  if (matchedEvents.length === 0) {
+    return undefined;
+  }
+
+  let startCount = 0;
+  let completedCount = 0;
+  let correctionCount = 0;
+
+  // For acceptance: accumulate across correction events
+  const acceptanceByReviewer = new Map<string, AccumulatedAcceptance>();
+  const acceptanceByTier = new Map<string, AccumulatedAcceptance>();
+  let correctionRunCount = 0;
+
+  for (const event of matchedEvents) {
+    const eventSubtype = event.data.event;
+    if (eventSubtype === "run.start") {
+      startCount += 1;
+    } else if (eventSubtype === "run.completed") {
+      completedCount += 1;
+    } else if (eventSubtype === "run.correction") {
+      correctionCount += 1;
+
+      const tier =
+        typeof event.data.riskTier === "string" && event.data.riskTier.length > 0
+          ? event.data.riskTier
+          : "unknown";
+
+      const acceptanceRecord = event.data.acceptanceByReviewer;
+      if (
+        acceptanceRecord !== undefined &&
+        isPlainObject(acceptanceRecord) &&
+        Object.keys(acceptanceRecord).length > 0
+      ) {
+        // Only correction events that actually carry acceptance data count
+        // toward the directional-signal denominator.
+        correctionRunCount += 1;
+        for (const [reviewer, reviewerData] of Object.entries(acceptanceRecord)) {
+          if (!isPlainObject(reviewerData)) {
+            continue;
+          }
+          const accepted = asNumber(reviewerData.accepted);
+          const notAccepted = asNumber(reviewerData.notAccepted);
+          const rejected = asNumber(reviewerData.rejected);
+          const withheldExcluded = asNumber(reviewerData.withheldExcluded);
+
+          // Accumulate by reviewer
+          accumulateAcceptance(acceptanceByReviewer, reviewer, {
+            accepted,
+            notAccepted,
+            rejected,
+            withheldExcluded,
+          });
+
+          // Accumulate by tier
+          accumulateAcceptance(acceptanceByTier, tier, {
+            accepted,
+            notAccepted,
+            rejected,
+            withheldExcluded,
+          });
+        }
+      }
+    }
+  }
+
+  const completionRate = startCount === 0 ? null : completedCount / startCount;
+
+  return {
+    startCount,
+    completedCount,
+    correctionCount,
+    completionRate,
+    acceptanceByReviewer: buildAcceptanceRecord(acceptanceByReviewer),
+    acceptanceByTier: buildAcceptanceRecord(acceptanceByTier),
+    correctionRunCount,
+    directional: true,
+  };
+}
+
+function accumulateAcceptance(
+  map: Map<string, AccumulatedAcceptance>,
+  key: string,
+  delta: AccumulatedAcceptance,
+): void {
+  let acc = map.get(key);
+  if (acc === undefined) {
+    acc = { accepted: 0, notAccepted: 0, rejected: 0, withheldExcluded: 0 };
+    map.set(key, acc);
+  }
+  acc.accepted += delta.accepted;
+  acc.notAccepted += delta.notAccepted;
+  acc.rejected += delta.rejected;
+  acc.withheldExcluded += delta.withheldExcluded;
+}
+
+function buildAcceptanceRecord(
+  map: Map<string, AccumulatedAcceptance>,
+): Record<string, ReviewerAcceptanceStat> {
+  const out: Record<string, ReviewerAcceptanceStat> = {};
+  for (const key of Array.from(map.keys()).sort()) {
+    const acc = map.get(key);
+    if (acc === undefined) {
+      continue;
+    }
+    const denominator = acc.accepted + acc.notAccepted + acc.rejected;
+    const acceptanceRate = denominator === 0 ? undefined : acc.accepted / denominator;
+    out[key] = {
+      accepted: acc.accepted,
+      notAccepted: acc.notAccepted,
+      rejected: acc.rejected,
+      withheldExcluded: acc.withheldExcluded,
+      ...(acceptanceRate !== undefined ? { acceptanceRate } : {}),
+    };
+  }
+  return out;
 }
 
 export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
@@ -378,10 +567,97 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
   lines.push(`  acknowledgementRunRate    ${(r.acknowledgementRunRate * 100).toFixed(1)}%`);
   lines.push(`  thinReviewRate            ${(r.thinReviewRate * 100).toFixed(1)}%`);
 
+  // Run events section (present only when run_event data exists)
+  if (analysis.runEvents !== undefined) {
+    const re = analysis.runEvents;
+    lines.push("");
+    lines.push("--- Run Events ---");
+    lines.push(`  startCount                ${re.startCount}`);
+    lines.push(`  completedCount            ${re.completedCount}`);
+    lines.push(`  correctionCount           ${re.correctionCount}`);
+    const rateStr = re.completionRate === null ? "n/a" : `${(re.completionRate * 100).toFixed(1)}%`;
+    lines.push(`  completionRate            ${rateStr}`);
+
+    lines.push("");
+    lines.push(
+      `--- Acceptance by Reviewer (directional — longitudinal signal, ${re.correctionRunCount} correction runs) ---`,
+    );
+    const reviewerKeys = Object.keys(re.acceptanceByReviewer).sort();
+    if (reviewerKeys.length === 0) {
+      lines.push("  (no data)");
+    } else {
+      lines.push(
+        padRight("Reviewer", 22) +
+          padLeft("Accepted", 10) +
+          padLeft("NotAccepted", 13) +
+          padLeft("Rejected", 10) +
+          padLeft("Withheld", 10) +
+          padLeft("AccRate", 9),
+      );
+      for (const reviewer of reviewerKeys) {
+        const stat = re.acceptanceByReviewer[reviewer];
+        if (stat === undefined) {
+          continue;
+        }
+        const rateDisplay =
+          stat.acceptanceRate !== undefined ? `${(stat.acceptanceRate * 100).toFixed(1)}%` : "n/a";
+        lines.push(
+          padRight(reviewer, 22) +
+            padLeft(String(stat.accepted), 10) +
+            padLeft(String(stat.notAccepted), 13) +
+            padLeft(String(stat.rejected), 10) +
+            padLeft(String(stat.withheldExcluded), 10) +
+            padLeft(rateDisplay, 9),
+        );
+      }
+    }
+
+    lines.push("");
+    lines.push(
+      `--- Acceptance by Tier (directional — longitudinal signal, ${re.correctionRunCount} correction runs) ---`,
+    );
+    const tierKeys = Object.keys(re.acceptanceByTier).sort();
+    if (tierKeys.length === 0) {
+      lines.push("  (no data)");
+    } else {
+      lines.push(
+        padRight("Tier", 12) +
+          padLeft("Accepted", 10) +
+          padLeft("NotAccepted", 13) +
+          padLeft("Rejected", 10) +
+          padLeft("Withheld", 10) +
+          padLeft("AccRate", 9),
+      );
+      for (const tier of tierKeys) {
+        const stat = re.acceptanceByTier[tier];
+        if (stat === undefined) {
+          continue;
+        }
+        const rateDisplay =
+          stat.acceptanceRate !== undefined ? `${(stat.acceptanceRate * 100).toFixed(1)}%` : "n/a";
+        lines.push(
+          padRight(tier, 12) +
+            padLeft(String(stat.accepted), 10) +
+            padLeft(String(stat.notAccepted), 13) +
+            padLeft(String(stat.rejected), 10) +
+            padLeft(String(stat.withheldExcluded), 10) +
+            padLeft(rateDisplay, 9),
+        );
+      }
+    }
+  }
+
   return lines.join("\n");
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
+
+function isRunEvent(event: TelemetryEvent): event is RunEvent {
+  if (event.type !== "ai_review.run_event") {
+    return false;
+  }
+  return isPlainObject(event.data);
+}
 
 function isRunMetricsEvent(event: TelemetryEvent): event is RunMetricsEvent {
   if (event.type !== "ai_review.run_metrics") {

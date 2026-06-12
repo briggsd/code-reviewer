@@ -44,6 +44,11 @@ import {
   selectTrustedReviewerDefinitions,
 } from "./reviewer-definitions.ts";
 import { classifyRisk } from "./risk-classifier.ts";
+import {
+  createRunCompletedEvent,
+  createRunCorrectionEvent,
+  createRunStartEvent,
+} from "./run-events.ts";
 import { assignStableFindingIds, createStableFindingId } from "./stable-finding-id.ts";
 import { assessThinReview } from "./thin-review.ts";
 import { getTierProfile } from "./tier-profile.ts";
@@ -206,6 +211,31 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       sensitivePaths: risk.sensitivePaths,
       durationMs: riskAssessmentMs,
     },
+  });
+
+  // S04: run.start — emitted on every run (before agent execution), so
+  // completion rate = completed / started is meaningful even for failed runs.
+  const selectedReviewerDefs = selectTrustedReviewerDefinitions({
+    config: context.config,
+    risk: context.risk,
+  });
+  const selectedReviewerRoles = selectedReviewerDefs.map((d) => d.role);
+  const modelIds = [
+    ...selectedReviewerDefs.map((d) => selectModel(context, d.role).model),
+    selectModel(context, "coordinator").model,
+  ];
+  await emitTelemetry({
+    telemetrySink: options.telemetrySink,
+    traceSink: options.traceSink,
+    event: createRunStartEvent({
+      runId,
+      timestamp,
+      repository: context.metadata.repository.slug,
+      changeId: context.metadata.changeId,
+      riskTier: context.risk.tier,
+      selectedReviewerRoles,
+      modelIds,
+    }),
   });
 
   for (const unsupportedReviewer of findUnsupportedReviewerPolicyEntries({
@@ -431,6 +461,44 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
           : {}),
       }),
     });
+
+    // S04: run.completed — emitted in the completed path only; failed runs
+    // emit no run.completed so completion rate = completed/started.
+    await emitTelemetry({
+      telemetrySink: options.telemetrySink,
+      traceSink: options.traceSink,
+      event: createRunCompletedEvent({
+        runId,
+        timestamp: completedAtTimestamp,
+        repository: context.metadata.repository.slug,
+        riskTier: context.risk.tier,
+        decision: summary.decision,
+        outcome: summary.outcome,
+        durationMs: overallMs,
+        findingCount: summary.findings.length,
+        findingsBySeverity: countFindingsBy(summary.findings, (f) => f.severity),
+        findingsByReviewer: countFindingsBy(summary.findings, (f) => f.reviewer),
+        // Forward tokens whole — the builder is the single per-field filter
+        // (re-spreading fields here would silently drop any future field).
+        ...(metrics.tokens !== undefined ? { tokens: metrics.tokens } : {}),
+      }),
+    });
+
+    // S04/S05: run.correction — emitted only when there is a correction/acceptance signal.
+    const correctionEvent = createRunCorrectionEvent({
+      runId,
+      timestamp: completedAtTimestamp,
+      repository: context.metadata.repository.slug,
+      riskTier: context.risk.tier,
+      summary,
+    });
+    if (correctionEvent !== undefined) {
+      await emitTelemetry({
+        telemetrySink: options.telemetrySink,
+        traceSink: options.traceSink,
+        event: correctionEvent,
+      });
+    }
 
     if (thinReview.thin) {
       await emitTrace(options.traceSink, {

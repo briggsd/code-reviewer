@@ -82,31 +82,38 @@ const REPO_SLUG_PATTERN = /^[A-Za-z0-9][\w.-]{0,99}\/[A-Za-z0-9][\w.-]{0,99}$/;
  * `ai_review.run_metrics` — primary aggregate event; fully aggregated into
  * `rollup` by `rollupRunMetrics`.
  *
- * `ai_review.run_event` — reserved for issues #20 (S04) and #22 (phase 2).
- * Planned subtypes and their counts-only payloads:
+ * `ai_review.run_event` — emitted as of issue #20 (S04–S06). Reserved for
+ * #22 (phase 2) ongoing.
  *
- * - `run.start`: runId (identifier), repository slug, changeId (stable
- *   identifier), riskTier, selectedReviewerRoles (array of role identifiers),
- *   modelIds (array of model identifier strings). No free text.
+ * Emitted subtypes and their counts-only payloads:
  *
- * - `run.completed`: decision (identifier), outcome (pass/fail), durationMs
- *   (number), findings by severity/reviewer as counts, token totals as
- *   numbers. No free text, no diff, no finding bodies.
+ * - `run.start` (every run): repository slug, changeId, riskTier,
+ *   selectedReviewerRoles (array of role identifiers), modelIds (unique
+ *   sorted array of model identifier strings). No free text.
  *
- * - `run.correction`: cross-push correction counts keyed by runId (stable
- *   identifier → count). No free text. CAVEAT for the #20 implementor: a
- *   Record key derived from runId must satisfy `AGGREGATE_KEY_PATTERN`
- *   (letter-first) or its counts fold into `__other__` — runIds that can start
- *   with a digit (UUIDs, timestamp prefixes) must be prefixed (e.g. `run-`)
- *   before use as keys.
+ * - `run.completed` (completed runs only): repository, riskTier, decision,
+ *   outcome, durationMs, findingCount, findingsBySeverity (counts),
+ *   findingsByReviewer (counts), tokens? (input/output/cacheRead/cacheWrite/
+ *   estimatedCostUsd numbers). No free text, no diff, no finding bodies.
+ *
+ * - `run.correction` (when prior-state comparison or acknowledged findings
+ *   exist): repository, riskTier, newFindingCount, recurringFindingCount,
+ *   fixedFindingCount, withheldFindingCount, acceptanceByReviewer (per-
+ *   reviewer accepted/notAccepted/rejected/withheldExcluded counts). No
+ *   free text. Note: acceptanceByReviewer keys are model-authored and stay
+ *   verbatim at emission; the egress boundary shape-bounds them at export.
+ *   A Record key derived from runId must satisfy `AGGREGATE_KEY_PATTERN`
+ *   (letter-first) or its counts fold into `__other__` — design avoids
+ *   runId-keyed aggregates; if ever needed prefix with `run-`.
  *
  * - `run.override`: break-glass override marker (#22 phase 2). Contains only
  *   stable identifiers and timestamps. No free text.
  *
- * NOTE: `ai_review.run_event` events contribute to `sourceEventTypes` when
- * present in the stream but are NOT yet aggregated into `rollup` — that
- * aggregation is #20's slice. Future #20/#22 work must stay inside this
- * boundary: counts, stable identifiers, shape-bounded keys only (M008).
+ * NOTE: `ai_review.run_event` events contribute to `sourceEventTypes` and
+ * `repositories` when present but are NOT aggregated into `rollup` — rollup
+ * remains run_metrics-only. Acceptance analysis is at the telemetry:analyze
+ * level (src/state/run-metrics-analyze.ts). Future work must stay inside
+ * this boundary: counts, stable identifiers, shape-bounded keys only (M008).
  *
  * Adding a new exportable type here is sufficient to allow it through the
  * egress filter; no other change is required.

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 
 import type { TelemetryEvent } from "../src/contracts/telemetry.ts";
+import { createRunCorrectionEvent } from "../src/runner/run-events.ts";
 import {
   createRollupExport,
   EXPORTABLE_EVENT_TYPES,
@@ -679,5 +680,87 @@ describe("generatedAt validation", () => {
   test("rejects an unparseable timestamp", () => {
     expect(() => createRollupExport([], "not a timestamp")).toThrow(/generatedAt/);
     expect(() => createRollupExport([], "")).toThrow(/generatedAt/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 11. Egress compatibility with real run_event events (#20 S04)
+// ---------------------------------------------------------------------------
+
+describe("egress compatibility with real run_event events (#20)", () => {
+  // Build a real run.correction event using the actual builder from run-events.ts
+  const correctionEvent = createRunCorrectionEvent({
+    runId: "run-egress-test",
+    timestamp: "2026-06-12T00:00:00.000Z",
+    repository: "acme/api",
+    riskTier: "full",
+    summary: {
+      decision: "approved",
+      outcome: "pass",
+      title: "AI review found no blocking issues",
+      body: "body",
+      findings: [],
+      risk: {
+        tier: "full",
+        reason: "changed files",
+        matchedRules: [],
+        sensitivePaths: [],
+        reviewedFileCount: 2,
+        ignoredFileCount: 0,
+      },
+      reReview: {
+        newFindingIds: ["fnd_new"],
+        recurringFindingIds: [],
+        fixedFindingIds: [],
+        withheldFindingIds: [],
+        classifications: [
+          {
+            stableId: "fnd_new",
+            status: "new" as const,
+            finding: {
+              reviewer: "security",
+              severity: "critical" as const,
+              category: "auth",
+              title: "New finding",
+              body: "body",
+              confidence: "high" as const,
+              evidence: [],
+              recommendation: "fix it",
+            },
+          },
+        ],
+      },
+    },
+  });
+
+  // correctionEvent should be defined since there IS a reReview block
+  const events: TelemetryEvent[] = [
+    makeRunMetricsEvent({ runId: "run-egress-test" }),
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    correctionEvent!,
+  ];
+
+  const exportRecord = createRollupExport(events, "2026-06-12T00:00:00.000Z");
+
+  test("createRunCorrectionEvent output is defined", () => {
+    expect(correctionEvent).toBeDefined();
+  });
+
+  test("sourceEventTypes includes ai_review.run_event", () => {
+    expect(exportRecord.sourceEventTypes).toContain("ai_review.run_event");
+  });
+
+  test("sourceEventTypes includes ai_review.run_metrics", () => {
+    expect(exportRecord.sourceEventTypes).toContain("ai_review.run_metrics");
+  });
+
+  test("repositories picks up the slug from the correction event", () => {
+    expect(exportRecord.repositories).toContain("acme/api");
+  });
+
+  test("rollup aggregates are unaffected by run_event (run_metrics only contributes to rollup)", () => {
+    // Only the run_metrics event contributes to rollup counts
+    expect(exportRecord.runCount).toBe(1);
+    expect(exportRecord.rollup.runCount).toBe(1);
   });
 });
