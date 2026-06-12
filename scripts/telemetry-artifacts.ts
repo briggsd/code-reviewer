@@ -119,17 +119,18 @@ export async function listWorkflowRuns(limit: number): Promise<WorkflowRunSummar
 }
 
 export async function listRunArtifacts(runId: number): Promise<WorkflowArtifact[]> {
+  // Use the REST API rather than `gh run view --json artifacts`: the `artifacts`
+  // field was removed from `gh run view` (gone as of gh 2.94.0), so the JSON-field
+  // form errors out. The runs/<id>/artifacts endpoint returns the same shape
+  // ({ artifacts: [{ name, expired, ... }] }) and is stable across gh versions.
   const json = await runGhCommand([
-    "run",
-    "view",
-    String(runId),
-    "--json",
-    "artifacts",
+    "api",
+    `repos/{owner}/{repo}/actions/runs/${runId}/artifacts`,
   ]);
 
   const parsed = JSON.parse(json) as unknown;
   if (!isPlainObject(parsed)) {
-    throw new Error("Unexpected run view response");
+    throw new Error("Unexpected artifacts response");
   }
 
   const artifactsValue = parsed.artifacts;
