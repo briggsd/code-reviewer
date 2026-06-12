@@ -1,6 +1,46 @@
-# Continue — AI Code Review Factory / Foundation A (#100/#101, PR #104) + summary-dedup CI fix (PR #105) SHIPPED; next = Foundation B (#96+#27 one toolchain decision) / C (#50 schema w/ #20+#22 events) / D (#33+#22-P1)
+# Continue — AI Code Review Factory / Foundations A (#100/#101) AND B (#27+#96) SHIPPED (PRs #104–#107) + summary-dedup CI fix; next = Foundation C (#50 schema w/ #20+#22 events) / D (#33+#22-P1)
 
 ## Last action
+
+**Foundation B SHIPPED — one toolchain decision, two PRs (#106 closed #27, #107 closed #96), both
+user-ratified (formatter: adopt; Biome: fix+flip-blocking).** The verification story changed:
+**`bun run gate` (= check + boundaries + lint) is now THE pre-PR gate**, mirroring CI's blocking
+check job exactly; `bun run check` stays tsc+test.
+- **PR #106 (#27, squash `a4eb408`):** `bun run boundaries` — dependency-cruiser
+  (`.dependency-cruiser.cjs`), BLOCKING step in CI's check job, remediation message in every rule:
+  `runner-no-concrete-adapters` (exempts ONLY two pure leaf utils pending relocation:
+  `publisher/markdown-escape.ts`, `runtime/runtime-kind.ts`), `contracts-stay-pure` (NO exemptions),
+  `no-cross-vcs-coupling` ×2, `no-circular`, + REQUIRED rule `pi-runtime-routes-prompt-boundary`.
+  Zero violations (69 modules). Both rule types probe-verified to fire. Biome `suspicious/noConsole`
+  = error for src/ (cli.ts/scripts/test/evals exempt). Decision of record: dependency-cruiser for
+  layering + Biome for style; NO ESLint. Deviation from #27's literal AC: separate blocking CI step,
+  NOT folded into `bun run check` (the #95 decision holds). **R1 review's sharp catch: dep-cruiser
+  `required` rules pass VACUOUSLY if the matched module is renamed/deleted** → test pins existence
+  of both guarded files. R2 = 2 doc nits, deferred into #107 (noise-floor).
+- **PR #107 (#96, squash `8cc2f4c`):** Biome formatter ADOPTED (commit 1 = mechanical bulk: 107
+  files, formatter + organizeImports + safe fixes + scoped-unsafe useLiteralKeys×28) → **Biome
+  lint+format now a BLOCKING check-job step** (`bun run lint` exits 0); knip/jscpd stay advisory.
+  All 21 action refs in the project's 4 workflows SHA-pinned (`# vN` trailing comments);
+  `examples/ci/` adoption templates DELIBERATELY keep mutable tags (`test/ci-templates.test.ts`
+  locks it). biome.json: test/** override noNonNullAssertion off; `.claude/` excluded. The 114-file
+  full-tier review produced **1 finding/round** (excellent S/N): R1 → added `bun run gate` composite;
+  R2 → scoped the "repo-wide" pinning claim.
+- **⚠️ GOTCHA (memory-worthy): Biome's "safe" noPrototypeBuiltins fix is NOT strict-tsc-safe** —
+  `x?.data.hasOwnProperty(k)` → `Object.hasOwn(x?.data, k)` turns an optional-chained receiver into
+  a possibly-undefined ARG. 3 occurrences hand-fixed with `?? {}`.
+- **⚠️ GOTCHA: `.git-blame-ignore-revs` + squash merge** — the file initially listed the BRANCH
+  commit; squash rewrote the hash so the entry was silently inert (non-ancestry revs don't error).
+  Fixed post-merge (`34ff917`): list the SQUASH commit on main.
+- **PR #105's PATCH-dedup fix CONFIRMED in production** on both PRs: multi-round reviews now update
+  ONE summary comment in place w/ Re-review status (5 fixed/2 new on #106; 1 fixed/1 new on #107).
+
+**Recommended next:** **Foundation C** (#50 counts-only schema designed to carry #20's 3-event run
+schema + #22-P2's `run.override` UP FRONT → then #57 artifact scoping; #51 stays trigger-gated) /
+**Foundation D** (#33 renderer rewrite + #22-P1 break-glass doc/footer) / standalones #41/#42/#24.
+
+---
+
+**Earlier last action (same session):**
 
 **Summary-dedup duplicate-comment regression FIXED — PR #105 (squash `12256d0`, gate 479/0, AI review
 `approved`/0 lite).** User spotted the reviewer posting TWO separate summary comments per PR instead of
@@ -616,8 +656,9 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## State
 
-- `main` @ `12256d0` (PR #105 summary-dedup CI fix; PR #104 tier-profile under it, closed #101),
-  pushed/synced, gate **479/0**, working tree CLEAN except this `continue.md` edit.
+- `main` @ `34ff917` (blame-ignore hash fix; PR #107 #96 close-out under it; PR #106 #27; PR #105
+  dedup fix; PR #104 tier-profile), pushed/synced, **gate = `bun run gate`** (check 482/0 + boundaries
+  clean + lint 0), working tree CLEAN except this `continue.md` edit.
 - **MERGED last big session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
@@ -713,6 +754,14 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   (it swept `M009-SUMMARY.md` in once).
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80/#82/#28
   #84/#87/#69/#90/#91 or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85/#86/#88/#89/#93/#94/#95/#97/#98/#103
+- Do not revert the blocking Biome step or `bun run boundaries` in ci.yml's check job, and do not
+  fold either into `bun run check` (stays tsc+test; `bun run gate` is the composite). Do not weaken
+  `.dependency-cruiser.cjs` rules — the two runner-rule exemptions (markdown-escape, runtime-kind)
+  are the ONLY allowed ones (pure leaf utils, relocation pending). Do not SHA-pin `examples/ci/`
+  adoption templates (mutable tags by design; ci-templates.test.ts locks it). When adding a bulk
+  commit to `.git-blame-ignore-revs`, list the SQUASH hash on main, never the branch hash.
+- Do not trust Biome's "safe" noPrototypeBuiltins fix under strict tsc — `Object.hasOwn(x?.y, k)`
+  makes the receiver a possibly-undefined argument; guard with `?? {}`.
 - Do not remove the `GET /user` 403 → `GITHUB_ACTIONS_BOT_USER_ID` (41898282) fallback in
   `github-vcs-adapter.ts` (PR #105) — without it every CI run duplicates the summary comment
   (GITHUB_TOKEN always 403s on /user). 403 ONLY — non-403 failures stay undefined (the #84
