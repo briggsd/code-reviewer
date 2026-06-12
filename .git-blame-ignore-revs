@@ -2,5 +2,7 @@
 # Use: git blame --ignore-revs-file .git-blame-ignore-revs <file>
 # Or once per clone: git config blame.ignoreRevsFile .git-blame-ignore-revs
 
-# Biome formatter adoption + repo-wide lint-debt clear (#96)
-e41c7e4b484cff06b4649d3e81f5bd25107a9138
+# Biome formatter adoption + lint-debt clear, squash-merged as PR #107 (#96).
+# NOTE: list the SQUASH commit on main, not the branch commit — squash merges
+# rewrite the hash and a non-ancestry rev here is silently inert.
+8cc2f4cc9d65e136e3ef0bd0b312a52eccaa7754
