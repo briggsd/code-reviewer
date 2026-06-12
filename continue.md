@@ -1,6 +1,78 @@
-# Continue — AI Code Review Factory / 8 issues closed + eval VALIDATED 5/5@100% + first telemetry analysis; next = #90 telemetry:analyze / #69 / M014
+# Continue — AI Code Review Factory / #69 withheld classification SHIPPED (PR #94); also this session #95 CI gates + #90 telemetry:analyze; next = triage Biome debt → flip blocking (#96) / #91 / #92 / M014
 
 ## Last action
+
+**#69 SHIPPED & CLOSED — `withheld` re-review classification (PR #94, squash `0ad2a19`, gate 418/0,
+AI review `minor_issues`/pass).** Grounding drops ungrounded findings BEFORE re-review classification,
+so a prior finding withheld this run was miscounted as **fixed**. Added a distinct **`withheld`**
+classification: `withheldFindingIds` + `withheld` status on `ReReviewSummary`; run-review computes the
+dropped findings' stable ids (`createStableFindingId` over `grounding.dropped`) and passes them to
+`classifyReReviewFindings`, which routes matching prior ids to `withheldFindingIds` (excluded from
+`fixedFindingIds`) + `withheld` classification entries; `withheldFindingCount` in the
+`coordinator.completed` trace + `run_metrics` telemetry (counts only); rendered in summary markdown.
+**Analytics-only — no change to the CI gate, decision, or outcome.**
+- **Known limitation (documented in `docs/re-review-state.md`):** withheld matching is **best-effort** —
+  the recomputed id matches the stored prior id only when it was NOT backfill-derived or collision-
+  suffixed (`#N`). A dropped finding can't be re-backfilled (its `quotedCode` is absent from the current
+  diff), so a backfill-reliant finding won't match and stays in `fixedFindingIds` — the pre-fix behavior,
+  **no regression**; withheld just doesn't fire for that subset.
+- **Review triage (3 rounds, 9→4→3 findings):** fixed all real ones (5 doc-staleness; the withheld-only
+  "all-zero section" markdown gap; a self-introduced stale doc sentence). **HELD** the trust-boundary
+  finding (recommended prior-membership guard is a **no-op** — `re-review.ts` already intersects withheld
+  with prior state) + the unconditional-`:0`-bullet (matches the New/Recurring/Fixed pattern). **DEFERRED**
+  the backfill-mismatch e2e test (the no-match→fixed branch is already unit-tested) + hidden-metadata
+  persistence of withheld ids (#46-adjacent). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator).
+- **⚠️ Concurrency lesson (memory `shared-worktree-head-collision`):** this ran **in parallel with the #90
+  agent in the SAME working tree** → git HEAD collided (my commit briefly landed on their branch; my push
+  sent the base). Recovered via `git branch -f` + fast-forward push; did the review-response edits in an
+  **isolated `git worktree`**. Both shipped clean to `main` anyway (#93 #90, #95, #94 #69). **Next time:
+  one git worktree per concurrent agent** (or Agent `isolation: "worktree"`); never `git add -A`.
+
+**Recommended next:** **triage Biome's ~146 findings → flip Biome to blocking** (#96 follow-up) /
+**#91** (thin-review flag — now unblocked, #90 landed) / **#92** (doc-staleness) / **M014** #50/#51.
+
+---
+
+**Earlier last action:**
+
+**#95 SHIPPED & CLOSED — CI quality gates (squash `acba8d9`, gate 428/0, AI review `approved_with_comments`).**
+The gap the user spotted: `ai-review.yml` was the ONLY PR workflow — **nothing ran `bun run check`
+(tsc + tests) on PRs**, and there was no linter / unused-code / duplication detection. Added
+**`.github/workflows/ci.yml`** with two jobs: **`check` (BLOCKING)** = `bun install --frozen-lockfile`
++ `bun run check`; **`quality` (ADVISORY)** = `needs: check`, three steps each `continue-on-error`:
+**Biome** (lint+format, `--reporter=github` for inline annotations), **knip** (unused files/exports/deps),
+**jscpd** (dup, 5% threshold). Tools added as devDeps (**`@biomejs/biome` PINNED `2.4.16`** to match
+`biome.json` `$schema`; `knip`, `jscpd`) + `biome.json` / `knip.json` / `.jscpd.json` + scripts
+`lint`/`lint:fix`/`knip`/`dup`. **`check` stays exactly `tsc + test` per CLAUDE.md — advisory tools
+deliberately NOT folded in.** Backend: in-harness Sonnet subagent via `delegate-implement` (Opus 4.8 coordinator).
+
+- **Advisory-first rollout:** Biome reports **~146 lint findings** on the never-linted codebase, but
+  `continue-on-error` keeps CI green. **GOTCHA: the `quality` job is GREEN even when tools report
+  findings** — a passing CI ≠ zero lint/dup; read the job logs / inline Biome annotations. Flip Biome
+  to blocking only AFTER triaging that debt.
+- **AI review: 9 findings → fixed 8 / deferred 1**; re-review then `approved_with_comments` (6 residual
+  nits, all hold/defer — stopped per noise-floor). Fixes: `cancel-in-progress` conditional on non-main
+  ref (don't cancel `main`'s check run → cancelled≠passing status), `needs: check`, Biome
+  `--reporter=github`, Bun dep cache (`~/.bun/install/cache` keyed on `bun.lock`), exact biome pin,
+  and corrected the now-stale "no linter yet" line in **CLAUDE.md + the delegate-implement overlay**.
+- **Rebase-over-#93 lesson:** mid-flight **#93 (telemetry:analyze) merged to `main`**, conflicting #95
+  on `package.json` + `CLAUDE.md` → **GitHub SILENTLY SKIPS `pull_request` checks on a CONFLICTING PR**
+  (my last two pushes showed zero runs, no error). Fix: rebase onto `main`, keep BOTH script sets
+  (telemetry:analyze + lint family), force-push → CI re-ran, all green. (This is the parallel-PR gotcha
+  in Open threads, now with the "conflict ⇒ no checks fire" corollary.)
+- **Filed #96** (tracking issue + the one deferred review item: **repo-wide SHA-pinning of GitHub
+  Actions** — all workflows use `@vN` tags, pinning only `ci.yml` would be inconsistent; read-only perms
+  so low blast radius). NOTE: filing the issue was auto-denied the first time (not user-requested) →
+  created only after the user explicitly asked.
+
+**Recommended next:** **triage Biome's ~146 findings → flip Biome to blocking** (the natural #96
+follow-up) / **#69** (re-review miscount, low/quick) / **#91** (thin-review flag) / **#92** (doc-staleness)
+/ **M014** #50/#51 (telemetry egress). NOTE **#90 (telemetry:analyze) is now DONE** — it merged as **PR #93**
+while this session ran.
+
+---
+
+**Earlier last action:**
 
 **SESSION-END: first organized telemetry analysis of our own self-reviews (9 real-`pi` runs, #76–#89).**
 Pulled `ai_review.run_metrics` from the CI artifacts and segmented by tier — the numbers are the
@@ -365,7 +437,8 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## State
 
-- `main` @ `7f56879`, pushed/synced, gate **412/0**, working tree CLEAN.
+- `main` @ `acba8d9` (#95 CI quality gates), pushed/synced, gate **428/0**, working tree CLEAN
+  (except this `continue.md` edit, intentionally uncommitted).
 - **MERGED last big session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
@@ -375,8 +448,11 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   parity, closed #80), **#83** (#82 GitLab inline MR-discussion publishing + shared inline renderer,
   closed #82), **#85** (#28 holdout eval harness MVP, closed #28), **#86** (eval-criteria recalibration
   → 5/5 @ 100%), **#88** (#84 inline+summary dedup author-trust, closed #84), **#89** (#87 location backfill, closed #87).
-- **Issues open:** **NEW from telemetry analysis: #90** (telemetry:analyze — recommended next), **#91**
-  (thin-review flag), **#92** (doc-staleness detection). **#69** (re-review miscount, low/quick), #57
+- **MERGED this session: #95** (CI quality gates — `ci.yml` blocking check + advisory Biome/knip/jscpd,
+  squash `acba8d9`). Also **#90 (telemetry:analyze) merged as PR #93** during this window.
+- **Issues open:** **NEW #96** (CI quality-gate follow-ups: triage Biome debt → blocking; repo-wide
+  Action SHA-pinning — the one deferred #95 review item). **#91** (thin-review flag), **#92**
+  (doc-staleness detection). #57
   (partial — telemetry redaction), #46 (needs prev-head..head ref read), **M014** #50/#51 (telemetry
   egress), **M013** #26/#27/#29/#33, #41/#42/#20, **M012** parking lot #15/#16/#22/#23/#24.
   **GitLab parity COMPLETE** (base-read #80 + inline publish #82 + dedup author-trust #84). **#77 PROVEN
@@ -398,9 +474,24 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 - **pi auth STILL IN DOGFOOD MODE** (prior session): `cp ~/.pi/agent/auth.json.bak-preA ~/.pi/agent/auth.json`.
 - **`gh` Projects-classic bug:** `gh pr edit` / `gh issue view` (no `--json`) error on
   `projectCards`. Use `gh api` (REST) for mutations + `gh issue view --json`.
-- **Parallel-PR conflicts:** two PRs on shared files (cli.ts, state.test.ts) conflict after the
-  first merges — rebase the second onto `main`, resolve (usually additive), force-push, merge.
-  Also: after a force-push, GitHub lags re-computing mergeability — retry the merge after a beat.
+- **Parallel-PR conflicts:** two PRs on shared files (cli.ts, state.test.ts, **package.json/CLAUDE.md
+  per #95**) conflict after the first merges — rebase the second onto `main`, resolve (usually
+  additive), force-push, merge. Also: after a force-push, GitHub lags re-computing mergeability — retry
+  the merge after a beat. **COROLLARY (from #95): a CONFLICTING PR fires NO `pull_request` checks at all**
+  (GitHub can't build the test-merge ref) — pushes to a dirty PR show zero workflow runs with no error.
+  If new pushes mysteriously don't trigger CI, check `gh pr view <N> --json mergeable,mergeStateStatus`
+  for `CONFLICTING`/`DIRTY` and rebase.
+- **Multi-agent shared-working-tree/HEAD hazard (observed live during #90):** when two agents drive the
+  SAME clone, they share one git HEAD — so one agent's commit lands on whichever branch is currently
+  checked out, i.e. *the other agent's branch*. During #90 the #69 commit (`ab031b4`) landed on the #90
+  branch, so PR #93 bundled #69+#90 and its AI review flagged both. The whole gate I'd run (433/0)
+  silently included #69's tests — the true #90-only gate was 428/0. **Untangle without disrupting the
+  other agent via an isolated `git worktree`:** `git worktree add /tmp/wtX <branch>`; rebase/edit/gate
+  there (`git -C /tmp/wtX rebase --onto main <other-commit> <branch>`; `bun install` in the worktree);
+  force-push; `git worktree remove`. The main tree stays on the other agent's branch untouched. **Always
+  reconcile `git log origin/main..HEAD` (not just the top commit) before trusting a PR's scope** — a
+  branch can carry a foreign commit you didn't author. Recommend a separate worktree/clone per agent to
+  prevent this entirely.
 - **Codex confabulation:** over-claims tests + fakes gate output; reconcile summary vs
   `git diff --stat`, confirm test count rose. Sonnet subagents reconciled cleanly but verify anyway.
 - **`docs/extending.md`** is the fast-start map (test-infra index + recipes) — read/cite it
@@ -441,7 +532,7 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   vs `git diff` and re-run `bun run check`. Do not `git add -A` when committing delegated work
   (it swept `M009-SUMMARY.md` in once).
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80/#82/#28
-  #84/#87 or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85/#86/#88/#89
+  #84/#87/#69/#90 or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85/#86/#88/#89/#93/#94/#95
   unless new regressions appear. Closed issues #60/#65/#67 likewise stay closed.
 - Do not tune `src/runner/reviewer-definitions.ts` (or coordinator prompts) against the `evals/`
   holdout scenarios to make them pass — that destroys the holdout discipline (#28). The eval set is a
