@@ -1,6 +1,45 @@
-# Continue — AI Code Review Factory / Foundations A (#100/#101) AND B (#27+#96) SHIPPED (PRs #104–#107) + summary-dedup CI fix; next = Foundation C (#50 schema w/ #20+#22 events) / D (#33+#22-P1)
+# Continue — AI Code Review Factory / Foundations A+B+C-part-1 SHIPPED (PRs #104–#108: #101/#27/#96/#50 closed + dedup fix); next = C part 2 (#20 run events on the reserved vocabulary) / Foundation D (#33+#22-P1)
 
 ## Last action
+
+**Foundation C part 1 SHIPPED — #50 counts-only rollup export schema (PR #108, squash `6cda18e`,
+gate 522/0).** New `src/state/rollup-export.ts`: `createRollupExport()` → `ai-review.rollup_export.v1`,
+the egress boundary for any rollup leaving the repo trust domain. Backend: Sonnet subagent
+(Opus 4.8 coordinator), 2 full-tier review rounds (9 findings → all fixed; 7 → fixed 4 / held 3 /
+noise-floor merge).
+- **The boundary (safe by construction):** event-type allowlist (`EXPORTABLE_EVENT_TYPES`) — foreign
+  types' fields never reach the export; **shape-bounded aggregate keys** (letter-first identifier
+  pattern, ≤64 chars) — closes the real hole that `findingsByReviewer` keys are MODEL-AUTHORED
+  (validateFinding accepts any string) and could carry poisoned text into exports verbatim; rejected
+  keys fold into **`__other__`** (`SANITIZED_KEY_BUCKET` — the name itself FAILS the pattern, so a
+  legitimate key named `other` can never collide), counted in `sanitizedAggregateKeyCount`;
+  repo slugs are the only identifiers carried (segment-leading-alnum pattern rejects `../..` shapes;
+  malformed → dropped + `droppedRepositoryCount`); `shapeBoundRollup` uses **exhaustive NO-SPREAD
+  construction** so a future Record field on `RunMetricsRollup` fails compilation at the boundary
+  instead of leaking. NOT a closed value set (shape constraint — future runtimes/roles pass; the
+  standing extensibility rule).
+- **#20/#22 designed in:** `ai_review.run_event` reserved in the allowlist with documented
+  counts-only subtypes (`run.start`/`run.completed`/`run.correction`/`run.override`) + the
+  letter-first Record-key caveat for runId keys (prefix digit-leading ids). #20's implementation
+  lands INSIDE the boundary — see `docs/telemetry-export.md` (identifier policy, migration from the
+  pre-v1 flat output shape: fields now nest under `.rollup`).
+- **Review triage:** R1 (9, ALL real — the strong round): `other`-collision, no-spread construction,
+  `../..` slug shapes, generatedAt validation, loose runCount assertion, observability counter,
+  migration doc, runId policy gaps. R2 (7): fixed 4 cheap (exact `toBe(3)` sanitization assertion,
+  run_event→repositories positive test, migration note re reviewer keys becoming `__other__`, script
+  stderr parity), HELD 3 (per-event drop counting = documented deliberate semantic; `repositories[]`
+  "disclosure" IS the documented identifier policy; underscore-key folding = the deliberate
+  collision-proofing). Merged at noise floor without R3.
+
+**Recommended next:** **C part 2 — #20** (emit `run.start`/`run.completed`/`run.correction` through
+the sink against the reserved vocabulary; acceptance signal per reviewer from `re-review.ts`
+fixed/recurring/withheld — #31 fixed + #69 withheld make the numbers honest now; aggregate by
+reviewer × tier in `telemetry:analyze`; `run.correction` Record keys MUST be letter-first — prefix
+runIds) / **Foundation D** (#33 renderer rewrite + #22-P1) / standalones #41/#42/#24.
+
+---
+
+**Earlier last action (same session):**
 
 **Foundation B SHIPPED — one toolchain decision, two PRs (#106 closed #27, #107 closed #96), both
 user-ratified (formatter: adopt; Biome: fix+flip-blocking).** The verification story changed:
@@ -656,9 +695,9 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## State
 
-- `main` @ `34ff917` (blame-ignore hash fix; PR #107 #96 close-out under it; PR #106 #27; PR #105
-  dedup fix; PR #104 tier-profile), pushed/synced, **gate = `bun run gate`** (check 482/0 + boundaries
-  clean + lint 0), working tree CLEAN except this `continue.md` edit.
+- `main` @ `6cda18e` (PR #108 #50 rollup egress; under it: #107 #96 close-out, #106 #27 boundaries,
+  #105 dedup fix, #104 tier-profile), pushed/synced, **gate = `bun run gate`** (check 522/0 +
+  boundaries clean + lint 0), working tree CLEAN except this `continue.md` edit.
 - **MERGED last big session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
@@ -754,6 +793,12 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   (it swept `M009-SUMMARY.md` in once).
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80/#82/#28
   #84/#87/#69/#90/#91 or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85/#86/#88/#89/#93/#94/#95/#97/#98/#103
+- Do not weaken the #50 egress boundary (`src/state/rollup-export.ts`): keep `shapeBoundRollup`'s
+  exhaustive NO-SPREAD construction (a spread would let a future Record field bypass the boundary
+  silently); keep `__other__` as the overflow bucket (its name fails the key pattern — that's the
+  collision-proofing); keep the shape constraint a SHAPE rule, never a closed value set. New
+  telemetry event types must be added to `EXPORTABLE_EVENT_TYPES` and obey the documented
+  counts-only vocabulary; `run.correction` Record keys must be letter-first (prefix runIds).
 - Do not revert the blocking Biome step or `bun run boundaries` in ci.yml's check job, and do not
   fold either into `bun run check` (stays tsc+test; `bun run gate` is the composite). Do not weaken
   `.dependency-cruiser.cjs` rules — the two runner-rule exemptions (markdown-escape, runtime-kind)
