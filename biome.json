@@ -37,8 +37,21 @@
       "recommended": true,
       "suspicious": {
         "noTemplateCurlyInString": "off",
-        "noControlCharactersInRegex": "off"
+        "noControlCharactersInRegex": "off",
+        "noConsole": "error"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["src/cli.ts", "scripts/**", "test/**", "evals/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    }
+  ]
 }

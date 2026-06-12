@@ -45,6 +45,12 @@ jobs:
       - name: Run check (tsc + test suite)
         run: bun run check
 
+      # Architecture-boundary lint (#27): blocking, but deliberately a separate step from
+      # `bun run check` (which stays exactly tsc + test per CLAUDE.md). Rules + remediation
+      # messages live in .dependency-cruiser.cjs.
+      - name: Architecture boundaries (dependency-cruiser)
+        run: bun run boundaries
+
   quality:
     name: Advisory quality tools
     runs-on: ubuntu-latest

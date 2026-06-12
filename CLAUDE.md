@@ -33,6 +33,7 @@ bun run src/cli.ts schemas        # emit config + structured-output JSON schemas
 bun run schema:config             # regenerate .ai-review.schema.json
 bun run telemetry:rollup --runs 20 --output telemetry-rollup.json   # aggregate run_metrics from recent CI artifacts (needs authed `gh`; targets the hardcoded .github/workflows/ai-review.yml)
 bun run telemetry:analyze --runs 20 --output telemetry-analyze.json  # segmented analysis (by tier/reviewer/decision/rates) from same events; prints human table + writes JSON
+bun run boundaries     # architecture-boundary lint (dependency-cruiser; BLOCKING in CI's check job)
 bun run lint           # Biome lint+format check (advisory — NOT part of `check`)
 bun run lint:fix       # auto-apply Biome fixes
 bun run knip           # unused files/exports/deps (advisory)
@@ -129,7 +130,13 @@ Details + diagram: **docs/architecture.md**.
   gate folded into `bun run check`). **Biome** (`bun run lint` / `lint:fix`), **knip**, and
   **jscpd** (`bun run dup`) are **advisory** quality tools — run in CI's `quality` job
   (continue-on-error) and available locally, but deliberately not part of `check`.
-  Mechanizing architecture-boundary rules is tracked in #27.
+- **Architecture boundaries are mechanized** (#27): `bun run boundaries` (dependency-cruiser,
+  `.dependency-cruiser.cjs`) blocks in CI's check job — runner/contracts must not import concrete
+  adapters (two pure leaf utilities exempted in-config: `publisher/markdown-escape.ts`,
+  `runtime/runtime-kind.ts`), no cross-VCS coupling, no cycles, Pi runtime must route
+  `prompt-boundary.ts`. Rule error messages carry the remediation; read them before working around
+  a failure. Biome `suspicious/noConsole` is also `error` for `src/` (structured trace/telemetry
+  sinks only — `src/cli.ts`, `scripts/`, `test/`, `evals/` are exempt).
 - `validateFinding` currently accepts any `reviewer` string; model self-mislabeling is a
   known backlog item, not a guarantee.
 - Context/token-savings metrics use a `bytes/4` approximation pending real provider telemetry.

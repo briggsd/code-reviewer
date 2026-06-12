@@ -23,7 +23,7 @@ The system is designed for many projects, not one repository. Project teams shou
 ## Design principles
 
 1. **CI status is the canonical gate.** Comments and reviews are UX. A required CI job status is the reliable cross-platform merge blocker.
-2. **Adapters at the edges.** GitHub, GitLab, agent runtimes, model providers, state stores, and telemetry sinks are adapter boundaries.
+2. **Adapters at the edges.** GitHub, GitLab, agent runtimes, model providers, state stores, and telemetry sinks are adapter boundaries. Mechanically enforced (#27) by `bun run boundaries` (dependency-cruiser, `.dependency-cruiser.cjs`, blocking in CI): runner/contracts must not import concrete adapters (two pure leaf utilities are exempted in-config pending relocation: `publisher/markdown-escape.ts`, `runtime/runtime-kind.ts`), contracts stay pure, VCS adapters never import each other, no dependency cycles, and the Pi runtime must keep routing `prompt-boundary.ts`. Each rule's error message states the remediation.
 3. **Deterministic orchestration, agentic judgment.** Code controls fetching, filtering, fan-out, timeouts, retries, state, and publishing. Agents judge code risks inside bounded contracts.
 4. **Specialize by risk and domain.** Small changes get cheap review. Risky changes get more agents and stronger models.
 5. **Share context deliberately.** Multi-agent review must not duplicate the full PR/MR context into every prompt.

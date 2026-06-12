@@ -28,6 +28,7 @@
     "smoke:gitlab": "bun run scripts/gitlab-live-smoke.ts",
     "smoke:action-wrapper": "bun run scripts/action-wrapper-smoke.ts",
     "evals": "bun run scripts/evals.ts",
+    "boundaries": "depcruise src --config .dependency-cruiser.cjs",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "knip": "knip",
@@ -58,6 +59,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.16",
     "@types/bun": "^1.3.14",
+    "dependency-cruiser": "^17.4.3",
     "jscpd": "^5.0.7",
     "knip": "^6.16.1",
     "typescript": "^6.0.3"
