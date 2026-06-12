@@ -13,6 +13,11 @@ judgment-heavy review. GitHub, GitLab, model providers, and agent runtimes are a
 
 Full design: **docs/architecture.md**. Project purpose & status: **README.md**.
 
+## Workflow
+- use the delegate-implement skill when working on selected issues
+- open PR and work through findings from the ai-review
+- merge in
+
 ## Stack & how to run
 
 - **Runtime:** Bun `>=1.3.0`, TypeScript (ESNext, `type: module`). Bun runs `.ts`
