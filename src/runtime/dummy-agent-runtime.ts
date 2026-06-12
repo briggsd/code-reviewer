@@ -53,6 +53,12 @@ export class DummyAgentRuntime implements AgentRuntime {
     const findings = reviewerResults.flatMap((result) => result.findings);
     const summary = summarizeReview(input.context, findings);
 
+    // No reviewer-failure guard here (unlike PiAgentRuntime): reviewers run via Promise.all,
+    // so any failure throws before this point — zero findings can only mean all succeeded empty.
+    const shortCircuited =
+      input.shortCircuitOnZeroFindings === true &&
+      findings.length === 0;
+
     this.emit({
       type: "agent.output",
       runId: input.runId,
@@ -63,6 +69,7 @@ export class DummyAgentRuntime implements AgentRuntime {
         decision: summary.decision,
         outcome: summary.outcome,
         findingCount: findings.length,
+        ...(shortCircuited ? { shortCircuited: true } : {}),
       },
     });
     const usage = {
@@ -80,6 +87,7 @@ export class DummyAgentRuntime implements AgentRuntime {
       data: {
         reviewerCount: reviewerResults.length,
         usage,
+        ...(shortCircuited ? { shortCircuited: true } : {}),
       },
     });
 
@@ -90,6 +98,7 @@ export class DummyAgentRuntime implements AgentRuntime {
       reviewerResults,
       rawOutput: JSON.stringify(summary),
       usage,
+      ...(shortCircuited ? { coordinatorShortCircuited: true } : {}),
     };
   }
 

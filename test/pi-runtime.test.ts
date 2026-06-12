@@ -842,16 +842,18 @@ describe("PiAgentRuntime", () => {
       now: new Date("2026-06-09T00:00:00.000Z"),
     });
 
-    const securityPrompt = runner.calls.find((call) => call.role === "security")?.prompt ?? "";
-    const promptContext = parseLastPromptJson(securityPrompt) as {
+    // docs/```/evil.md is not a sensitive path; 1 file, 22 lines → trivial tier.
+    // Trivial tier: denyContextTools=true → inline fallback; reviewerRoleCap=["code_quality"].
+    const reviewerPrompt = runner.calls.find((call) => call.role === "code_quality")?.prompt ?? "";
+    const promptContext = parseLastPromptJson(reviewerPrompt) as {
       contextReferences?: { files?: Array<{ path?: string; patch?: string; patchPath?: string }> };
       files?: Array<{ path?: string; patch?: string; patchPath?: string }>;
       reviewerResults?: unknown;
     };
 
-    expect(securityPrompt).toContain("Local context files are unavailable to this runtime");
-    expect(securityPrompt).not.toContain("```");
-    expect(securityPrompt).not.toContain("\u0000");
+    expect(reviewerPrompt).toContain("Local context files are unavailable to this runtime");
+    expect(reviewerPrompt).not.toContain("```");
+    expect(reviewerPrompt).not.toContain("\u0000");
     expect(promptContext.contextReferences).toBeUndefined();
     expect(promptContext.files?.[0]?.path).toContain("`\\u200b``");
     expect(promptContext.files?.[0]?.patch).toContain("`\\u200b``");

@@ -176,6 +176,34 @@ export class PiAgentRuntime implements AgentRuntime {
         throw new Error("All selected reviewers failed before coordinator synthesis");
       }
 
+      // Short-circuit: skip coordinator synthesis when the flag is set, all reviewers
+      // succeeded, and every reviewer produced zero findings.
+      if (
+        input.shortCircuitOnZeroFindings === true &&
+        reviewerFailures.length === 0 &&
+        reviewerResults.every((result) => result.findings.length === 0)
+      ) {
+        const summary = summarizeReview(input.context, []);
+        this.emitAgentEvent("agent.output", input.runId, agentRunId, "coordinator", {
+          decision: summary.decision,
+          outcome: summary.outcome,
+          findingCount: 0,
+          shortCircuited: true,
+        });
+        this.emitAgentEvent("agent.completed", input.runId, agentRunId, "coordinator", {
+          reviewerCount: reviewerResults.length,
+          failedReviewerCount: 0,
+          shortCircuited: true,
+        });
+        return {
+          runId: input.runId,
+          agentRunId,
+          summary,
+          reviewerResults,
+          coordinatorShortCircuited: true,
+        };
+      }
+
       const coordinatorPrompt = buildCoordinatorPrompt(input, reviewerResults, reviewerFailures);
       let streamedEventCount = 0;
       const processResult = await this.processRunner.run({

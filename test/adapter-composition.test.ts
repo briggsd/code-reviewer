@@ -84,7 +84,10 @@ describe("adapter-backed review composition", () => {
       mode: "blocking" as const,
       failOn: ["critical" as const],
     };
-    const runtime = new DummyAgentRuntime({ defaultFindings: seed.fakeFindings ?? [] });
+    // The GitLab fixture diff is trivial-tier (≤5 files, ≤25 lines, no sensitive paths).
+    // On trivial tier only code_quality runs, so use code_quality-labelled findings.
+    const gitlabFindings = (seed.fakeFindings ?? []).map((f) => ({ ...f, reviewer: "code_quality" as const }));
+    const runtime = new DummyAgentRuntime({ defaultFindings: gitlabFindings });
 
     const result = await runReviewFromChange({
       runId: "adapter-gitlab",

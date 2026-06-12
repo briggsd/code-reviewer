@@ -43,6 +43,7 @@ import { applyAcknowledgements } from "./acknowledgements.ts";
 import { classifyReReviewFindings } from "./re-review.ts";
 import { assignStableFindingIds, createStableFindingId } from "./stable-finding-id.ts";
 import { assessThinReview } from "./thin-review.ts";
+import { getTierProfile } from "./tier-profile.ts";
 
 export interface RunReviewOptions {
   fixture: ReviewFixture;
@@ -320,6 +321,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         outcome: summary.outcome,
         findingCount: summary.findings.length,
         durationMs: coordinatorMs,
+        ...(runtimeResult.coordinatorResult?.coordinatorShortCircuited === true ? { coordinatorShortCircuited: true } : {}),
         ...(summary.reReview !== undefined
           ? {
             newFindingCount: summary.reReview.newFindingIds.length,
@@ -382,6 +384,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         ...(acknowledgedCount > 0 ? { acknowledgedCount } : {}),
         ...(suppressedCount > 0 ? { suppressedCount } : {}),
         ...(thinReview.thin ? { thinReview: { outputTokens: thinReview.outputTokens, expectedFloor: thinReview.expectedFloor } } : {}),
+        ...(runtimeResult.coordinatorResult?.coordinatorShortCircuited === true ? { coordinatorShortCircuited: true } : {}),
       }),
     });
 
@@ -679,6 +682,7 @@ function createRunMetricsTelemetryEvent(input: {
   acknowledgedCount?: number;
   suppressedCount?: number;
   thinReview?: { outputTokens: number; expectedFloor: number };
+  coordinatorShortCircuited?: boolean;
   summary?: ReviewSummary;
   errorClassification?: ReviewErrorClassification;
 }): TelemetryEvent {
@@ -769,6 +773,9 @@ function createRunMetricsTelemetryEvent(input: {
       expectedFloor: input.thinReview.expectedFloor,
     };
   }
+  if (input.coordinatorShortCircuited === true) {
+    data.coordinatorShortCircuited = true;
+  }
   if (input.errorClassification !== undefined) {
     data.errorClassification = {
       category: input.errorClassification.category,
@@ -847,6 +854,7 @@ function runDeterministicFakeReviewers(fakeFindings: Finding[]): Finding[] {
 }
 
 function createCoordinatorRunInput(context: ReviewContext): CoordinatorRunInput {
+  const shortCircuit = getTierProfile(context.risk.tier).shortCircuitCoordinatorOnZeroFindings;
   return {
     runId: context.runId,
     role: "coordinator",
@@ -857,6 +865,7 @@ function createCoordinatorRunInput(context: ReviewContext): CoordinatorRunInput 
     timeoutMs: getEffectiveTimeouts(context).coordinatorMs,
     outputSchemaName: "coordinator",
     selectedReviewers: createReviewerRunInputs(context),
+    ...(shortCircuit ? { shortCircuitOnZeroFindings: true } : {}),
   };
 }
 
@@ -919,11 +928,7 @@ export function getEffectiveTimeouts(context: ReviewContext): ReviewConfig["time
 }
 
 export function riskTierTimeoutScale(tier: RiskTier): number {
-  if (tier === "full") {
-    return 1;
-  }
-
-  return tier === "lite" ? 0.5 : 0.25;
+  return getTierProfile(tier).timeoutScale;
 }
 
 export function scaleTimeoutsForRiskTier(timeouts: ReviewConfig["timeouts"], tier: RiskTier): ReviewConfig["timeouts"] {
@@ -1001,7 +1006,7 @@ export function createRuntimeToolPolicy(safetyMode: SafetyMode, tier: RiskTier =
     };
   }
 
-  if (tier === "trivial" || tier === "lite") {
+  if (getTierProfile(tier).denyContextTools) {
     return {
       allowRead: false,
       allowWrite: false,

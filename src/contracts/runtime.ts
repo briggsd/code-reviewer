@@ -63,6 +63,7 @@ export interface ReviewerRunInput extends AgentRunInput {
 export interface CoordinatorRunInput extends AgentRunInput {
   role: "coordinator";
   selectedReviewers: ReviewerRunInput[];
+  shortCircuitOnZeroFindings?: boolean;
 }
 
 export type { TokenUsage } from "./common.ts";
@@ -111,6 +112,7 @@ export interface CoordinatorRunResult {
   partial?: {
     reason: "overall_timeout";
   };
+  coordinatorShortCircuited?: boolean;
   rawOutput?: string;
   usage?: TokenUsage;
   tracePath?: string;
