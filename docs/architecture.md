@@ -635,6 +635,7 @@ Every run emits JSONL events. Event types:
 - `agent.completed`
 - `coordinator.completed`
 - `publisher.completed`
+- `review.thin_detected` (emitted only when output tokens are below the contextual floor — see `src/runner/thin-review.ts`; counts-only, never text; observability signal only — never affects decision, outcome, or CI status)
 - `review.completed`
 
 Each event includes run ID, project ID, change ID, timestamp, and enough metadata to debug without reading the full raw prompt. When project config references an enabled reviewer role with no trusted operator definition, the runner emits `agent.skipped` with `reason: "no_trusted_reviewer_definition"` instead of silently ignoring it.

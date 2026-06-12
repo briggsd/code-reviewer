@@ -42,6 +42,7 @@ import { backfillFindingLocations } from "./location-backfill.ts";
 import { applyAcknowledgements } from "./acknowledgements.ts";
 import { classifyReReviewFindings } from "./re-review.ts";
 import { assignStableFindingIds, createStableFindingId } from "./stable-finding-id.ts";
+import { assessThinReview } from "./thin-review.ts";
 
 export interface RunReviewOptions {
   fixture: ReviewFixture;
@@ -357,6 +358,13 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
     });
     await options.stateStore?.saveSummary(runId, summary);
+
+    const thinReview = assessThinReview({
+      riskTier: context.risk.tier,
+      reviewedFileCount: context.risk.reviewedFileCount,
+      outputTokens: metrics.tokens?.outputTokens,
+    });
+
     await emitTelemetry({
       telemetrySink: options.telemetrySink,
       traceSink: options.traceSink,
@@ -373,8 +381,23 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         ...(locationBackfilledCount > 0 ? { locationBackfilledCount } : {}),
         ...(acknowledgedCount > 0 ? { acknowledgedCount } : {}),
         ...(suppressedCount > 0 ? { suppressedCount } : {}),
+        ...(thinReview.thin ? { thinReview: { outputTokens: thinReview.outputTokens, expectedFloor: thinReview.expectedFloor } } : {}),
       }),
     });
+
+    if (thinReview.thin) {
+      await emitTrace(options.traceSink, {
+        type: "review.thin_detected",
+        runId,
+        timestamp: clock().toISOString(),
+        data: {
+          riskTier: context.risk.tier,
+          reviewedFileCount: context.risk.reviewedFileCount,
+          outputTokens: thinReview.outputTokens,
+          expectedFloor: thinReview.expectedFloor,
+        },
+      });
+    }
 
     await emitTrace(options.traceSink, {
       type: "review.completed",
@@ -655,6 +678,7 @@ function createRunMetricsTelemetryEvent(input: {
   locationBackfilledCount?: number;
   acknowledgedCount?: number;
   suppressedCount?: number;
+  thinReview?: { outputTokens: number; expectedFloor: number };
   summary?: ReviewSummary;
   errorClassification?: ReviewErrorClassification;
 }): TelemetryEvent {
@@ -737,6 +761,13 @@ function createRunMetricsTelemetryEvent(input: {
       ackData.suppressedCount = input.suppressedCount;
     }
     data.acknowledgements = ackData;
+  }
+  if (input.thinReview !== undefined) {
+    data.thinReview = {
+      flagged: true,
+      outputTokens: input.thinReview.outputTokens,
+      expectedFloor: input.thinReview.expectedFloor,
+    };
   }
   if (input.errorClassification !== undefined) {
     data.errorClassification = {

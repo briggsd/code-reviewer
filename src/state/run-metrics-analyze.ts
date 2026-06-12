@@ -1,6 +1,7 @@
 import type { JsonValue } from "../contracts/common.ts";
 import type { TelemetryEvent } from "../contracts/telemetry.ts";
 import { NON_REAL_RUNTIME_KINDS } from "../runtime/runtime-kind.ts";
+import { assessThinReview } from "../runner/thin-review.ts";
 
 // Local copies of asNumber/isPlainObject/incrementMap — intentional local copy,
 // do NOT import from run-metrics-rollup.ts (keep each analytics module self-contained,
@@ -8,17 +9,27 @@ import { NON_REAL_RUNTIME_KINDS } from "../runtime/runtime-kind.ts";
 
 const NON_REAL_RUNTIME_KIND_SET: ReadonlySet<string> = new Set(NON_REAL_RUNTIME_KINDS);
 
-// Default output-token floor for the thin-review heuristic.
-// A non-trivial run is considered "thin" if its total output tokens are below this
-// value. This is a deliberately simple placeholder floor pending #91's contextual
-// flag (diff-size-aware threshold). The floor is a tunable option so #91 can refine
-// it without changing callers. Trivial-tier runs are never flagged thin — an
-// empty/fast review on a trivial diff is expected (see CLAUDE.md / #65: thinking is
-// a cap, not a floor).
-const DEFAULT_THIN_REVIEW_OUTPUT_TOKEN_FLOOR = 250;
+// Thin-review classification is now contextual (implemented in #91), delegated to
+// assessThinReview() in src/runner/thin-review.ts. The contextual floor depends on
+// riskTier and reviewedFileCount: trivial is never flagged, lite uses 60*fileCount,
+// full uses 300 + 60*fileCount. See thin-review.ts for calibration notes.
+//
+// LEGACY events: pre-#91 run_metrics events do NOT carry `reviewedFileCount`. Passing
+// the field's absence through as 0 would give a lite-tier floor of 60*0 = 0, silently
+// classifying every historical lite run as not-thin and breaking comparability across
+// the #91 boundary. So when the field is absent we fall back to LEGACY_FLAT_THIN_FLOOR
+// (the pre-#91 flat floor), keeping historical analyze output stable; events that carry
+// the field use the contextual floor.
+//
+// The --thin-floor CLI flag (thinReviewOutputTokenFloor option) provides a flat-floor
+// override that wins for ALL events; its CLI-side default lives in
+// scripts/telemetry-analyze.ts.
+const LEGACY_FLAT_THIN_FLOOR = 250;
 
 export interface AnalyzeOptions {
-  /** Output-token count below which a non-trivial run is considered "thin". Default: 250. */
+  /** Flat-floor override: output-token count below which a non-trivial run is considered "thin".
+   *  Default is the contextual tier/diff-size floor from assessThinReview() in thin-review.ts.
+   *  Trivial-tier runs are never flagged regardless of this value. */
   thinReviewOutputTokenFloor?: number;
 }
 
@@ -72,6 +83,7 @@ interface TierAccumulator {
 interface RunMetricsEventData extends Record<string, JsonValue> {
   runtime?: string;
   riskTier?: string;
+  reviewedFileCount?: number;
   decision?: string;
   outcome?: string;
   durationMs?: number;
@@ -89,8 +101,6 @@ export function analyzeRunMetrics(
   events: readonly TelemetryEvent[],
   options?: AnalyzeOptions,
 ): RunMetricsAnalysis {
-  const floor = options?.thinReviewOutputTokenFloor ?? DEFAULT_THIN_REVIEW_OUTPUT_TOKEN_FLOOR;
-
   const realEvents = events.filter(isRunMetricsEvent);
   const runCount = realEvents.length;
 
@@ -158,12 +168,18 @@ export function analyzeRunMetrics(
     const durationMs = asNumber(data.durationMs);
     tierAcc.totalDurationMs += durationMs;
 
-    // Thin-review heuristic: a run is "thin" iff its riskTier is NOT "trivial"
-    // AND its total output tokens are below the floor. Trivial runs are never
-    // flagged — an empty/fast review on a trivial diff is expected (#65).
-    // Pending #91's contextual/diff-size-aware flag, this simple floor is the
-    // placeholder. The floor is tunable via AnalyzeOptions.thinReviewOutputTokenFloor.
-    if (tier !== "trivial" && outputTokens < floor) {
+    // Thin-review classification (#91): contextual floor from assessThinReview(), which
+    // uses riskTier and reviewedFileCount to compute the expected minimum. Trivial runs
+    // are never flagged. Explicit --thin-floor wins for all events; otherwise legacy
+    // events lacking reviewedFileCount fall back to the flat pre-#91 floor (see comment
+    // at LEGACY_FLAT_THIN_FLOOR) so historical analyze output stays comparable.
+    const hasFileCount = typeof data.reviewedFileCount === "number" && Number.isFinite(data.reviewedFileCount);
+    const flatFloor = options?.thinReviewOutputTokenFloor ?? (hasFileCount ? undefined : LEGACY_FLAT_THIN_FLOOR);
+    const assessment = assessThinReview(
+      { riskTier: tier, reviewedFileCount: hasFileCount ? (data.reviewedFileCount as number) : 0, outputTokens },
+      flatFloor !== undefined ? { flatFloor } : undefined,
+    );
+    if (assessment.thin) {
       tierAcc.thinReviewRunCount += 1;
       thinReviewRunCount += 1;
     }

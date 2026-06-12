@@ -4,8 +4,8 @@ import type { TelemetryEvent } from "../src/contracts/telemetry.ts";
 import { analyzeRunMetrics, formatRunMetricsAnalysis } from "../src/state/run-metrics-analyze.ts";
 
 // Synthetic events that cover all branches:
-//   run-1: full tier, many findings, high output tokens — NOT thin
-//   run-2: lite tier, low output tokens (below 250 floor) — flagged thin
+//   run-1: full tier, many findings, high output tokens — NOT thin (contextual floor: 300 + 60*4 = 540 < 1200)
+//   run-2: lite tier, low output tokens — flagged thin (contextual floor: 0 + 60*3 = 180 > 100)
 //   run-3: trivial tier, ~0 output tokens — NOT thin (trivial is never flagged)
 //   run-4: dummy runtime — EXCLUDED
 //   run-5: non-run_metrics event — ignored
@@ -13,6 +13,7 @@ import { analyzeRunMetrics, formatRunMetricsAnalysis } from "../src/state/run-me
 
 const events: TelemetryEvent[] = [
   // run-1: full tier, 2 findings, high output tokens, optional blocks present
+  //   reviewedFileCount=4 → floor = 300 + 60*4 = 540 < 1200 → NOT thin
   {
     type: "ai_review.run_metrics",
     timestamp: "2026-06-11T00:00:00.000Z",
@@ -20,6 +21,7 @@ const events: TelemetryEvent[] = [
     data: {
       runtime: "pi",
       riskTier: "full",
+      reviewedFileCount: 4,
       decision: "significant_concerns",
       outcome: "fail",
       durationMs: 5000,
@@ -39,7 +41,8 @@ const events: TelemetryEvent[] = [
       acknowledgements: { acknowledgedCount: 1 },
     },
   },
-  // run-2: lite tier, 1 finding, low output tokens (below 250 floor) → thin
+  // run-2: lite tier, 1 finding, low output tokens
+  //   reviewedFileCount=3 → contextual floor = 0 + 60*3 = 180 > 100 → thin
   {
     type: "ai_review.run_metrics",
     timestamp: "2026-06-11T01:00:00.000Z",
@@ -47,6 +50,7 @@ const events: TelemetryEvent[] = [
     data: {
       runtime: "pi",
       riskTier: "lite",
+      reviewedFileCount: 3,
       decision: "no_findings",
       outcome: "pass",
       durationMs: 2000,
@@ -144,11 +148,11 @@ test("analyzeRunMetrics byTier costPerFindingUsd — null when 0 findings", () =
 test("analyzeRunMetrics thin-review: lite run is thin, trivial run is NOT thin", () => {
   const analysis = analyzeRunMetrics(events);
 
-  // lite run has 100 output tokens < 250 floor → thin
+  // lite run has 100 output tokens < contextual floor (60*3=180) → thin
   expect(analysis.byTier.lite?.thinReviewRunCount).toBe(1);
   expect(analysis.byTier.lite?.thinReviewRate).toBeCloseTo(1.0, 5);
 
-  // full run has 1200 output tokens > 250 floor → NOT thin
+  // full run has 1200 output tokens > contextual floor (300+60*4=540) → NOT thin
   expect(analysis.byTier.full?.thinReviewRunCount).toBe(0);
   expect(analysis.byTier.full?.thinReviewRate).toBe(0);
 
@@ -163,14 +167,54 @@ test("analyzeRunMetrics thin-review: overall thinReviewRate uses non-trivial den
   expect(analysis.rates.thinReviewRate).toBeCloseTo(0.5, 5);
 });
 
-test("analyzeRunMetrics custom thinReviewOutputTokenFloor", () => {
-  // With floor = 150, the lite run (100 tokens) is still thin, but let's verify
-  // the full run (1200 tokens) is still not thin
+test("analyzeRunMetrics thin-review: legacy events without reviewedFileCount fall back to the flat floor", () => {
+  // Pre-#91 telemetry events do not carry reviewedFileCount. Without a fallback these would get
+  // a lite contextual floor of 60*0 = 0 and never flag thin — silently breaking historical
+  // comparability. Assert the flat legacy floor (250) is applied instead.
+  const legacyEvents: TelemetryEvent[] = [
+    // legacy lite run, 100 output tokens, NO reviewedFileCount → thin via flat-250 fallback
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-05-01T00:00:00.000Z",
+      runId: "legacy-thin",
+      data: {
+        runtime: "pi",
+        riskTier: "lite",
+        decision: "no_findings",
+        outcome: "pass",
+        findingCount: 0,
+        tokens: { agentCount: 2, outputTokens: 100 },
+      },
+    },
+    // legacy lite run, 400 output tokens, NO reviewedFileCount → NOT thin (above flat-250)
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-05-01T01:00:00.000Z",
+      runId: "legacy-engaged",
+      data: {
+        runtime: "pi",
+        riskTier: "lite",
+        decision: "minor_issues",
+        outcome: "pass",
+        findingCount: 1,
+        tokens: { agentCount: 2, outputTokens: 400 },
+      },
+    },
+  ];
+
+  const analysis = analyzeRunMetrics(legacyEvents);
+  expect(analysis.byTier.lite?.runCount).toBe(2);
+  // Only the 100-token run is thin (100 < 250); the 400-token run is not (400 >= 250).
+  expect(analysis.byTier.lite?.thinReviewRunCount).toBe(1);
+});
+
+test("analyzeRunMetrics custom thinReviewOutputTokenFloor (flat-floor override)", () => {
+  // With flat floor = 150, the lite run (100 tokens) is still thin, full (1200) is not
   const analysis = analyzeRunMetrics(events, { thinReviewOutputTokenFloor: 150 });
   expect(analysis.byTier.lite?.thinReviewRunCount).toBe(1);
   expect(analysis.byTier.full?.thinReviewRunCount).toBe(0);
 
-  // With a floor of 2000, both full (1200) and lite (100) would be thin
+  // With a flat floor of 2000, both full (1200) and lite (100) are thin
   const analysis2 = analyzeRunMetrics(events, { thinReviewOutputTokenFloor: 2000 });
   expect(analysis2.byTier.lite?.thinReviewRunCount).toBe(1);
   expect(analysis2.byTier.full?.thinReviewRunCount).toBe(1);

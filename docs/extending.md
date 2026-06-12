@@ -47,6 +47,21 @@ input type; emit into `data` (conditionally `if (input.x !== undefined)` for opt
 4. Test via `RecordingTelemetrySink` (present when set, absent when not). **Counts/metadata
 only (M008)** — never diff text, finding bodies, prompts, or secrets.
 
+Current optional blocks in `run_metrics.data`: `grounding` (dropped count), `locationBackfill`
+(backfilled count), `acknowledgements` (ack/suppressed counts), `thinReview` (#91 — emitted
+only when flagged; `{ flagged: true, outputTokens, expectedFloor }`). Corresponding trace
+marker: `review.thin_detected` (emitted only when flagged).
+
+The thin-review **contextual floor** (`src/runner/thin-review.ts`):
+`expectedFloor = trivial→0 (never flagged), lite→60×reviewedFileCount, full→300+60×reviewedFileCount`;
+a run is thin when total output tokens are below it. `telemetry:analyze` uses this same floor
+by default (it reads `reviewedFileCount` off each event), so spine and analyze agree. This
+signal is **informational-only** — it never affects the run decision, outcome, or CI status.
+Two overrides: `--thin-floor N` forces a flat floor for all **non-trivial** events (trivial-tier
+runs are always exempt); and **legacy** events predating #91 (no `reviewedFileCount`) fall back
+to the old flat 250-token floor, so historical analyze output stays comparable across the #91
+boundary rather than silently dropping to a 0-floor on the lite tier.
+
 **Add a config field** (e.g. `conventions` #60):
 `ReviewConfig` (contracts) → normalize + **bound** it in `normalizeReviewConfig` → default in
 `createDefaultReviewConfig` → add property to `reviewConfigSchema` (it's

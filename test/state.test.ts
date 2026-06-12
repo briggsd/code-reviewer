@@ -236,20 +236,25 @@ describe("JSONL trace and filesystem state", () => {
         .split("\n")
         .map((line) => JSON.parse(line) as RuntimeEvent);
 
-      expect(events.map((event) => event.type)).toEqual([
+      // review.thin_detected is emitted only when a run is thin (here: dummy runtime → 0
+      // output tokens, full tier → below floor). Exclude it from the fixed-ordering
+      // assertion so this test stays robust to the thin flag changing; its presence/absence
+      // is covered by the dedicated thin-emission tests below.
+      expect(events.map((event) => event.type).filter((type) => type !== "review.thin_detected")).toEqual([
         "review.started",
         "context.built",
         "risk.assessed",
         "coordinator.completed",
         "review.completed",
       ]);
+      const reviewCompleted = events.find((event) => event.type === "review.completed");
       expect(events[0]?.runId).toBe("fixture-auth-pr");
       expect(events[2]?.data?.tier).toBe("full");
       expect(new Set(events.map((event) => event.timestamp)).size).toBe(events.length);
       expect(events[1]?.data?.durationMs).toBeGreaterThan(0);
       expect(events[2]?.data?.durationMs).toBeGreaterThan(0);
       expect(events[3]?.data?.durationMs).toBeGreaterThan(0);
-      expect(events[4]?.data?.durationMs).toBeGreaterThan(0);
+      expect(reviewCompleted?.data?.durationMs).toBeGreaterThan(0);
 
       const runRecord = JSON.parse(
         await readFile(join(outputDirectory, "runs", runId, "run.json"), "utf8"),
@@ -260,7 +265,7 @@ describe("JSONL trace and filesystem state", () => {
       const latestState = await stateStore.load(result.context.metadata) as PriorReviewState | undefined;
 
       expect(runRecord.tracePath).toBe(tracePath);
-      expect(runRecord.completedAt).toBe(events[4]?.timestamp);
+      expect(runRecord.completedAt).toBe(reviewCompleted?.timestamp);
       expect(runRecord.metrics?.durationsMs.overallMs).toBeGreaterThan(0);
       expect(runRecord.metrics?.durationsMs.contextBuildMs).toBeGreaterThan(0);
       expect(runRecord.metrics?.context?.patchFileCount).toBe(1);
@@ -511,6 +516,87 @@ describe("JSONL trace and filesystem state", () => {
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
     }
+  });
+
+  test("runner emits thinReview telemetry block and trace marker when run is thin", async () => {
+    // auth-pr fixture: full tier, 1 file, dummy runtime → outputTokens=0
+    // contextual floor: 300 + 60*1 = 360 > 0 → thin
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new DummyAgentRuntime({
+      defaultFindings: fixture.fakeFindings ?? [],
+    });
+    const telemetrySink = new RecordingTelemetrySink();
+    const traceSink = new RecordingTraceSink();
+
+    await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+      runtime,
+      telemetrySink,
+      traceSink,
+    });
+
+    // Telemetry: thinReview block must be present with flagged=true and correct counts
+    expect(telemetrySink.events).toHaveLength(1);
+    const thinTelemetryBlock = telemetrySink.events[0]?.data?.thinReview;
+    expect(thinTelemetryBlock).toMatchObject({
+      flagged: true,
+      outputTokens: 0,
+    });
+    // expectedFloor is a number > 0 (contextual floor for full tier + 1 file = 360)
+    expect(typeof (thinTelemetryBlock as Record<string, unknown>)?.expectedFloor).toBe("number");
+    expect((thinTelemetryBlock as Record<string, unknown>)?.expectedFloor as number).toBeGreaterThan(0);
+
+    // Trace: review.thin_detected marker must be emitted
+    const thinTrace = traceSink.events.find((e) => e.type === "review.thin_detected");
+    expect(thinTrace).toBeDefined();
+    expect(thinTrace).toMatchObject({
+      type: "review.thin_detected",
+      runId: "fixture-auth-pr",
+      data: {
+        riskTier: "full",
+        outputTokens: 0,
+        expectedFloor: expect.any(Number),
+      },
+    });
+    expect(typeof (thinTrace?.data as Record<string, unknown>)?.reviewedFileCount).toBe("number");
+
+    // review.thin_detected is emitted before review.completed (it is part of the run's
+    // completion sequence). Safe to assert here because this run is always thin.
+    const thinIdx = traceSink.events.findIndex((e) => e.type === "review.thin_detected");
+    const completedIdx = traceSink.events.findIndex((e) => e.type === "review.completed");
+    expect(thinIdx).toBeGreaterThanOrEqual(0);
+    expect(thinIdx).toBeLessThan(completedIdx);
+  });
+
+  test("runner does NOT emit thinReview telemetry or trace when run is trivial tier", async () => {
+    // Build a fixture with trivial tier — trivial is never thin
+    const baseFixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    // Override config to force trivial tier via a fixture with no diff files
+    const fixture = {
+      ...baseFixture,
+      // Trivial tier: empty diff, so reviewedFileCount = 0 after filter
+      diff: { ...baseFixture.diff, files: [] },
+    };
+    const runtime = new DummyAgentRuntime({ defaultFindings: [] });
+    const telemetrySink = new RecordingTelemetrySink();
+    const traceSink = new RecordingTraceSink();
+
+    await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-09T00:00:00.000Z"),
+      runtime,
+      telemetrySink,
+      traceSink,
+    });
+
+    // For a trivial run, no thinReview block in telemetry
+    const thinReviewField = telemetrySink.events[0]?.data?.thinReview;
+    expect(thinReviewField).toBeUndefined();
+
+    // No review.thin_detected trace event
+    const thinTrace = traceSink.events.find((e) => e.type === "review.thin_detected");
+    expect(thinTrace).toBeUndefined();
   });
 });
 
