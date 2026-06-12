@@ -306,8 +306,27 @@ describe("formatReviewSummaryMarkdown — Sink 1 escaping", () => {
 // 3. Sink 3 — createSummaryBody via runReview fixture
 // ---------------------------------------------------------------------------
 
-describe("createSummaryBody — Sink 3 escaping via runReview", () => {
-  test("finding title metacharacters in summary.body are escaped after runReview", async () => {
+describe("createSummaryBody — Sink 3 content via runReview", () => {
+  test("summary.body contains the five risk-fact lines after runReview", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+
+    const result = await runReview({ fixture });
+
+    // summary.body contains the five risk-fact lines only — finding bullets were removed in
+    // the group-by-reviewer renderer rewrite (#33). The renderer (Sink 1) now owns finding
+    // listing; body carries only the structural risk facts.
+    expect(result.summary.body).toContain("Risk tier:");
+    expect(result.summary.body).toContain("Risk reason:");
+    expect(result.summary.body).toContain("Files reviewed:");
+    expect(result.summary.body).toContain("Files ignored:");
+    expect(result.summary.body).toContain("Findings:");
+    // No per-finding bullet list in the body
+    expect(result.summary.body).not.toMatch(/^- \[/m);
+  });
+
+  test("finding title/path metacharacters are escaped in the rendered markdown (Sink 1)", async () => {
+    // Escaping coverage for finding content lives in the renderer (Sink 1). This test
+    // verifies the end-to-end path: metachar title renders escaped in formatReviewSummaryMarkdown.
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
 
     const findingWithMetachar: Finding = {
@@ -319,45 +338,21 @@ describe("createSummaryBody — Sink 3 escaping via runReview", () => {
       confidence: "high",
       evidence: [],
       recommendation: "fix it",
+      location: { path: "src/<generated>/auth.ts", line: 5 },
     };
 
     fixture.fakeFindings = [findingWithMetachar];
 
     const result = await runReview({ fixture });
+    const markdown = formatReviewSummaryMarkdown(result.summary);
 
-    // summary.body is built by createSummaryBody in run-review.ts
-    expect(result.summary.body).toContain("\\`sanitize()\\`");
-    expect(result.summary.body).toContain("\\_escape\\_");
-    expect(result.summary.body).toContain("\\<input\\>");
+    // Title metacharacters must be escaped in rendered output
+    expect(markdown).toContain("\\`sanitize()\\`");
+    expect(markdown).toContain("\\_escape\\_");
+    expect(markdown).toContain("\\<input\\>");
 
-    // Bare metacharacters must not appear in the finding line of the body
-    const bodyLines = result.summary.body.split("\n");
-    const findingLine = bodyLines.find((line) => line.includes("sanitize"));
-    expect(findingLine).toBeDefined();
-    expect(findingLine).not.toContain("`sanitize()`");
-    expect(findingLine).not.toContain("<input>");
-  });
-
-  test("finding location path in summary.body is escaped after runReview", async () => {
-    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
-
-    const findingWithMetacharPath: Finding = {
-      reviewer: "security",
-      severity: "warning",
-      category: "auth",
-      title: "Some finding",
-      body: "body",
-      confidence: "high",
-      evidence: [],
-      recommendation: "fix it",
-      location: { path: "src/<generated>/auth.ts", line: 5 },
-    };
-
-    fixture.fakeFindings = [findingWithMetacharPath];
-
-    const result = await runReview({ fixture });
-
-    expect(result.summary.body).toContain("\\<generated\\>");
-    expect(result.summary.body).not.toContain("<generated>");
+    // Location path metacharacters must be escaped
+    expect(markdown).toContain("\\<generated\\>");
+    expect(markdown).not.toContain("<generated>");
   });
 });

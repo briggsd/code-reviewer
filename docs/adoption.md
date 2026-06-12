@@ -43,6 +43,12 @@ jobs:
 
 Use the full raw CLI template in `examples/ci/github-actions-ai-review.yml` or the wrapper template in `examples/ci/github-actions-ai-review-action.yml` for the separate guarded publish job. The wrapper is documented in [GitHub Action wrapper](github-action-wrapper.md).
 
+> **The summary comment's visible Markdown is not a stable interface.** Its layout changed
+> in #33 (grouped by reviewer, collapsed details) and may change again. Tooling that needs
+> the decision, outcome, or finding data programmatically should read the run artifacts
+> (`run.json` / `summary.json`) or the hidden `<!-- ai-code-review-factory -->` metadata
+> block — those are the stable surfaces; never parse the human-facing comment text.
+
 ## What has been live-tested
 
 - **GitHub same-repository summary publishing:** PR #2 verified dry-run, artifact upload, same-repo summary publishing, and idempotent update of a single bot summary comment.

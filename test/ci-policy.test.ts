@@ -135,7 +135,7 @@ describe("summary markdown formatting", () => {
     });
 
     expect(markdown).toContain("## AI review found no blocking issues");
-    expect(markdown).toContain("**Decision:** `approved`");
+    expect(markdown).toContain("✅ Approved");
     expect(markdown).toContain("No findings.");
   });
 
@@ -152,7 +152,8 @@ describe("summary markdown formatting", () => {
     expect(markdown).toContain(
       "**CRITICAL: Account lookup misses authorization** (auth/accounts.ts:23)",
     );
-    expect(markdown).toContain("Reviewer: `security`");
+    // Reviewer is now shown as a group heading (escaped plain text), not inline in detail lines
+    expect(markdown).toContain("🔒 security");
     expect(markdown).toContain("<!-- ai-code-review-factory");
     expect(markdown).toContain('"runId": "fixture-auth-pr"');
   });

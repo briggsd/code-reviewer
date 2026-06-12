@@ -30,6 +30,12 @@ The system is designed for many projects, not one repository. Project teams shou
 6. **Treat all PR/MR content as untrusted.** Titles, descriptions, comments, diffs, and repository files can contain prompt injection or malicious code.
 7. **Fail behavior is policy.** Projects choose fail-open or fail-closed, but the runner must make that choice explicit.
 
+### Break-glass / human override
+
+The supported override today is a repo admin overriding the required CI check — the standard merge-gate bypass available in GitHub (branch protection → "Require status checks → allow administrator override") and GitLab (protected branch maintainer override). This is intentionally **admin-only** and is **not yet recorded as a review-level telemetry event** (accepted tradeoff at the small-team stage); the summary comment's "Break glass" footer links here. The footer is rendered on **every** summary comment, including approved reviews (collapsed inside `<details>` so it adds no noise), and its link is currently a fixed canonical URL to this repository's copy of this document — self-managed deployments inherit that link (not yet configurable).
+
+Planned phase 2 (issue #22): a per-developer `break glass` comment trigger on the PR/MR that emits the reserved `run.override` telemetry event (vocabulary already reserved in [docs/telemetry-export.md](telemetry-export.md) / #50), so override rate becomes a measurable quality signal. This is now unblocked by #20 (run events) but is not yet implemented.
+
 ## System overview
 
 A pull request or merge request triggers CI. CI starts the review runner with metadata identifying the repository, change ID, commit SHA, provider, and desired policy. The runner fetches change metadata and diff information through a VCS adapter, filters noisy files, classifies the risk tier, builds shared context, then asks a coordinator agent to orchestrate specialist reviewers.
@@ -456,6 +462,8 @@ Low-confidence findings should usually be omitted unless they describe a high-im
 - **Warning:** concrete regression risk, missing validation at a trust boundary, measurable performance concern, incomplete rollout/release step.
 - **Suggestion:** useful improvement that should not block merge.
 
+The bot can be wrong: see [Break-glass / human override](#break-glass--human-override) for the supported override path.
+
 ### Reviewer prompt pattern
 
 Every reviewer prompt uses the same shape:
@@ -565,7 +573,7 @@ Fork MR parent-project pipelines are privileged. They must not execute untrusted
 - Do not run untrusted code in privileged contexts.
 - Disable shell execution for reviewers by default in untrusted mode.
 - Require structured output schemas.
-- Keep human break-glass override.
+- Keep human break-glass override (see [Break-glass / human override](#break-glass--human-override)).
 - Use CI status as deterministic enforcement.
 - Make fail-open/fail-closed explicit per project.
 

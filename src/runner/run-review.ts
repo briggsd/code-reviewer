@@ -29,7 +29,6 @@ import type {
   TokenUsage,
   TraceSink,
 } from "../contracts/index.ts";
-import { escapeMarkdown } from "../publisher/markdown-escape.ts";
 import { resolveRuntimeKind, sanitizeJobKind } from "../runtime/runtime-kind.ts";
 import { applyAcknowledgements } from "./acknowledgements.ts";
 import { writeReviewContextArtifacts } from "./context-artifacts.ts";
@@ -1263,20 +1262,6 @@ function createSummaryBody(context: ReviewContext, findings: Finding[]): string 
     `Files ignored: ${context.risk.ignoredFileCount}`,
     `Findings: ${findings.length}`,
   ];
-
-  if (findings.length > 0) {
-    lines.push("");
-    for (const finding of findings) {
-      // title is LLM-produced; path comes from the diff — both are untrusted and must be
-      // escaped here so that summary.body is safe for structural Markdown assembly in
-      // formatReviewSummaryMarkdown, which leaves summary.body unescaped (#74).
-      const location =
-        finding.location?.path !== undefined
-          ? ` (${escapeMarkdown(finding.location.path)}${finding.location.line !== undefined ? `:${finding.location.line}` : ""})`
-          : "";
-      lines.push(`- [${finding.severity}] ${escapeMarkdown(finding.title)}${location}`);
-    }
-  }
 
   return lines.join("\n");
 }

@@ -89,9 +89,10 @@ describe("acknowledged finding rendering", () => {
     expect(markdown).toContain("— _acknowledged: accepted via waiver_");
     expect(markdown).toContain("New issue");
 
-    // The marker must appear only once (for the acknowledged finding only)
+    // The marker appears in the one-line bullet AND in the details block (2 occurrences total)
+    // It must NOT appear for the non-acknowledged finding
     const occurrences = (markdown.match(/acknowledged:/g) ?? []).length;
-    expect(occurrences).toBe(1);
+    expect(occurrences).toBe(2);
   });
 
   test("acknowledged finding still shows category, reviewer, confidence, body, recommendation", () => {
@@ -109,7 +110,8 @@ describe("acknowledged finding rendering", () => {
     const markdown = formatReviewSummaryMarkdown(summary);
 
     expect(markdown).toContain("Category: `injection`");
-    expect(markdown).toContain("Reviewer: `security`");
+    // Reviewer is now the group heading (escaped plain text — model-authored, not a code span)
+    expect(markdown).toContain("🔒 security");
     expect(markdown).toContain("Confidence: `medium`");
     expect(markdown).toContain("Detailed explanation.");
     expect(markdown).toContain("Sanitize inputs.");
