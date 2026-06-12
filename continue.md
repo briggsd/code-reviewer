@@ -642,56 +642,52 @@ escapes no finding text — still open).
   with the **spec-quality lever** (precedent-pointing + front-loaded test-infra) and the
   **confabulation** rule.
 
-## Cross-cutting plan (top-4 backlog → 3 shared foundations)
+## Cross-cutting plan (2026-06-12 session — 20 open issues → 4 foundations)
 
-Reviewed #57/#60/#54/#46 for shared seams (grounded against code). The four collapse into:
-- **Foundation A — post-review finding-transform chain** (`run-review.ts:215`,
-  `assignStableFindingIds → classifyReReviewFindings`). Both **#54.2** (deterministic
-  evidence-grounding filter) and **#60-P3** (acknowledgement downgrade) are new links here; build
-  the composable stage once. #60-P3 *depends on #54* per the issue.
-- **Foundation B — ref-addressing VCS plumbing.** `VcsAdapter` is single-`ChangeRef` today.
-  **#60-P2** needs "read `.ai-review.json` at the base ref"; **#46** needs "diff
-  `previousHeadSha..headSha`." Same contract gap — design the extension once.
-- **Foundation C — trusted prompt construction** (`pi-agent-runtime.ts`). #54.1/#54.3 (DONE in
-  #64) + #60-P1/P2 all edit the same `buildReviewer/CoordinatorPrompt`.
-- **#57 is mostly orthogonal** (CI YAML + trace redaction); light coupling = new trace markers
-  from #54/#46 must land inside #57's redaction-safe/path-scoped artifact set.
+Grounded against code; the durable map for what remains. (The OLD #54/#60-era foundations plan
+that lived here is complete and superseded — its history is in the session blocks above.)
 
-Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + P3 framework) →
-**3** (ref plumbing + #60-P2 trust guard) → then **4** (#46) and **5** (#60-P3) both unblock.
-#57 enablement anytime; #57 completeness after 2/4 settle trace fields.
+- **Foundation A — tier-profile consolidation** (#100+#101) → **DONE** (PR #104). One declarative
+  table `src/runner/tier-profile.ts`; trivial roster cap; coordinator zero-finding short-circuit.
+  Unlocks #23/#26 (roster entries in the same mechanism) and multiplies #46's savings.
+- **Foundation B — one toolchain decision** (#96+#27) → **DONE** (PRs #106/#107). dependency-cruiser
+  for layering (remediation messages), Biome for style (BLOCKING, formatter adopted), no ESLint.
+  `bun run gate` = the pre-PR gate. **#92's deterministic doc-staleness checks should ride this lint
+  family** (still open).
+- **Foundation C — telemetry schema designed once** (#50 → #20 → #57; #51 trigger-gated) →
+  **part 1 DONE** (PR #108: egress boundary + reserved `ai_review.run_event` vocabulary).
+  **Part 2 = #20**: emit `run.start`/`run.completed`/`run.correction` against the reserved
+  vocabulary (`src/state/rollup-export.ts` JSDoc + `docs/telemetry-export.md` ARE the contract);
+  acceptance signal per reviewer from `re-review.ts` fixed/recurring/withheld (#31 fixed + #69
+  withheld → numbers are honest); aggregate reviewer × tier in `telemetry:analyze`; `run.correction`
+  Record keys MUST be letter-first (prefix runIds). #22-P2's `run.override` lands after #20.
+  **Then #57** (artifact scoping + redaction completeness) against the settled boundary.
+- **Foundation D — summary renderer rewrite** (#33 + #22-P1 bundled) → **NOT STARTED**. Rewrite
+  `summary-markdown.ts` (group-by-reviewer, severity badges, `<details>` disclosure per the issue's
+  Cloudflare layout) + #22-P1 break-glass doc/architecture.md section + footer placeholder in the
+  SAME PR. MUST preserve: hidden metadata block, `### Re-review status`, grounding/ack/withheld
+  notes, escapeMarkdown at the leaves (see Do-not list).
+- **Standalones** (no shared seam, any time): #41 (heartbeat consumer — event exists, wiring only),
+  #42 (`--pi-api-key`), #24 (generated-marker diff filter — small, self-contained).
+- **Deferred/trigger-gated:** #16 (plugin lifecycle — no trigger tripped), #15 (umbrella), #51
+  (remote transport — promote on a concrete trigger), #46 (incremental re-review — needs
+  prev-head..head VCS plumbing; benefits from A's tier profile), #29 (doc-gardening, heavier #92),
+  #23/#26 (new reviewer roles — cheaper post-A), #22-P2 (after #20), #92 (post-B lint family),
+  #57 (post-#20), #20 (C part 2 — the recommended next), #100 (lite context-sharing remainder).
 
 ## Next action
 
-0. **#73 DONE (PR #76).** ~~Scope grounding to changed-file findings.~~ Recommended next is its
-   sibling **#74** (markdown renderer escapes no finding text — low, well-scoped) — or any thread below.
-1. **Other candidate threads** (#54 + #60 + #73 are COMPLETE):
-   - **GitLab parity** (small, high-coherence): implement `readBaseBranchFile` on the GitLab adapter
-     so #60-P2/P3 trust guard applies to GitLab too (currently degrades to P1 advisory). Mirror the
-     GitHub impl (GitLab files API at `?ref=<targetBranch>`). Not yet filed as an issue.
-   - **#28 holdout eval** — the measurement counterpart: validate the #54 precision gains (and now
-     acks) with no recall regression. Bigger (eval harness + dataset).
-   - **#46 incremental re-review** — needs a `prev-head..head` sibling of `readBaseBranchFile`
-     (Foundation B continues); carry-forward correctness is the hard part.
-   - **#69** (low — grounding/suppress-dropped findings miscounted as "fixed" in re-review).
-   - **#57 remaining** (trace-redaction enablement + completeness + artifact path-scoping).
-   - **Coordinator-budget** (#45/#54): #68 + #72 auto-reviews each timed out ONCE before converging.
-     The #54.1 validation directives raise coordinator load. If timeouts worsen, lower coordinator
-     `thinking` (medium→low) or trim the directives.
-1. **#57 remaining (stays OPEN):** (a) **enablement** — redaction is default-off, so wire
-   `--redact-trace` into the `trusted-real-review` job (or scope the artifact upload paths);
-   (b) **redaction completeness** — extend beyond `message_start/end` `content` to other
-   message fields + streaming `content_block_*` events (verify vs real Pi JSON output);
-   (c) the original path-scoping/`if: always()`/diff-in-artifact concern. (See #57 comment.)
-2. **#60 P2/P3:** P2 = read `conventions` from the **base branch** (the trust guard — until
-   then conventions are advisory only); P3 = structured `acknowledgements` + downgrade/gate,
-   with #54. Design doc: `docs/reviewer-conventions.md`.
-3. **#54 (coordinator precision gate)** — M013; the dedup home for #60's acknowledgement filter
-   and the answer to the reviewer's non-determinism / "must-find-something" floor seen all session.
-4. **#46 (incremental re-review)** — NOTE: true "delta since previousHeadSha" needs NEW VCS
-   plumbing (a prev-head..head diff isn't fetched today); not a clean small slice as-is.
-5. **M013 waves** (#26/#27/#28/#29/#33), **M012 parking lot** (#15/#16/#22/#23/#24).
-6. **Defer UX:** #41 (heartbeat), #42 (`--pi-api-key`), #20 (re-review analytics).
+1. **C part 2 — #20 run events + acceptance analytics** (recommended): the reserved vocabulary in
+   `src/state/rollup-export.ts` + `docs/telemetry-export.md` is the contract; emission precedent =
+   the `run_metrics` emit in `run-review.ts` (~line 380); acceptance mapping source =
+   `createReReviewSummary` (fixed→accepted, recurring→not-accepted, withheld→excluded); aggregate in
+   `telemetry:analyze`. Sequencing note from the issue: S04 events first, S05/S06 acceptance are
+   longitudinal/directional.
+2. **Foundation D — #33 + #22-P1** (renderer rewrite; see plan above for must-preserve list).
+3. **Standalones:** #41 / #42 / #24.
+4. If real-review behavior questions come up: PR #105's PATCH-dedup is CONFIRMED working (one
+   summary comment updated in place per PR); #104's tier levers are CONFIRMED live (lite
+   zero-finding run → no coordinator call, `coordinatorShortCircuited` in run_metrics).
 
 ## State
 
@@ -709,15 +705,14 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   → 5/5 @ 100%), **#88** (#84 inline+summary dedup author-trust, closed #84), **#89** (#87 location backfill, closed #87).
 - **MERGED this session: #95** (CI quality gates — `ci.yml` blocking check + advisory Biome/knip/jscpd,
   squash `acba8d9`). Also **#90 (telemetry:analyze) merged as PR #93** during this window.
-- **Issues open:** **#100** (lite context-sharing — trivial half SOLVED by PR #104, see progress note
-  on the issue; #101 CLOSED). **#96** (CI quality-gate follow-ups — trustworthy-trim DONE in PR #97; STILL OPEN for:
-  adopt/disable Biome formatter, flip Biome to blocking, repo-wide Action SHA-pinning — Foundation B
-  pairs these with #27's tool choice). **#92** (doc-staleness detection). #57
-  (partial — telemetry redaction), #46 (needs prev-head..head ref read), **M014** #50/#51 (telemetry
-  egress — Foundation C), **M013** #26/#27/#29/#33, #41/#42/#20, **M012** parking lot #15/#16/#22/#23/#24.
+- **Issues open (post-2026-06-12 session — #101/#27/#96/#50 all CLOSED):** **#20** (run events +
+  acceptance — C part 2, recommended next), **#33** (renderer rewrite — Foundation D, w/ #22-P1),
+  **#100** (lite context-sharing remainder; trivial half solved by PR #104, see issue comment),
+  **#92** (doc-staleness — ride the post-B lint family), #57 (artifact scoping — after #20),
+  **#51** (remote transport — trigger-gated), #46 (needs prev-head..head ref read), **M013** #26/#29,
+  #41/#42/#22/#24, **M012** parking lot #15/#16/#23.
   **GitLab parity COMPLETE** (base-read #80 + inline publish #82 + dedup author-trust #84). **#77 PROVEN
-  end-to-end**; eval VALIDATED 5/5@100%. **#77 option 2** (generalized self-review signal / thin-review
-  full-tier review). **#77 option 2** revisit only if needed.
+  end-to-end**; eval VALIDATED 5/5@100%. **#77 option 2** revisit only if needed.
 - **#76 post-merge audit (PR #76's empty AI review):** NOT a regression. Reviewers got real ~5K
   prompts (`cacheWrite≈5070`) but returned `{"findings":[]}` in 8 tokens / 0 thinking because risk
   tier = `lite` (no sensitive-path match for `src/runner/*`). Model `sonnet-4-6` is capable (#65:
