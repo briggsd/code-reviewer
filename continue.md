@@ -1,6 +1,75 @@
-# Continue — AI Code Review Factory / Biome advisory trimmed to real signal (PR #97); prior: #69 withheld (PR #94), #95 CI gates, #90 telemetry:analyze; next = #91 / #92 / decide formatter+flip-blocking (#96) / M014
+# Continue — AI Code Review Factory / #91 thin-review flag (PR #98) + coordinator JSON-parse robustness fix (PR #103) SHIPPED; prior: #97 Biome trim, #95 CI gates; next = #92 / decide formatter+flip-blocking (#96) / M014
 
 ## Last action
+
+**Coordinator/reviewer JSON-extraction robustness fix SHIPPED — PR #103 (squash `f0a459c`, gate
+455/0, AI review `approved`/0 — the same pipeline that FAILED 3× on #98 now parses).** While
+shipping #91, the repo's own real-Pi review failed to publish **3 consecutive times on PR #98**
+with `JSON Parse error: Expected '}'`. Root-caused (against the captured `trace.jsonl` coordinator
+output of all 3 runs) to **TWO distinct, pre-existing runtime gaps** in `pi-agent-runtime.ts`,
+both independent of #91 (which is post-coordinator):
+- **Bug 1 — prose preamble before the ```` ```json ```` fence.** The coordinator emitted
+  "I have enough to validate… Summary: … `return { thin: false }` …" BEFORE the fence.
+  `extractFencedJson` only matched a fence anchored at `^` → missed it → the `indexOf("{")` fallback
+  sliced from the **brace in the prose** → invalid JSON. Fix: find the fence **anywhere**
+  (line-anchored, ```` ```json ````-preferred); closing = last ```` ``` ```` line. (Fixed runs a + c.)
+- **Bug 2 — nested prose quote before a comma** (`means "phrase", but …`, quotes unescaped).
+  `repairUnescapedStringQuotes` escaped the opening quote but treated the closing one as a real
+  terminator because a `,` followed. Fix: a quote-before-comma is a terminator only when the next
+  non-space token actually STARTS a JSON value (`" { [ - digit true/false/null`) — else it's nested
+  prose, escape it. (Fixed run b — which carried 5 findings that never published.)
+- **Verified against the ACTUAL failing outputs** (all 3 now parse to their intended findings) +2
+  regression tests (one per bug); existing quote/backtick-repair tests unaffected. Coordinator-applied.
+- **NOTE:** `src/runtime/pi-agent-runtime.ts` is NOT in #77's `sensitivePaths` (only
+  `prompt-boundary.ts` under src/runtime is) → #103 self-reviewed **lite**, not full. The parser fix
+  is tier-independent so that's fine, but if you want the *runtime* output-parser full-tiered, add
+  `src/runtime/**` (or just `pi-agent-runtime.ts`) to the repo `.ai-review.json` — a #77-option-2 call.
+- **Audit recipe (cheap tell for a parse failure):** a FAILED review writes **no `summary.json`**,
+  only `run.json` with `.error` + `decision:"review_failed"`. Recover the findings anyway from
+  `trace.jsonl`: the coordinator `message_end` event → `content[].type==="text"` is the raw model
+  output; strip the ```` ```json ```` fence to read the findings the runtime couldn't parse.
+
+---
+
+**Earlier last action (same session):**
+
+**#91 SHIPPED & CLOSED — contextual thin-review observability flag (PR #98, squash `1c5fc3b`, gate
+453/0).** Emits a counts-only signal when a run's output tokens fall below an expected floor for its
+risk tier / diff size: new `src/runner/thin-review.ts` `assessThinReview()` — floor `base + 60×fileCount`
+(full base 300, lite 0, **trivial always exempt**), calibrated from the bimodal session data (correct/empty
+~150 out-tok vs engaged 1.5K–16K) + the #76 case. Spine (`run-review.ts`, completed path only) emits an
+optional `thinReview` telemetry block `{flagged,outputTokens,expectedFloor}` + a `review.thin_detected`
+trace marker, both **only when flagged**; `review.thin_detected` added to `TraceEventType`. **Informational
+only — never gates CI.** `telemetry:analyze` repointed at the SAME shared fn (was a flat-250 placeholder
+marked "pending #91"). Rollup out of scope. Backend: in-harness Sonnet subagent (Opus 4.8 coordinator).
+
+- **Two full-tier self-review rounds, both parseable, all findings triaged & fixed (noise-floor stop):**
+  R1 (5 findings, all REAL): the sharp one — **historical lite-tier events lacking `reviewedFileCount`
+  silently lost thin detection** (`asNumber(undefined)=0` → lite floor `60×0=0` → never thin; my PR wrongly
+  claimed "historical re-classify consistently"). Fixed: when the field is ABSENT, analyze falls back to the
+  legacy flat **250** floor (`LEGACY_FLAT_THIN_FLOOR`); contextual only when present; `--thin-floor` overrides
+  all. + decoupled a brittle ordered-trace assertion in `state.test.ts`; + legacy-path test; + inlined the
+  floor formula in docs. R2 (4 minor): flatFloor NaN/negative guard (a NaN floor silently disables detection),
+  2 doc nits (informational-only; `--thin-floor` is non-trivial-only), 1 safe ordering assertion. Held: none.
+- **⚠️ KNOWN-FAILING (pre-existing, NOT my code): the real-Pi AI review on #98 FAILED TO PARSE 3×**
+  (`JSON Parse error: Expected '}'`). Root cause: the **coordinator emits unescaped `"` quotes inside finding
+  `body` strings** (this PR's content + my PR-description quoted phrases led the model to nest quotes) →
+  `pi-agent-runtime`'s JSON extraction chokes. **My thin-review code runs POST-coordinator and cannot cause
+  this.** Got the findings anyway by extracting the coordinator text from `trace.jsonl` (`message_end` →
+  content `text`, strip ```` ```json ```` fence). **`main` is UNPROTECTED → the red AI-review check did NOT
+  block merge; the BLOCKING `Type-check & tests` gate passed.** This is a real runtime-robustness gap worth an
+  issue — NOT YET FILED (filing was auto-denied before unless user-asked). **OFFER to file it.**
+- **Repro/audit recipe:** `gh run download <runId> -R briggsd/ai-code-review-factory -n ai-review-real-<PR>`;
+  the review summary is in `runs/*/run.json` (`.error`/`.summary`), per-agent tokens in `telemetry.jsonl`,
+  coordinator output in `trace.jsonl`. NOTE: a FAILED review writes **no `summary.json`** (only `run.json`
+  with `.error` + `decision:"review_failed"`).
+
+**Recommended next:** ~~FILE the coordinator JSON-parse bug~~ DONE (PR #103, both bugs fixed). **#92**
+(doc-staleness — docs are 52% of findings) / decide formatter + flip-to-blocking (**#96**) / **M014** #50/#51.
+
+---
+
+**Earlier last action:**
 
 **Biome advisory trustworthy-signal pass SHIPPED — PR #97 (squash `8acdb7c`, gate 434/0, AI review
 `approved`/0, trivial tier).** The #95 advisory `quality` job emitted ~146 noisy findings nobody reads,
@@ -460,8 +529,9 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
 
 ## State
 
-- `main` @ `acba8d9` (#95 CI quality gates), pushed/synced, gate **428/0**, working tree CLEAN
-  (except this `continue.md` edit, intentionally uncommitted).
+- `main` @ `f0a459c` (PR #103 coordinator JSON-parse robustness; PR #98 #91 thin-review under it),
+  pushed/synced, gate **455/0**, working tree CLEAN except an intentional `CLAUDE.md` "Workflow" note
+  (user-added, uncommitted) + this `continue.md` edit.
 - **MERGED last big session (8 PRs):** #64 (#54.1 prompts), #66 (quotedCode contract + #67 fix), #68
   (#54.2 grounding), #70 (#60-P2 conventions trust guard), #71 (#60-P3a ack foundation), #72 (#60-P3b
   ack apply, closed #60). Backend: in-harness Sonnet subagent (Opus 4.8 coordinator) throughout.
@@ -555,7 +625,12 @@ Dependency-ordered slices: **1 (DONE, #64)** → **2** (#54.2 grounding stage + 
   vs `git diff` and re-run `bun run check`. Do not `git add -A` when committing delegated work
   (it swept `M009-SUMMARY.md` in once).
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80/#82/#28
-  #84/#87/#69/#90 or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85/#86/#88/#89/#93/#94/#95/#97
+  #84/#87/#69/#90/#91 or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85/#86/#88/#89/#93/#94/#95/#97/#98/#103
+- Do not re-chase the #98 AI-review JSON-parse failures as a thin-review bug — they were two
+  pre-existing `pi-agent-runtime.ts` JSON-EXTRACTION gaps (preamble-before-fence + nested-quote-
+  before-comma), **FIXED in PR #103**, independent of #91's post-coordinator code. Do not revert
+  `extractFencedJson`'s find-anywhere logic or the comma-aware `isLikelyJsonStringTerminator`
+  refinement (`nextNonSpaceStartsJsonValue`) — each guards a real failure reproduced from CI output.
   unless new regressions appear. Closed issues #60/#65/#67 likewise stay closed.
 - Do not tune `src/runner/reviewer-definitions.ts` (or coordinator prompts) against the `evals/`
   holdout scenarios to make them pass — that destroys the holdout discipline (#28). The eval set is a
