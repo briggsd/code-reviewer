@@ -406,6 +406,113 @@ class NestedQuoteBeforeCommaPiProcessRunner implements PiProcessRunner {
   }
 }
 
+class ProseQuoteListPiProcessRunner implements PiProcessRunner {
+  // The model writes a prose LIST of quoted tokens inside a string value — `"ahead", "behind",
+  // and "diverged"` — with the quotes unescaped. Each `",` looks exactly like a JSON string
+  // terminator followed by the next value, so the old comma heuristic closed the body string at
+  // `ahead"` and the trailing prose became invalid JSON. This reproduces the real CI failure on
+  // the #115 diff (`JSON Parse error: Unexpected identifier "..."`): the fix must escape every
+  // nested quote because, in an OBJECT value, a real `,` terminator is only followed by a `"key":`.
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    const listBody =
+      'GitHub maps the compare status "ahead", "behind", and "diverged" to isAncestor, but GitLab returns no status field.';
+    const quotedFinding = {
+      ...securityFinding(),
+      severity: "suggestion" as const,
+      category: "docs",
+      title: "Prose list of quoted tokens",
+      body: listBody,
+      confidence: "medium" as const,
+      evidence: "Prose quote list before commas.",
+      recommendation: "Escape every nested quote; keep the trailing prose.",
+    };
+    const output =
+      input.role === "coordinator"
+        ? {
+            decision: "approved_with_comments",
+            outcome: "pass",
+            title: "AI review found suggestions",
+            body: listBody,
+            findings: [quotedFinding],
+            risk: {
+              tier: "lite",
+              reason: "Fake coordinator fallback risk.",
+              matchedRules: [],
+              sensitivePaths: [],
+              reviewedFileCount: 0,
+              ignoredFileCount: 0,
+            },
+          }
+        : input.role === "documentation"
+          ? { findings: [quotedFinding] }
+          : { findings: [] };
+    // Emit the body with UNESCAPED inner quotes (stringify escapes them, so undo that for the
+    // quoted list to simulate the raw model output).
+    const finalText = `\`\`\`json\n${JSON.stringify(output, null, 2).replace(
+      /\\"ahead\\", \\"behind\\", and \\"diverged\\"/g,
+      '"ahead", "behind", and "diverged"',
+    )}\n\`\`\``;
+
+    return {
+      finalText,
+      events: [],
+      rawOutput: finalText,
+    };
+  }
+}
+
+class ArrayElementProseQuotePiProcessRunner implements PiProcessRunner {
+  // The model emits an unescaped quoted token inside a `string[]` ARRAY element (here `quotedCode`,
+  // which holds verbatim code) followed by `, <word>` — `"ahead", fallbackToFull`. The array
+  // branch must NOT treat the `,` as an unconditional element separator: `fallbackToFull` is not a
+  // JSON value start, so the quote is nested prose/code and must be escaped, keeping the element
+  // intact. Guards against regressing the array path while fixing the object-value #115 case.
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    const codeElement = 'const next = "ahead", fallbackToFull;';
+    const quotedFinding = {
+      ...securityFinding(),
+      severity: "suggestion" as const,
+      category: "docs",
+      title: "Quoted token inside an array element",
+      body: "An array string element holds a quoted token before a comma.",
+      confidence: "medium" as const,
+      evidence: "Array element prose quote.",
+      recommendation: "Escape quotes inside array elements too.",
+      quotedCode: [codeElement],
+    };
+    const output =
+      input.role === "coordinator"
+        ? {
+            decision: "approved_with_comments",
+            outcome: "pass",
+            title: "AI review found suggestions",
+            body: "Coordinator preserved the array element.",
+            findings: [quotedFinding],
+            risk: {
+              tier: "lite",
+              reason: "Fake coordinator fallback risk.",
+              matchedRules: [],
+              sensitivePaths: [],
+              reviewedFileCount: 0,
+              ignoredFileCount: 0,
+            },
+          }
+        : input.role === "documentation"
+          ? { findings: [quotedFinding] }
+          : { findings: [] };
+    const finalText = `\`\`\`json\n${JSON.stringify(output, null, 2).replace(
+      /\\"ahead\\", fallbackToFull;/g,
+      '"ahead", fallbackToFull;',
+    )}\n\`\`\``;
+
+    return {
+      finalText,
+      events: [],
+      rawOutput: finalText,
+    };
+  }
+}
+
 class ExcessiveQuoteRepairPiProcessRunner implements PiProcessRunner {
   async run(_input: PiProcessRunInput): Promise<PiProcessRunResult> {
     const brokenQuotes = Array.from({ length: 21 }, (_value, index) => `"q${index}"`).join(" ");
@@ -1814,6 +1921,50 @@ describe("PiAgentRuntime", () => {
     expect(result.summary.decision).toBe("approved_with_comments");
     expect(result.summary.body).toBe(expectedBody);
     expect(result.summary.findings[0]?.body).toBe(expectedBody);
+  });
+
+  test("repairs a prose list of quoted tokens before commas (#115 CI failure)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new PiAgentRuntime({
+      processRunner: new ProseQuoteListPiProcessRunner(),
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const expectedBody =
+      'GitHub maps the compare status "ahead", "behind", and "diverged" to isAncestor, but GitLab returns no status field.';
+    expect(result.summary.decision).toBe("approved_with_comments");
+    expect(result.summary.body).toBe(expectedBody);
+    expect(result.summary.findings[0]?.body).toBe(expectedBody);
+  });
+
+  test("repairs a quoted token inside an array string element without splitting it", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new PiAgentRuntime({
+      processRunner: new ArrayElementProseQuotePiProcessRunner(),
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    // Assert at the reviewer level (post-parse, pre-grounding): the array element must round-trip
+    // intact — the `,` after `"ahead"` is prose, not an element separator, so the unescaped quotes
+    // are escaped and the trailing `fallbackToFull;` is kept inside the same element. (The summary
+    // layer drops this synthetic quotedCode via #54.2 grounding since it is not in the fixture diff,
+    // which is orthogonal to the quote-repair being tested here.)
+    const documentationResult = result.coordinatorResult?.reviewerResults.find(
+      (reviewer) => reviewer.role === "documentation",
+    );
+    expect(documentationResult?.findings[0]?.quotedCode).toEqual([
+      'const next = "ahead", fallbackToFull;',
+    ]);
   });
 
   test("rejects invalid structured reviewer output without retrying non-retryable schema errors", async () => {

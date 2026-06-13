@@ -1502,10 +1502,14 @@ function repairEscapedMarkdownBackticks(candidate: string): string {
 const MAX_UNESCAPED_QUOTE_REPAIRS = 20;
 
 function repairUnescapedStringQuotes(candidate: string): { text: string; repairCount: number } {
-  // Live model output can occasionally include prose quotes inside a JSON string without
-  // escaping them. Treat a quote inside a string as a closing delimiter only when the next
-  // non-whitespace character is valid JSON structure for the end of a string token.
+  // Live model output can occasionally include prose quotes inside a JSON string without escaping
+  // them. Treat a quote inside a string as a closing delimiter only when the surrounding structure
+  // proves it ends the value. We track the enclosing container (object vs array) because the
+  // disambiguation differs: inside an OBJECT a value string is only ever followed by `}` or
+  // `,"<key>":`, so a prose list like `"ahead", "behind"` (each `",` mimicking a terminator) must
+  // be escaped; inside an ARRAY a `,`/`]` after the quote really does separate/close elements.
   const repaired: string[] = [];
+  const containerStack: Array<"object" | "array"> = [];
   let inString = false;
   let escaped = false;
   let repairCount = 0;
@@ -1514,6 +1518,13 @@ function repairUnescapedStringQuotes(candidate: string): { text: string; repairC
     const character = candidate[index] ?? "";
 
     if (!inString) {
+      if (character === "{") {
+        containerStack.push("object");
+      } else if (character === "[") {
+        containerStack.push("array");
+      } else if (character === "}" || character === "]") {
+        containerStack.pop();
+      }
       if (character === '"') {
         inString = true;
       }
@@ -1534,7 +1545,10 @@ function repairUnescapedStringQuotes(candidate: string): { text: string; repairC
     }
 
     if (character === '"') {
-      if (isLikelyJsonStringTerminator(candidate, index)) {
+      // Default to "object" when the stack is empty (malformed top-level): the object rule is the
+      // stricter, escape-leaning direction, which is the safe bias for an ambiguous quote.
+      const container = containerStack[containerStack.length - 1] ?? "object";
+      if (isLikelyJsonStringTerminator(candidate, index, container)) {
         inString = false;
         repaired.push(character);
       } else {
@@ -1550,24 +1564,37 @@ function repairUnescapedStringQuotes(candidate: string): { text: string; repairC
   return { text: repaired.join(""), repairCount };
 }
 
-function isLikelyJsonStringTerminator(candidate: string, quoteIndex: number): boolean {
+function isLikelyJsonStringTerminator(
+  candidate: string,
+  quoteIndex: number,
+  container: "object" | "array",
+): boolean {
   for (let index = quoteIndex + 1; index < candidate.length; index += 1) {
     const character = candidate[index] ?? "";
     if (/\s/.test(character)) {
       continue;
     }
 
+    // `:` ends a key string; `}`/`]` close the value's container. These are unambiguous.
     if (character === ":" || character === "}" || character === "]") {
       return true;
     }
 
     if (character === ",") {
-      // A quote followed by a comma is ambiguous: it is a real value terminator only when the
-      // next non-whitespace token actually begins a JSON value (the next object key/array element).
-      // When prose follows instead — e.g. `means "foo", but this is wrong` — the quote is a nested
-      // prose quote that must be escaped, not treated as the string end. Without this the repair
-      // would close the string at `foo"` and the trailing prose becomes invalid JSON.
-      return nextNonSpaceStartsJsonValue(candidate, index + 1);
+      // Inside an array, an element is a VALUE: the quote really closed it only when the next
+      // token begins a JSON value (the next element). Prose inside an element — e.g.
+      // `["the API returns "ahead", but only when…"]` — fails this (`b` is not a value start), so
+      // the inner quote is escaped. This is the original (correct) array behavior; do not make it
+      // unconditional or it regresses `string[]` fields like `quotedCode` that hold verbatim code.
+      if (container === "array") {
+        return nextNonSpaceStartsJsonValue(candidate, index + 1);
+      }
+      // Inside an object, a value string is followed by `,` only when the NEXT token is another
+      // key (`"<name>":`). A prose list like `means "foo", but …` or `"ahead", "behind"` fails
+      // this — the next quoted token is followed by `,`/prose, not `:` — so the quote is a nested
+      // prose quote that must be escaped, not the string end. Without this the repair would close
+      // the string at `foo"` and the trailing prose becomes invalid JSON (the PR #98 / #115 cases).
+      return nextTokenIsObjectKey(candidate, index + 1);
     }
 
     return false;
@@ -1598,6 +1625,37 @@ function nextNonSpaceStartsJsonValue(candidate: string, from: number): boolean {
   // Nothing but whitespace after the comma (e.g. a trailing comma before the close): treat the
   // quote as a real terminator rather than escaping it.
   return true;
+}
+
+// True when the text at `from` is a JSON object key: a quoted string whose next non-whitespace
+// character is `:`. Used to confirm that a `,` after a string really begins the next key/value
+// pair (a real terminator) rather than continuing a prose list inside the current value.
+function nextTokenIsObjectKey(candidate: string, from: number): boolean {
+  let index = from;
+  while (index < candidate.length && /\s/.test(candidate[index] ?? "")) {
+    index += 1;
+  }
+  if ((candidate[index] ?? "") !== '"') {
+    return false;
+  }
+  index += 1;
+  // Walk to the closing quote of the candidate key, honoring backslash escapes.
+  while (index < candidate.length) {
+    const character = candidate[index] ?? "";
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    if (character === '"') {
+      index += 1;
+      break;
+    }
+    index += 1;
+  }
+  while (index < candidate.length && /\s/.test(candidate[index] ?? "")) {
+    index += 1;
+  }
+  return (candidate[index] ?? "") === ":";
 }
 
 function getRecord(value: unknown): Record<string, unknown> {
