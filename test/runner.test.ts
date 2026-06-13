@@ -242,6 +242,32 @@ describe("project conventions normalization", () => {
   });
 });
 
+describe("compliancePolicy normalization (local / --git-diff path)", () => {
+  // normalizeReviewConfig spreads `...override` first, then explicitly re-assigns the normalized
+  // compliancePolicy — that assignment is the only guard against a raw untrusted value leaking
+  // through on the local/git-diff path (which never calls resolveBaseConfig). Lock it.
+  test("trims, drops invalid, truncates, and caps compliancePolicy", () => {
+    const tooMany = Array.from({ length: 60 }, (_, index) => `rule ${index}`);
+    const config = normalizeReviewConfig({
+      compliancePolicy: ["  Real rule.  ", "", "   ", 42, null, "x".repeat(600), ...tooMany],
+    });
+
+    expect(config.compliancePolicy?.[0]).toBe("Real rule.");
+    expect(config.compliancePolicy?.[1]).toBe("x".repeat(500));
+    expect(config.compliancePolicy?.length).toBe(50);
+    expect(config.compliancePolicy?.some((entry) => entry.trim().length === 0)).toBe(false);
+  });
+
+  test("a non-array compliancePolicy normalizes to empty (raw value never leaks through)", () => {
+    const config = normalizeReviewConfig({ compliancePolicy: null });
+    expect(config.compliancePolicy).toEqual([]);
+  });
+
+  test("defaults to an empty compliancePolicy list when absent", () => {
+    expect(normalizeReviewConfig({}).compliancePolicy).toEqual([]);
+  });
+});
+
 describe("fixture local runner", () => {
   test("runs a blocking review from a fixture", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
@@ -647,7 +673,7 @@ describe("fixture local runner", () => {
       },
       config: {
         reviewerPolicy: {
-          release: "enabled",
+          accessibility: "enabled",
         },
       },
     });
@@ -657,13 +683,15 @@ describe("fixture local runner", () => {
     await runReview({ fixture, runtime, traceSink, now: new Date("2026-06-09T00:00:00.000Z") });
 
     const skipped = traceSink.events.find(
-      (event) => event.type === "agent.skipped" && event.role === "release",
+      (event) => event.type === "agent.skipped" && event.role === "accessibility",
     );
     expect(
-      runtime.coordinatorInput?.selectedReviewers.some((reviewer) => reviewer.role === "release"),
+      runtime.coordinatorInput?.selectedReviewers.some(
+        (reviewer) => reviewer.role === "accessibility",
+      ),
     ).toBe(false);
     expect(skipped?.message).toBe(
-      "Configured reviewer role release has no trusted definition; ignored.",
+      "Configured reviewer role accessibility has no trusted definition; ignored.",
     );
     expect(skipped?.data).toEqual({
       reason: "no_trusted_reviewer_definition",

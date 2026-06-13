@@ -166,6 +166,7 @@ async function runCommand(args: string[]): Promise<void> {
       data: {
         source: source.conventionsResolution.source,
         conventionCount: source.conventionsResolution.conventions.length,
+        compliancePolicyCount: source.conventionsResolution.compliancePolicy.length,
         acknowledgementCount: source.conventionsResolution.acknowledgements.length,
         baseFileFound: source.conventionsResolution.baseFileFound,
       },
@@ -352,6 +353,7 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
   const effectiveConfig = {
     ...config,
     conventions: resolved.conventions,
+    compliancePolicy: resolved.compliancePolicy,
     acknowledgements: resolved.acknowledgements,
   };
 

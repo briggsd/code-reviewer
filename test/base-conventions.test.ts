@@ -76,10 +76,50 @@ describe("resolveBaseConfig", () => {
     expect(result.conventions).not.toContain("head convention — must be ignored");
   });
 
+  test("compliancePolicy (#23) is read from base; head config policy is ignored", async () => {
+    const config = {
+      ...createDefaultReviewConfig(),
+      compliancePolicy: ["head policy — must be ignored"],
+    };
+    const baseFileContent = JSON.stringify({
+      compliancePolicy: ["All egress goes through src/state/transport.", "No new runtime deps."],
+    });
+    const adapter = makeAdapter(async () => baseFileContent);
+
+    const result = await resolveBaseConfig({ adapter, metadata: baseMetadata, config });
+
+    expect(result.compliancePolicy).toEqual([
+      "All egress goes through src/state/transport.",
+      "No new runtime deps.",
+    ]);
+    // The HEAD config policy must NOT appear (base-branch trust point).
+    expect(result.compliancePolicy).not.toContain("head policy — must be ignored");
+  });
+
+  test("adapter without base read → compliancePolicy drops to empty (not author-controllable)", async () => {
+    // conventions tolerate the head fallback (advisory), but compliance policy is authority-like:
+    // without a provable base source it must NOT be carried from the PR-head config (#23).
+    const config = {
+      ...createDefaultReviewConfig(),
+      conventions: ["advisory convention from config"],
+      compliancePolicy: ["head policy — must be ignored"],
+    };
+    const result = await resolveBaseConfig({
+      adapter: makeAdapterWithoutBaseRead(),
+      metadata: baseMetadata,
+      config,
+    });
+
+    expect(result.source).toBe("local");
+    expect(result.conventions).toEqual(["advisory convention from config"]);
+    expect(result.compliancePolicy).toEqual([]);
+  });
+
   test("base file absent → empty conventions, source:base, baseFileFound:false", async () => {
     const config = {
       ...createDefaultReviewConfig(),
       conventions: ["head convention — must be ignored"],
+      compliancePolicy: ["head policy — must be ignored"],
     };
     const adapter = makeAdapter(async () => undefined);
 
@@ -88,6 +128,8 @@ describe("resolveBaseConfig", () => {
     expect(result.source).toBe("base");
     expect(result.baseFileFound).toBe(false);
     expect(result.conventions).toEqual([]);
+    // Trust-boundary exit: head-supplied policy must never leak when the base file is absent.
+    expect(result.compliancePolicy).toEqual([]);
   });
 
   test("adapter without readBaseBranchFile → returns config conventions, source:local", async () => {
@@ -105,7 +147,11 @@ describe("resolveBaseConfig", () => {
   });
 
   test("malformed base JSON → empty conventions without throwing", async () => {
-    const config = { ...createDefaultReviewConfig(), conventions: ["head"] };
+    const config = {
+      ...createDefaultReviewConfig(),
+      conventions: ["head"],
+      compliancePolicy: ["head policy — must be ignored"],
+    };
     const adapter = makeAdapter(async () => "not-json{{{");
 
     const result = await resolveBaseConfig({ adapter, metadata: baseMetadata, config });
@@ -113,6 +159,8 @@ describe("resolveBaseConfig", () => {
     expect(result.source).toBe("base");
     expect(result.baseFileFound).toBe(true);
     expect(result.conventions).toEqual([]);
+    // Trust-boundary exit: a malformed base file must not fall back to head-supplied policy.
+    expect(result.compliancePolicy).toEqual([]);
   });
 
   test("base file has no conventions field → empty conventions", async () => {
@@ -124,6 +172,8 @@ describe("resolveBaseConfig", () => {
     expect(result.source).toBe("base");
     expect(result.baseFileFound).toBe(true);
     expect(result.conventions).toEqual([]);
+    // Happy path with a valid base file that omits compliancePolicy → normalizeStringList(undefined) = [].
+    expect(result.compliancePolicy).toEqual([]);
   });
 
   test("normalizeConventions bounds: non-string entries dropped, oversized entries truncated at 500 chars", async () => {

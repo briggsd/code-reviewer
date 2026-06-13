@@ -109,6 +109,10 @@ export interface ReviewConfig {
   timeouts: TimeoutPolicy;
   modelRouting: ModelRoutingConfig;
   conventions?: string[];
+  // Project-supplied policy text for the compliance reviewer. Reviewed-repo content: untrusted,
+  // data-only. Read from the BASE branch (never PR head) and quoted as untrusted data in the
+  // compliance reviewer prompt; it never becomes trusted runtime config (#23).
+  compliancePolicy?: string[];
   acknowledgements?: Acknowledgement[];
   extra: Record<string, JsonValue>;
 }

@@ -73,19 +73,73 @@ bun run schema:config
 }
 ```
 
+### Enabling the opt-in reviewers
+
+`release` and `compliance` are off by default. To turn them on, set their `reviewerPolicy`
+keys and (for compliance) supply the policy text the reviewer checks against:
+
+```json
+{
+  "reviewerPolicy": {
+    "release": "enabled",
+    "compliance": "enabled"
+  },
+  "compliancePolicy": [
+    "All network egress must route through the telemetry transport boundary.",
+    "No new runtime dependency without an ADR."
+  ]
+}
+```
+
+Note the two fields resolve from different sources, which matters on the PR that first adds them:
+`reviewerPolicy` is read from the running config (head-inclusive in CI), so the compliance reviewer
+becomes **active immediately on the enabling PR** — but `compliancePolicy` is read from the base
+branch (see the field note below), which still lacks it until merge, so on that first PR the reviewer
+runs **inert** (zero findings). It only checks real rules once both are on the protected branch.
+Unlike `compliance`, `release` has **no inert period** — it runs and can emit `critical` the moment
+you enable it, including on the enabling PR itself. On a repo with rollout-risky diffs already in
+flight, that can fail the enabling PR's gate immediately in blocking mode. Enable it in advisory mode
+first (`mode: "advisory"`, or temporarily `failOn: []`) to audit existing findings, then switch to
+blocking. Review your `failOn` (default `["critical"]`) before enabling either role in blocking mode.
+
+(The base-branch timing above is the **GitHub provider** path. On the local runner / `--git-diff`
+path there is no PR head and `resolveBaseConfig` is not called, so `compliancePolicy` is read straight
+from your local config — which is exactly how you can test policy rules locally before merging them.)
+
 ## Fields
 
 - `mode`: `advisory` or `blocking`.
-- `failOn`: finding severities that fail CI in blocking mode.
+- `failOn`: finding severities that fail CI in blocking mode. Default: `["critical"]` (the built-in defaults are printed by `bun run src/cli.ts schemas` and live in `src/runner/default-config.ts`).
 - `sensitivePaths`: glob-like path patterns that escalate risk.
 - `ignoredPaths`: glob-like path patterns filtered out before review.
-- `reviewerPolicy`: role name to `enabled`, `disabled`, or `full_only`. The risk tier additionally caps the reviewer roster: trivial tier restricts to `code_quality` only, regardless of which roles are `enabled` in config. `reviewerPolicy` cannot re-enable a role excluded by the tier cap, and the cap cannot re-enable a role set to `disabled` in config. Lite and full tiers are uncapped. **Footgun:** disabling `code_quality` leaves trivial-tier runs with no reviewers at all — the run returns a deterministic `approved` summary without any model call (recorded as `coordinatorShortCircuited` with zero reviewer results).
+- `reviewerPolicy`: role name to `enabled`, `disabled`, or `full_only`. Shipped role keys: `code_quality`, `security`, `documentation`, `performance`, and the two opt-in roles `release` and `compliance` (both default `disabled` — see below). A key that is not a shipped role is ignored (traced `no_trusted_reviewer_definition`), so a typo like `change_management` silently does nothing. The risk tier additionally caps the reviewer roster: trivial tier restricts to `code_quality` only, regardless of which roles are `enabled` in config. `reviewerPolicy` cannot re-enable a role excluded by the tier cap, and the cap cannot re-enable a role set to `disabled` in config. Lite and full tiers are uncapped. **Footgun:** disabling `code_quality` leaves trivial-tier runs with no reviewers at all — the run returns a deterministic `approved` summary without any model call (recorded as `coordinatorShortCircuited` with zero reviewer results).
+  - `release` (Release / change management, opt-in): flags deployment/rollout/migration and production-safety risks. Along with `security` and `compliance`, **it can emit `critical`** — operators running blocking mode with the default `failOn: ["critical"]` should expect rollout risks to fail the gate once they enable it.
+  - `compliance` (Compliance / policy, opt-in): checks the diff against `compliancePolicy` (below). It **can also emit `critical`** (for high-confidence policy violations governing security/privacy/regulatory/production-safety obligations), so enabling it in blocking mode with the default `failOn: ["critical"]` will gate on those. It is **inert without `compliancePolicy` text** — enabling the role but supplying no policy produces no findings.
 - `conventions`: array of prose strings telling the reviewer about this repo's expected exceptions
   (e.g. "scripts/* are maintainer-run tools; don't apply an untrusted-input threat model"). Rendered
   as inert, sanitized untrusted data in the reviewer/coordinator prompts (never as instructions).
   **In the GitHub provider path these are read from the base/target branch, not the PR head** (a PR
   cannot grant itself an exception); see `docs/reviewer-conventions.md`. Bounded: ≤50 entries, ≤500
   chars each.
+- `compliancePolicy`: array of prose rules the **compliance reviewer** checks the diff against (e.g.
+  "All network egress must route through the telemetry transport boundary"; "No new runtime
+  dependency without an ADR"). Only consumed when `reviewerPolicy.compliance` is `enabled`/`full_only` (the reviewer is
+  opt-in, default `disabled`). The policy text is **reviewed-repo content → untrusted, data-only**:
+  read from the **base branch in the GitHub provider path**, quoted as inert sanitized data exclusively
+  in the compliance reviewer's prompt, and never treated as instructions or trusted runtime config.
+  Unlike `conventions` — which are advisory and fall back to local/head config when a *VCS adapter*
+  can't read the base branch — `compliancePolicy` is authority-like (it defines what counts as a
+  violation), so in the provider path it is **never carried from the PR head**: a VCS adapter without
+  base-branch reads resolves it to empty and the compliance reviewer is simply inert until base reads
+  land for that adapter. (This base-vs-head trust gate applies only to the provider path; the local
+  runner / `--git-diff` path has no PR head and reads `compliancePolicy` directly from your local
+  config — the way to test policy rules before merging.) The reviewer flags only evidenced
+  violations and never invents rules absent from this text. **Trust assumption:** base-branch write
+  access is operator-trusted — `stringifyPromptData` makes the policy text *structurally* inert
+  (fences, nesting, control bytes), but a semantically directive entry ("flag everything as critical")
+  is only countered by the prompt framing and the reviewer's `doNotFlag` rule, the same instruction-
+  layer control (and same limitation) as `conventions`; it is not a hard parse-level filter. Bounded: ≤50
+  entries, ≤500 chars each.
 - `acknowledgements`: array of structured records accepting a *specific* known finding. Each is
   `{ "path": "<glob>", "category"?: "<cat>", "stableFindingId"?: "fnd_…", "mode": "acknowledge" |
   "suppress", "reason": "<why>", "expires"?: "YYYY-MM-DD" }`. A matching finding (by path glob +

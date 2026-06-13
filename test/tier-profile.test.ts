@@ -18,6 +18,7 @@ import type {
 } from "../src/index.ts";
 import {
   DummyAgentRuntime,
+  findUnsupportedReviewerPolicyEntries,
   getTierProfile,
   loadReviewFixture,
   normalizeReviewFixture,
@@ -114,6 +115,27 @@ describe("selectTrustedReviewerDefinitions tier cap", () => {
       "documentation",
       "performance",
     ]);
+  });
+
+  test("release + compliance (#23) are opt-in: absent by default, present once enabled", () => {
+    // Default config does not enable the new roles → they never appear, even at full tier.
+    expect(
+      selectTrustedReviewerDefinitions({ config: defaultConfig, risk: makeRisk("full") }).map(
+        (d) => d.role,
+      ),
+    ).not.toContain("release");
+
+    const opted = normalizeReviewConfig({
+      reviewerPolicy: { release: "enabled", compliance: "enabled" },
+    });
+    const roles = selectTrustedReviewerDefinitions({
+      config: opted,
+      risk: makeRisk("full"),
+    }).map((d) => d.role);
+    expect(roles).toContain("release");
+    expect(roles).toContain("compliance");
+    // Enabling them does not flag them as unsupported (they have trusted definitions).
+    expect(findUnsupportedReviewerPolicyEntries({ config: opted })).toHaveLength(0);
   });
 
   test("trivial with code_quality disabled → empty array", () => {

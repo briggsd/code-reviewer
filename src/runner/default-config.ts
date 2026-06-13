@@ -59,6 +59,10 @@ export function createDefaultReviewConfig(): ReviewConfig {
       },
     },
     conventions: [],
+    // release + compliance reviewers are opt-in: they default to "disabled" via
+    // selectTrustedReviewerDefinitions' `?? "disabled"`, so they are intentionally absent from
+    // reviewerPolicy above. compliancePolicy is empty until a project supplies base-branch text (#23).
+    compliancePolicy: [],
     acknowledgements: [],
     extra: {},
   };

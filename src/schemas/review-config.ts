@@ -76,6 +76,11 @@ export const reviewConfigSchema = {
       maxItems: 50,
       items: { type: "string", maxLength: 500 },
     },
+    compliancePolicy: {
+      type: "array",
+      maxItems: 50,
+      items: { type: "string", maxLength: 500 },
+    },
     acknowledgements: {
       type: "array",
       maxItems: 100,

@@ -386,8 +386,8 @@ MVP reviewers:
 Later reviewers:
 
 - performance,
-- release/change management,
-- compliance/policy,
+- release/change management — **shipped (#23)**, opt-in (`reviewerPolicy.release`), allows `critical` for production-safety/rollout risks,
+- compliance/policy — **shipped (#23)**, opt-in (`reviewerPolicy.compliance`); checks the diff against project-supplied `compliancePolicy` text read from the **base branch** and quoted as untrusted data (never trusted runtime config — see §"Trusted resource boundary"),
 - instruction freshness.
 
 ### 8. Coordinator consolidates

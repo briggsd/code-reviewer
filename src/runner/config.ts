@@ -58,6 +58,9 @@ export function normalizeReviewConfig(
     ...base,
     ...override,
     conventions: normalizeConventions(override.conventions, base.conventions ?? []),
+    // compliancePolicy shares the capped-string-list shape but normalizes via the generic
+    // normalizeStringList so the two trust-distinct fields are not coupled through one entry point.
+    compliancePolicy: normalizeStringList(override.compliancePolicy, base.compliancePolicy ?? []),
     acknowledgements: normalizeAcknowledgements(
       override.acknowledgements,
       base.acknowledgements ?? [],
@@ -101,7 +104,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function normalizeConventions(value: unknown, fallback: string[]): string[] {
+/**
+ * Normalize a bounded list of prose strings (≤50 entries, ≤500 chars each, trimmed, strings only).
+ * Shared shape for the several config fields that are capped string lists; each field keeps its own
+ * call site so future per-field divergence (different caps, display prefixes) stays cheap and local.
+ */
+export function normalizeStringList(value: unknown, fallback: string[]): string[] {
   if (value === undefined) {
     return [...fallback];
   }
@@ -125,6 +133,10 @@ export function normalizeConventions(value: unknown, fallback: string[]): string
   }
 
   return normalized;
+}
+
+export function normalizeConventions(value: unknown, fallback: string[]): string[] {
+  return normalizeStringList(value, fallback);
 }
 
 export function normalizeAcknowledgements(

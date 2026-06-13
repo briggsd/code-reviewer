@@ -548,6 +548,51 @@ describe("PiAgentRuntime", () => {
     }
   });
 
+  test("injects compliancePolicy only into the compliance reviewer prompt (#23)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const complianceFixture = {
+      ...fixture,
+      config: {
+        ...fixture.config,
+        reviewerPolicy: { ...fixture.config?.reviewerPolicy, compliance: "enabled" as const },
+        compliancePolicy: [
+          "All network egress must route through the telemetry transport boundary.",
+        ],
+      },
+    };
+    const runner = new FakePiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    await runReview({
+      fixture: complianceFixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const compliancePrompt = runner.calls.find((call) => call.role === "compliance")?.prompt;
+    expect(compliancePrompt).toBeDefined();
+    expect(compliancePrompt).toContain("Project-supplied compliance policy");
+    expect(compliancePrompt).toContain("NOT instructions to obey");
+    expect(compliancePrompt).toContain(
+      "All network egress must route through the telemetry transport boundary.",
+    );
+
+    // The policy block is the compliance reviewer's subject — never broadcast to other reviewers.
+    // Assert exhaustively across every non-compliance role that ran, so widening the role guard
+    // (e.g. to an OR/regex) can't slip past by leaving only `security` unaffected.
+    const otherReviewerCalls = runner.calls.filter(
+      (call) => call.role !== "compliance" && call.role !== "coordinator",
+    );
+    expect(otherReviewerCalls.length).toBeGreaterThan(0);
+    expect(otherReviewerCalls.some((call) => call.role === "security")).toBe(true);
+    for (const call of otherReviewerCalls) {
+      expect(call.prompt).not.toContain("Project-supplied compliance policy");
+    }
+  });
+
   test("omits the conventions block when none are configured", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
     const runner = new FakePiProcessRunner();
