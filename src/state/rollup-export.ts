@@ -1,3 +1,4 @@
+import type { JsonValue } from "../contracts/common.ts";
 import type { TelemetryEvent } from "../contracts/telemetry.ts";
 import {
   type AgentTokenAggregate,
@@ -339,4 +340,93 @@ function shapeBoundRollup(rollup: RunMetricsRollup): {
   };
 
   return { rollup: bounded, sanitizedKeyCount };
+}
+
+// ---------------------------------------------------------------------------
+// Per-event egress projection (streaming sibling of createRollupExport)
+// ---------------------------------------------------------------------------
+
+/**
+ * Project a single telemetry event for streaming egress (e.g. a remote
+ * TelemetryTransport, #51). The streaming counterpart of `createRollupExport`:
+ * where that aggregates a batch into one shape-bounded rollup record, this
+ * shape-bounds ONE event in place so it can be sent live.
+ *
+ * Enforced here (reusing this module's own boundary primitives so the
+ * security-critical patterns are never duplicated):
+ *   • TYPE allowlist — returns `null` for any type not in
+ *     `EXPORTABLE_EVENT_TYPES`, so its fields never leave the process.
+ *   • KEY shape-bounding — every `data` Record key (recursively) must satisfy
+ *     `AGGREGATE_KEY_PATTERN`; model-authored / free-text-shaped keys are
+ *     DROPPED (the streaming analogue of folding into `__other__` — there is no
+ *     batch count to preserve for a live value, so the conservative move is to
+ *     drop, not bucket).
+ *   • REPO SLUG shape — a `repository` value failing `REPO_SLUG_PATTERN` is
+ *     dropped.
+ *   • TOP-LEVEL scalar fields — `timestamp` must be ISO-8601 (a malformed one
+ *     means a malformed event → the whole event is dropped, returning `null`);
+ *     a `runId` failing `RUN_ID_PATTERN` is omitted. These envelope fields are
+ *     not part of `data`, so they are validated explicitly here rather than via
+ *     `boundEgressData`.
+ *
+ * NOT YET enforced — the open boundary-completion task gated on #51 promotion:
+ *   • VALUE-level free-text allowlisting. `createRollupExport` is safe-by-
+ *     construction because it emits an EXHAUSTIVE allowlisted field structure
+ *     (no spreads); a per-event projection cannot enumerate unknown future
+ *     fields, so a string VALUE on an allowlisted key still passes. Today's
+ *     exportable events (#48) are counts-only by construction, so this is
+ *     defense-in-depth, not the sole guard — but a real #51 promotion must
+ *     close this (likely a per-event-type field allowlist) before shipping
+ *     events that could carry model-authored free text.
+ */
+export function projectEventForEgress(event: TelemetryEvent): TelemetryEvent | null {
+  if (!(EXPORTABLE_EVENT_TYPES as readonly string[]).includes(event.type)) {
+    return null;
+  }
+
+  // Top-level envelope fields are not part of `data`, so shape-check them here. A non-ISO
+  // timestamp is a malformed event — drop it rather than egress an unvalidated value.
+  if (!ISO_8601_PATTERN.test(event.timestamp)) {
+    return null;
+  }
+  const runIdValid = event.runId !== undefined && RUN_ID_PATTERN.test(event.runId);
+
+  const boundedData = event.data === undefined ? undefined : boundEgressData(event.data);
+
+  return {
+    type: event.type,
+    timestamp: event.timestamp,
+    ...(runIdValid ? { runId: event.runId as string } : {}),
+    ...(boundedData !== undefined ? { data: boundedData } : {}),
+  };
+}
+
+/** ISO-8601 datetime (matches `new Date().toISOString()` output, plus offset forms). */
+const ISO_8601_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
+/** Conservative run-id shape: alphanumeric-first, then word/dot/colon/dash. Rejects free text. */
+const RUN_ID_PATTERN = /^[A-Za-z0-9][\w.:-]{0,127}$/;
+
+/**
+ * Recursively drop shape-failing keys from an egress `data` record. Nested
+ * plain objects recurse; arrays and scalars pass through (arrays of identifier
+ * strings — e.g. `modelIds`, reviewer roles — are legitimate counts-only
+ * payloads). See `projectEventForEgress` for the value-level caveat.
+ */
+function boundEgressData(record: Record<string, JsonValue>): Record<string, JsonValue> {
+  const out: Record<string, JsonValue> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (!isValidKey(key)) {
+      continue;
+    }
+    if (key === "repository" && typeof value === "string" && !REPO_SLUG_PATTERN.test(value)) {
+      continue;
+    }
+    out[key] = isPlainJsonObject(value) ? boundEgressData(value) : value;
+  }
+  return out;
+}
+
+function isPlainJsonObject(value: JsonValue): value is Record<string, JsonValue> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
