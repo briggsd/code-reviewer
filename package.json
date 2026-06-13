@@ -30,6 +30,7 @@
     "smoke:pi": "bun run scripts/pi-live-smoke.ts",
     "smoke:gitlab": "bun run scripts/gitlab-live-smoke.ts",
     "smoke:action-wrapper": "bun run scripts/action-wrapper-smoke.ts",
+    "spike:structured-output": "bun run scripts/structured-output-spike.ts",
     "evals": "bun run scripts/evals.ts",
     "boundaries": "depcruise src --config .dependency-cruiser.cjs",
     "lint": "biome check .",
