@@ -28,7 +28,9 @@ import { fileURLToPath } from "node:url";
 import { SPIKE_CASES, type SpikeCase } from "./structured-output-spike/diffs.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const EXTENSION_PATH = resolve(here, "structured-output-spike/submit-findings-extension.ts");
+// The extension now lives in its production home (`scripts/pi-extensions/`); the spike loads the
+// same file the runtime does (M015 S03, #126) so the measurement matches what ships.
+const EXTENSION_PATH = resolve(here, "pi-extensions/submit-findings-extension.ts");
 const TOOL_NAME = "submit_findings";
 
 if (process.env.AI_REVIEW_LIVE_PI !== "1") {

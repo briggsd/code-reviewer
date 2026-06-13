@@ -119,6 +119,13 @@ export function validateFinding(value: unknown): Finding {
   };
 }
 
+// `evidence` is a required string array on a Finding. We tolerate a missing field (undefined ->
+// []) and a bare string (-> [string]) because models legitimately emit those shapes, but any other
+// non-string-array value — `null`, a number, an object, a mixed array — returns `undefined`, which
+// `validateFinding` treats as REJECTION (the finding fails validation). This INTENTIONAL
+// reject-don't-coerce choice was raised and DECLINED in the S02 review (#125): coercing `null` to
+// `[]` would silently accept malformed model output for a required field, so it stays rejected.
+// Documented here (per #159) so the decision is visible as diff context and not re-litigated.
 function normalizeEvidence(value: unknown): string[] | undefined {
   if (value === undefined) {
     return [];

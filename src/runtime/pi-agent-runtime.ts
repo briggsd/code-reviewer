@@ -1,3 +1,5 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
   AgentPromptMetrics,
   AgentRole,
@@ -25,7 +27,50 @@ import {
   summarizeReview,
 } from "../runner/run-review.ts";
 import { stringifyPromptData } from "./prompt-boundary.ts";
-import { getRecord, validateFinding } from "./structured-tool-output.ts";
+import {
+  getRecord,
+  parseReviewerToolArgs,
+  readToolCallArgs,
+  SUBMIT_FINDINGS_TOOL_NAME,
+  validateFinding,
+} from "./structured-tool-output.ts";
+
+// Absolute path to the factory-owned `submit_findings` Pi extension (M015 S03, #126). Resolved
+// relative to this module so it works both from source (`src/runtime` -> `../../scripts`) and from
+// the published package, which ships `src/` and `scripts/` as siblings (package.json `files`).
+// Passed to every reviewer `pi` run as `--extension <path>` so the structured tool is the primary
+// delivery path; the file is TRUSTED, factory-owned, and loaded only via this explicit `-e` while
+// `--no-extensions` keeps reviewed-repo extension discovery off (fork-safe — see docs/fork-safety.md).
+const SUBMIT_FINDINGS_EXTENSION_PATH = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../scripts/pi-extensions/submit-findings-extension.ts",
+);
+
+/**
+ * Default `pi` base argv for a reviewer/coordinator run. Exported so the `--extension` wiring (a
+ * published-layout-relative path that would silently break on relocation) is testable. The
+ * explicit `--extension` still loads under `--no-extensions`, which keeps reviewed-repo extension
+ * discovery OFF — only the trusted factory file runs (fork-safe). Tool callability is further gated
+ * per run by the `--tools` allowlist (see `requiredTools`), so loading the extension for the
+ * coordinator is inert until S04 allowlists `submit_findings` there too.
+ */
+export function defaultPiBaseArgs(): string[] {
+  return [
+    "--mode",
+    "json",
+    // Non-interactive: process the prompt and exit. With no positional message, `pi` reads the
+    // prompt from STDIN — see `BunPiProcessRunner.run`, which pipes it there instead of via argv.
+    "--print",
+    "--no-session",
+    "--no-approve",
+    "--no-extensions",
+    "--no-skills",
+    "--no-prompt-templates",
+    "--no-context-files",
+    "--extension",
+    SUBMIT_FINDINGS_EXTENSION_PATH,
+  ];
+}
 
 export interface PiProcessRunInput {
   runId: string;
@@ -37,6 +82,13 @@ export interface PiProcessRunInput {
   inactivityTimeoutMs?: number;
   heartbeatIntervalMs?: number;
   toolPolicy: RuntimeToolPolicy;
+  /**
+   * Tool names that MUST be allowlisted for this run regardless of the read/shell/write policy
+   * (M015 S03, #126). The reviewer path passes `[submit_findings]` so the structured terminal tool
+   * is always callable — `pi`'s `--tools` allowlist (and `--no-tools`) otherwise gate extension
+   * tools too, so without this an inline-fallback reviewer (`--no-tools`) could never call it.
+   */
+  requiredTools?: readonly string[];
   model?: {
     provider: string;
     model: string;
@@ -80,6 +132,14 @@ class ProviderRuntimeError extends Error {
 export interface PiAgentRuntimeOptions {
   processRunner?: PiProcessRunner;
   command?: string;
+  /**
+   * Override the `pi` base argv (defaults to {@link defaultPiBaseArgs}). When targeting a real `pi`
+   * binary, a custom array MUST include `--print`: as of M015 S03 (#126) the prompt is piped via
+   * STDIN, not argv, and `pi` reads stdin only under `--print`. Omitting it leaves `pi` without a
+   * prompt (empty/hung run). It SHOULD also include `--extension <submit-findings path>` for the
+   * structured reviewer path, or reviewers fall back to prose-parse. (A custom non-`pi` test binary
+   * that reads stdin directly does not need `--print`.)
+   */
   baseArgs?: string[];
   defaultModel?: {
     provider: string;
@@ -425,6 +485,9 @@ export class PiAgentRuntime implements AgentRuntime {
           timeoutMs: input.timeoutMs,
           heartbeatIntervalMs: defaultHeartbeatIntervalMs(input.timeoutMs),
           toolPolicy: input.toolPolicy,
+          // The reviewer delivers findings via the factory-owned `submit_findings` tool; allowlist
+          // it so it is callable even when the read/shell/write policy would emit `--no-tools`.
+          requiredTools: [SUBMIT_FINDINGS_TOOL_NAME],
           onEvent: (event) => {
             streamedEventCount += 1;
             this.forwardPiEvent(input.runId, agentRunId, input.role, event);
@@ -436,7 +499,19 @@ export class PiAgentRuntime implements AgentRuntime {
         }
 
         assertNotTruncatedOutput(processResult.events, agentRunId);
-        const parsedFindings = parseReviewerOutput(processResult.finalText);
+        // Structured tool is the PRIMARY path (M015 S03, #126): when the reviewer called
+        // `submit_findings`, read the validated args off the event stream — no `JSON.parse`, no
+        // `repairUnescapedStringQuotes`. Pi is instruct-only (no forced `tool_choice`), so the call
+        // is never guaranteed; when it is absent we fall back to parsing the model's prose (which
+        // still routes through the retained quote-repair). `structuredOutput` records which path ran
+        // so the production hit-rate is observable — the evidence S05 uses to retire repair. A tool
+        // call WITH invalid args is NOT silently re-parsed from prose: `parseReviewerToolArgs` throws
+        // (re-validating every finding), surfacing schema drift as a classified failure.
+        const toolArgs = readToolCallArgs(processResult.events, SUBMIT_FINDINGS_TOOL_NAME);
+        const structuredOutput = toolArgs.status === "found";
+        const parsedFindings = structuredOutput
+          ? parseReviewerToolArgs(toolArgs.args)
+          : parseReviewerOutput(processResult.finalText);
         const roleEnforcement = enforceReviewerRole(parsedFindings, input.role);
         const severityEnforcement = enforceReviewerAllowedSeverities(
           roleEnforcement.findings,
@@ -449,6 +524,7 @@ export class PiAgentRuntime implements AgentRuntime {
           findingCount: findings.length,
           attempt,
           retryCount,
+          structuredOutput,
           ...(roleEnforcement.adjustments.length > 0
             ? {
                 reviewerRoleAdjustmentCount: roleEnforcement.adjustments.length,
@@ -642,6 +718,14 @@ export class PiAgentRuntime implements AgentRuntime {
 
 export interface BunPiProcessRunnerOptions {
   command?: string;
+  /**
+   * Override the `pi` base argv (defaults to {@link defaultPiBaseArgs}). When targeting a real `pi`
+   * binary, a custom array MUST include `--print`: as of M015 S03 (#126) the prompt is piped via
+   * STDIN (`run()` sets `stdin`), not argv, and `pi` reads stdin only under `--print` — omitting it
+   * leaves `pi` without a prompt (empty/hung run). It SHOULD also include `--extension
+   * <submit-findings path>` for the structured reviewer path. (A custom non-`pi` test binary that
+   * reads stdin directly does not need `--print`.)
+   */
   baseArgs?: string[];
   /** Explicit `pi --api-key` value (#42). Kept off `PiProcessRunInput` so it never reaches traced events. */
   apiKey?: string;
@@ -656,16 +740,7 @@ export class BunPiProcessRunner implements PiProcessRunner {
   constructor(options: BunPiProcessRunnerOptions = {}) {
     this.command = options.command ?? "pi";
     this.apiKey = options.apiKey;
-    this.baseArgs = options.baseArgs ?? [
-      "--mode",
-      "json",
-      "--no-session",
-      "--no-approve",
-      "--no-extensions",
-      "--no-skills",
-      "--no-prompt-templates",
-      "--no-context-files",
-    ];
+    this.baseArgs = options.baseArgs ?? defaultPiBaseArgs();
   }
 
   async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
@@ -676,6 +751,11 @@ export class BunPiProcessRunner implements PiProcessRunner {
     );
     const process = Bun.spawn([this.command, ...args], {
       cwd: input.cwd,
+      // The prompt embeds the reviewed-repo diff + metadata. It is piped via STDIN (not passed as a
+      // positional argv) because argv is world-readable on a shared CI host (`/proc/<pid>/cmdline`,
+      // `ps`). `--print` (in baseArgs) makes `pi` read the prompt from stdin; the Uint8Array stdin
+      // is written and closed (EOF) so the non-interactive run proceeds and exits.
+      stdin: new TextEncoder().encode(input.prompt),
       stdout: "pipe",
       stderr: "pipe",
       env: {
@@ -973,9 +1053,10 @@ function buildReviewerPrompt(input: ReviewerRunInput): string {
   const parts = [
     `You are the ${input.reviewerDefinition.displayName} reviewer for an AI code review factory.`,
     formatReviewerDefinitionForPrompt(input.reviewerDefinition),
-    'Return ONLY valid JSON with this exact shape: {"findings": Finding[]}.',
-    "Do not wrap the JSON in prose unless impossible.",
-    "Finding fields: reviewer, severity, category, title, body, location, confidence, evidence, quotedCode, recommendation.",
+    "Deliver your findings by calling the submit_findings tool exactly once, as your final action — the tool call IS the review; do not answer in prose.",
+    "If the diff is clean, call submit_findings with an empty findings array.",
+    "Each finding has these fields: reviewer, severity, category, title, body, location, confidence, evidence, quotedCode, recommendation.",
+    'Fallback ONLY if you cannot call the tool: Return ONLY valid JSON with this exact shape: {"findings": Finding[]}, with no surrounding prose.',
     "quotedCode (optional): when a finding points at specific changed code, copy the exact line(s) verbatim from the diff into this array — it is used to verify the finding. Omit it for findings about missing or absent code.",
     "Allowed confidence values: high, medium, low.",
     "Return at most 5 findings; choose the highest-impact, highest-confidence issues.",
@@ -1849,16 +1930,10 @@ function extractUsage(events: unknown[]): TokenUsage | undefined {
   return undefined;
 }
 
-function toolPolicyArgs(policy: RuntimeToolPolicy): string[] {
-  if (
-    !policy.allowRead &&
-    !policy.allowShell &&
-    !policy.allowWrite &&
-    policy.allowedTools.length === 0
-  ) {
-    return ["--no-tools"];
-  }
-
+function toolPolicyArgs(
+  policy: RuntimeToolPolicy,
+  requiredTools: readonly string[] = [],
+): string[] {
   const tools = new Set(policy.allowedTools);
   if (policy.allowRead) {
     for (const tool of ["read", "grep", "find", "ls"]) {
@@ -1872,6 +1947,13 @@ function toolPolicyArgs(policy: RuntimeToolPolicy): string[] {
     tools.add("write");
     tools.add("edit");
   }
+  // requiredTools (e.g. `submit_findings`, M015 S03 #126) are allowlisted unconditionally: a
+  // delivery tool must stay callable even under an otherwise-empty policy. Because they keep the
+  // set non-empty, the `--no-tools` branch is reached only when NOTHING is requested — preserving
+  // the "no policy, no required tools" case while ensuring `--tools <…>` includes them otherwise.
+  for (const tool of requiredTools) {
+    tools.add(tool);
+  }
 
   return tools.size === 0 ? ["--no-tools"] : ["--tools", [...tools].join(",")];
 }
@@ -1879,8 +1961,10 @@ function toolPolicyArgs(policy: RuntimeToolPolicy): string[] {
 // Pure, testable construction of the `pi` argv. `--thinking` is emitted only when the
 // resolved model carries a reasoning bound (#45): omitting it leaves Pi at its default
 // level, which is the full-tier reviewer non-convergence we are bounding. `--api-key`
-// (#42) is emitted before the positional prompt and forces key-auth over any stored
-// pi OAuth; its value is runner config, never part of the traced `PiProcessRunInput`.
+// (#42) forces key-auth over any stored pi OAuth; its value is runner config, never part of the
+// traced `PiProcessRunInput`. The prompt is NOT included here: it embeds the reviewed-repo diff
+// and is piped via STDIN (`--print`), not argv, since argv is world-readable on a shared host
+// (M015 S03, #126). So the argv carries only flags — no reviewed-repo content.
 export function buildPiProcessArgs(
   baseArgs: string[],
   input: PiProcessRunInput,
@@ -1889,12 +1973,11 @@ export function buildPiProcessArgs(
   return [
     ...baseArgs,
     ...(options.apiKey !== undefined ? ["--api-key", options.apiKey] : []),
-    ...toolPolicyArgs(input.toolPolicy),
+    ...toolPolicyArgs(input.toolPolicy, input.requiredTools ?? []),
     ...(input.model !== undefined
       ? ["--provider", input.model.provider, "--model", input.model.model]
       : []),
     ...(input.model?.thinking !== undefined ? ["--thinking", input.model.thinking] : []),
-    input.prompt,
   ];
 }
 

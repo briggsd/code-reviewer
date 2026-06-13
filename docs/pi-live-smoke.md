@@ -36,17 +36,18 @@ Artifacts are written under:
 
 On runtime/model/schema failure after context construction, `run.json` is still written with `error`, `completedAt`, `context`, and `tracePath`, and `trace.jsonl` ends with a structured `review.failed` event containing `phase: "agent_runtime"`, the error name, and the error message. Inspect those artifacts before rerunning; they should identify whether the failure was a Pi process error, timeout, malformed JSON, or unrecoverable schema drift.
 
-When enabled, the script packs the current trusted checkout with `npm pack`, installs the tarball into an isolated Bun global directory, creates an adopter-like temporary working directory, and invokes the installed `ai-code-review run --runtime pi` binary. The temporary adopter directory includes an `AGENTS.md` trap file; the Pi adapter's `--no-context-files --no-extensions --no-skills --no-prompt-templates --no-approve --no-session` flags are expected to keep project-local resources out of the model context.
+When enabled, the script packs the current trusted checkout with `npm pack`, installs the tarball into an isolated Bun global directory, creates an adopter-like temporary working directory, and invokes the installed `ai-code-review run --runtime pi` binary. The temporary adopter directory includes an `AGENTS.md` trap file; the Pi adapter's `--no-context-files --no-extensions --no-skills --no-prompt-templates --no-approve --no-session` flags are expected to keep project-local (reviewed-repo) resources out of the model context. Note the distinction (M015 S03, #126): `--no-extensions` turns off reviewed-repo extension *discovery*, but the adapter *separately* loads one trusted, factory-owned extension by explicit path (`--extension <submit-findings path>`) — an explicit `-e`/`--extension` still loads under `--no-extensions`. So "no extensions" means "no reviewed-repo extensions," not "no extensions at all" — see `docs/fork-safety.md`.
 
 ## What it exercises
 
 - Packaged `ai-code-review` binary execution
 - `PiAgentRuntime`
 - `BunPiProcessRunner`
-- `pi --mode json`
-- default CI-hardening flags: `--no-session --no-approve --no-extensions --no-skills --no-prompt-templates --no-context-files`
+- `pi --mode json --print` (prompt piped via STDIN, not argv — M015 S03, #126)
+- default CI-hardening flags: `--no-session --no-approve --no-extensions --no-skills --no-prompt-templates --no-context-files`, plus an explicit `--extension <factory submit-findings path>` (the one trusted extension, loaded under `--no-extensions`)
 - untrusted read-only runtime tool policy
-- reviewer structured output parsing, including a narrow repair for model-emitted invalid JSON escape sequences inside fenced JSON strings (the two-character sequence backslash-backtick: `` \` ``)
+- reviewer `submit_findings` tool-call delivery (the structured **primary** path, M015 S03 #126): the happy-path signal is `structuredOutput: true` on the reviewer `agent.output` event, with findings read straight from the tool args (no `JSON.parse`/repair)
+- the prose-parse fallback (`structuredOutput: false`), exercised only when the instruct-only tool call is absent — including a narrow repair for model-emitted invalid JSON escape sequences inside fenced JSON strings (the two-character sequence backslash-backtick: `` \` ``)
 - coordinator summary parsing/fallback
 - streaming JSONL event forwarding into the trace sink
 - JSONL trace and filesystem state artifacts

@@ -14,6 +14,7 @@ import {
   BunPiProcessRunner,
   buildPiProcessArgs,
   createStableFindingId,
+  defaultPiBaseArgs,
   FileSystemReviewStateStore,
   JsonlTraceSink,
   loadReviewFixture,
@@ -924,8 +925,9 @@ describe("PiAgentRuntime", () => {
     });
     expect(withThinking).toContain("--thinking");
     expect(withThinking[withThinking.indexOf("--thinking") + 1]).toBe("medium");
-    // prompt stays last so the runtime's positional arg is never displaced by the flag.
-    expect(withThinking[withThinking.length - 1]).toBe("review");
+    // The prompt is piped via STDIN, not argv (M015 S03, #126) — argv carries only flags so the
+    // reviewed-repo diff is never exposed on a shared host's process listing.
+    expect(withThinking).not.toContain("review");
 
     const withoutThinking = buildPiProcessArgs(base, {
       ...common,
@@ -958,8 +960,8 @@ describe("PiAgentRuntime", () => {
     const withKey = buildPiProcessArgs(base, input, { apiKey: "sk-ant-secret" });
     expect(withKey).toContain("--api-key");
     expect(withKey[withKey.indexOf("--api-key") + 1]).toBe("sk-ant-secret");
-    // prompt stays the final positional arg, never displaced by the auth flag.
-    expect(withKey[withKey.length - 1]).toBe("review");
+    // The prompt is piped via STDIN, not argv (M015 S03, #126) — never a positional arg here.
+    expect(withKey).not.toContain("review");
 
     expect(buildPiProcessArgs(base, input)).not.toContain("--api-key");
     expect(buildPiProcessArgs(base, input, {})).not.toContain("--api-key");
@@ -1524,6 +1526,54 @@ describe("PiAgentRuntime", () => {
         estimatedCostUsd: 0.001,
       });
       expect(events.at(-1)?.type).toBe("review.completed");
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("BunPiProcessRunner delivers the prompt via STDIN, never argv (M015 S03, #126)", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-stdin-"));
+
+    try {
+      const stdinCapturePath = join(outputDirectory, "received-stdin.txt");
+      const argvCapturePath = join(outputDirectory, "received-argv.txt");
+      const scriptPath = join(outputDirectory, "stdin-pi.ts");
+      // A stand-in `pi` that records what it got on STDIN and in argv, then emits an empty review.
+      await writeFile(
+        scriptPath,
+        [
+          "const stdinText = await Bun.stdin.text();",
+          `await Bun.write(${JSON.stringify(stdinCapturePath)}, stdinText);`,
+          `await Bun.write(${JSON.stringify(argvCapturePath)}, process.argv.slice(2).join("\\n"));`,
+          'console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "{\\"findings\\":[]}" }] } }));',
+        ].join("\n"),
+      );
+      const runner = new BunPiProcessRunner({
+        command: "bun",
+        baseArgs: ["run", scriptPath],
+      });
+
+      const secretPrompt = "REVIEWED-DIFF-SECRET: do not leak me into argv";
+      await runner.run({
+        runId: "stdin-run",
+        agentRunId: "stdin-run:pi:security",
+        role: "security",
+        prompt: secretPrompt,
+        cwd: process.cwd(),
+        timeoutMs: 5_000,
+        toolPolicy: {
+          allowRead: false,
+          allowWrite: false,
+          allowShell: false,
+          allowedTools: [],
+          deniedTools: [],
+        },
+      });
+
+      // The prompt (which embeds the reviewed-repo diff) arrived on STDIN…
+      expect(await readFile(stdinCapturePath, "utf8")).toBe(secretPrompt);
+      // …and is absent from argv (world-readable on a shared CI host).
+      expect(await readFile(argvCapturePath, "utf8")).not.toContain("REVIEWED-DIFF-SECRET");
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
     }
@@ -2222,6 +2272,305 @@ describe("PiAgentRuntime", () => {
     expect(result.summary.findings[0]?.quotedCode).toEqual([
       "return db.accounts.findById(accountId);",
     ]);
+  });
+});
+
+// ── M015 S03 (#126): structured `submit_findings` tool wired as the PRIMARY reviewer path. ──────
+
+// Reviewers deliver findings via a `submit_findings` tool_execution_start event (no JSON in
+// finalText). The coordinator stays on the prose path in S03, so it returns JSON in finalText.
+class StructuredReviewerPiProcessRunner implements PiProcessRunner {
+  readonly calls: PiProcessRunInput[] = [];
+
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    this.calls.push(input);
+
+    if (input.role === "coordinator") {
+      const finalText = JSON.stringify({
+        decision: "significant_concerns",
+        outcome: "fail",
+        title: "AI review found significant concerns",
+        body: "Coordinator consolidated one critical finding.",
+        findings: [securityFinding()],
+        risk: {
+          tier: "full",
+          reason: "Security or production-sensitive paths changed.",
+          matchedRules: ["sensitive_paths"],
+          sensitivePaths: ["auth/accounts.ts"],
+          reviewedFileCount: 1,
+          ignoredFileCount: 0,
+        },
+      });
+      return { finalText, events: [], rawOutput: finalText };
+    }
+
+    const findings = input.role === "security" ? [securityFinding()] : [];
+    return {
+      // finalText is deliberately NON-JSON prose: a structured-path regression that fell back to
+      // parseReviewerOutput would throw here, so a green test proves findings came from the tool.
+      finalText: "Findings delivered via the submit_findings tool.",
+      events: [
+        { type: "agent_start" },
+        {
+          type: "tool_execution_start",
+          toolCallId: "toolu_structured",
+          toolName: "submit_findings",
+          args: { findings },
+        },
+        { type: "tool_execution_end", toolCallId: "toolu_structured", isError: false },
+        { type: "agent_end", messages: [] },
+      ],
+      rawOutput: "",
+    };
+  }
+}
+
+// security delivers an INVALID finding (missing `recommendation`) through the tool, AND a VALID
+// finding via prose finalText. The structured path must throw on the invalid args rather than
+// silently re-parsing the prose — so the prose finding must never surface.
+class StructuredInvalidArgsPiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "coordinator") {
+      const finalText = JSON.stringify({
+        decision: "approved",
+        outcome: "pass",
+        title: "AI review completed",
+        body: "No blocking findings.",
+        findings: [],
+        risk: {
+          tier: "lite",
+          reason: "Fake coordinator fallback risk.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      });
+      return { finalText, events: [], rawOutput: finalText };
+    }
+
+    if (input.role === "security") {
+      // Drop the required `recommendation` field → validateFinding rejects it.
+      const invalidFinding: Record<string, unknown> = { ...securityFinding() };
+      delete invalidFinding.recommendation;
+      const proseFinding = { ...securityFinding(), title: "FROM PROSE — must not surface" };
+      return {
+        finalText: JSON.stringify({ findings: [proseFinding] }),
+        events: [
+          {
+            type: "tool_execution_start",
+            toolCallId: "toolu_invalid",
+            toolName: "submit_findings",
+            args: { findings: [invalidFinding] },
+          },
+        ],
+        rawOutput: "",
+      };
+    }
+
+    return { finalText: JSON.stringify({ findings: [] }), events: [], rawOutput: "" };
+  }
+}
+
+describe("PiAgentRuntime structured submit_findings wiring (M015 S03, #126)", () => {
+  test("reads reviewer findings from the submit_findings tool call and flags structuredOutput", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-structured-"));
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runner = new StructuredReviewerPiProcessRunner();
+      const runtime = new PiAgentRuntime({
+        processRunner: runner,
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      // The finding reached the coordinator from the tool args, not from prose.
+      const securityResult = result.coordinatorResult?.reviewerResults.find(
+        (reviewer) => reviewer.role === "security",
+      );
+      expect(securityResult?.findings).toHaveLength(1);
+      expect(securityResult?.findings[0]?.title).toBe("Account lookup misses authorization");
+
+      // The reviewer is instructed to deliver via the tool.
+      expect(runner.calls.find((call) => call.role === "security")?.prompt).toContain(
+        "calling the submit_findings tool",
+      );
+      // And the tool is allowlisted for the run so it stays callable under any tool policy.
+      expect(runner.calls.find((call) => call.role === "security")?.requiredTools).toEqual([
+        "submit_findings",
+      ]);
+
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const reviewerOutputs = events.filter(
+        (event) =>
+          event.type === "agent.output" &&
+          event.role !== "coordinator" &&
+          typeof event.role === "string",
+      );
+      expect(reviewerOutputs.length).toBeGreaterThan(0);
+      for (const output of reviewerOutputs) {
+        expect(output.data?.structuredOutput).toBe(true);
+      }
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back to the prose path and flags structuredOutput false when no tool was called", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-prose-"));
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      // FakePiProcessRunner emits no tool_execution_start event — the instruct-only fallback case.
+      const runtime = new PiAgentRuntime({
+        processRunner: new FakePiProcessRunner(),
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      // Prose parsing still yields the security finding (behavior unchanged).
+      const securityResult = result.coordinatorResult?.reviewerResults.find(
+        (reviewer) => reviewer.role === "security",
+      );
+      expect(securityResult?.findings).toHaveLength(1);
+
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const securityOutput = events.find(
+        (event) => event.type === "agent.output" && event.role === "security",
+      );
+      expect(securityOutput?.data?.structuredOutput).toBe(false);
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("does not fall back to prose when the tool call carries invalid args", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-structured-invalid-"));
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runtime = new PiAgentRuntime({
+        processRunner: new StructuredInvalidArgsPiProcessRunner(),
+        timestamp: "2026-06-09T00:00:00.000Z",
+        // One attempt: an invalid tool arg is a deterministic content failure, no point retrying.
+        reviewerRetryPolicy: { maxAttempts: 1 },
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      // The prose finding must never surface — the structured path threw on the invalid args.
+      const allTitles = [
+        ...result.summary.findings.map((finding) => finding.title),
+        ...(result.coordinatorResult?.reviewerResults.flatMap((reviewer) =>
+          reviewer.findings.map((finding) => finding.title),
+        ) ?? []),
+      ];
+      expect(allTitles).not.toContain("FROM PROSE — must not surface");
+
+      // security failed; the trace records it as a failed agent (no silent prose recovery).
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const securityFailed = events.find(
+        (event) => event.type === "agent.failed" && event.role === "security",
+      );
+      expect(securityFailed).toBeDefined();
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("requiredTools allowlists submit_findings even under an otherwise-empty tool policy", () => {
+    const emptyPolicy = {
+      allowRead: false,
+      allowShell: false,
+      allowWrite: false,
+      allowedTools: [],
+      deniedTools: [],
+    };
+    const common = {
+      runId: "r",
+      agentRunId: "r:pi:security",
+      role: "security",
+      cwd: "/tmp",
+      timeoutMs: 1000,
+      prompt: "review",
+    };
+
+    // No required tools + empty policy → the `--no-tools` behavior is preserved.
+    expect(
+      buildPiProcessArgs(["--mode", "json"], { ...common, toolPolicy: emptyPolicy }),
+    ).toContain("--no-tools");
+
+    // submit_findings required + empty policy → it is allowlisted, never `--no-tools`.
+    const requiredEmpty = buildPiProcessArgs(["--mode", "json"], {
+      ...common,
+      toolPolicy: emptyPolicy,
+      requiredTools: ["submit_findings"],
+    });
+    expect(requiredEmpty).not.toContain("--no-tools");
+    const toolsIndex = requiredEmpty.indexOf("--tools");
+    expect(toolsIndex).toBeGreaterThanOrEqual(0);
+    expect(requiredEmpty[toolsIndex + 1]).toBe("submit_findings");
+
+    // submit_findings required + read policy → both the read tools and submit_findings are listed.
+    const requiredWithRead = buildPiProcessArgs(["--mode", "json"], {
+      ...common,
+      toolPolicy: { ...emptyPolicy, allowRead: true },
+      requiredTools: ["submit_findings"],
+    });
+    const readToolList = requiredWithRead[requiredWithRead.indexOf("--tools") + 1] ?? "";
+    expect(readToolList.split(",")).toContain("read");
+    expect(readToolList.split(",")).toContain("submit_findings");
+  });
+
+  test("defaultPiBaseArgs loads the factory submit_findings extension from a real path", async () => {
+    const args = defaultPiBaseArgs();
+    const extensionIndex = args.indexOf("--extension");
+    expect(extensionIndex).toBeGreaterThanOrEqual(0);
+    const extensionPath = args[extensionIndex + 1] ?? "";
+    expect(extensionPath.endsWith("scripts/pi-extensions/submit-findings-extension.ts")).toBe(true);
+    // The resolved path must exist — guards against a relocation/typo silently shipping a runtime
+    // that cannot load its own structured-output extension.
+    await expect(readFile(extensionPath, "utf8")).resolves.toContain("submit_findings");
+    // Discovery stays off so only this trusted file loads (fork-safe).
+    expect(args).toContain("--no-extensions");
+    // `--print` makes pi read the prompt from STDIN (the runner pipes it there, not via argv).
+    expect(args).toContain("--print");
   });
 });
 

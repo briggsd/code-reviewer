@@ -5,8 +5,13 @@
  * instead of emitting JSON-shaped prose that the adapter has to parse + repair. The validated
  * tool args surface in Pi's `--mode json` event stream as
  *   {"type":"tool_execution_start","toolName":"submit_findings","args":{...}}
- * which the spike harness (and, later, the production reader in S02/S03) reads directly — no
+ * which `readToolCallArgs` (`src/runtime/structured-tool-output.ts`) reads directly — no
  * `repairUnescapedStringQuotes`, no `JSON.parse` of model prose on the happy path.
+ *
+ * Loaded in PRODUCTION (M015 S03, #126): `BunPiProcessRunner` resolves this file's path and
+ * passes it to every `pi` reviewer run as `--extension <path>`, making the structured tool the
+ * primary delivery path and prose-repair the rarely-hit fallback. The spike harness
+ * (`scripts/structured-output-spike.ts`) loads the same file for the live hit-rate measurement.
  *
  * Trust / fork-safety: this file is TRUSTED, factory-owned code. It is loaded ONLY via an
  * explicit `pi -e <this path>` while `--no-extensions` keeps reviewed-repo extension discovery
@@ -18,10 +23,11 @@
  * `@earendil-works/pi-coding-agent` + `typebox` to Pi's bundled copies regardless of where this
  * file lives — so it does NOT need either as a dependency of this repo.
  *
- * The schema below MIRRORS `reviewerOutputSchema` in `src/schemas/review-output.ts`. The spike
- * keeps a hand-written TypeBox copy (Pi requires a TypeBox `TSchema` for `parameters`) and the
- * harness independently re-validates captured args against the canonical JSON Schema, so any
- * drift between the two surfaces is caught by the measurement, not hidden.
+ * The schema below MIRRORS `reviewerOutputSchema` in `src/schemas/review-output.ts`. It is a
+ * hand-written TypeBox copy (Pi requires a TypeBox `TSchema` for `parameters`). The schema is a
+ * NUDGE, not the trust boundary: `parseReviewerToolArgs` re-runs `validateFinding` on every
+ * captured arg in production, so a drift here cannot smuggle an unvalidated finding through (the
+ * spike additionally re-validates against the canonical JSON Schema).
  */
 
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
