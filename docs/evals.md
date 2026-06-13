@@ -163,6 +163,10 @@ This is useful for diagnosing flaky criteria (high variance between runs).
 
 ## Adding a new scenario
 
+See **`docs/review-quality-loop.md`** for the end-to-end improvement loop: how a quality-report
+hypothesis becomes an investigation, then a distilled dev scenario, then a tuning change, then a
+holdout-gated release.
+
 **First decide which split.** Iterating on review quality? Add it to the **dev split**
 (`evals/scenarios-dev/`) — that is the material you may tune against. Adding a fresh, never-tuned
 regression case to the gate? Add it to the **holdout** (`evals/scenarios/`) and never look at it

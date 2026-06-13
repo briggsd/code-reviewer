@@ -25,6 +25,7 @@ This repository starts as an architecture/design workspace. The implementation t
 - [Research findings](research/ci-vcs-runtime-findings.md) — CI/VCS/runtime questions researched before drafting the architecture.
 - [Evals](docs/evals.md) — holdout scenario eval harness: behavioral scoring, holdout hygiene, and how to run.
 - [Telemetry export](docs/telemetry-export.md) — export schema (`ai-review.rollup_export.v1`), identifier policy, shape-bounded key rule, and reserved `ai_review.run_event` vocabulary (#20/#22).
+- [Review-quality loop](docs/review-quality-loop.md) — the manual improvement playbook: telemetry hypothesis queue → investigate → distill a dev scenario → tune-against-dev → holdout-gate → ship (M016).
 - [Doc gardening](docs/doc-gardening.md) — keeping agent-facing docs fresh: the `bun run docs:check` dead-reference linter, staleness advisories, and the recurring gardening pass (#92/#29).
 
 ## Development

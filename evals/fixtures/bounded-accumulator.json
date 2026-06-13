@@ -1,0 +1,44 @@
+{
+  "runId": "eval-bounded-accumulator",
+  "safetyMode": "trusted",
+  "metadata": {
+    "provider": "github",
+    "repository": {
+      "provider": "github",
+      "owner": "example",
+      "name": "app",
+      "slug": "example/app",
+      "defaultBranch": "main"
+    },
+    "changeId": "7",
+    "headSha": "bbb001",
+    "baseSha": "bbb000",
+    "sourceBranch": "feat/tier-tally",
+    "targetBranch": "main",
+    "title": "Add per-tier run tally helper",
+    "description": "Adds a small helper that counts runs per risk tier for the metrics summary.",
+    "author": {
+      "username": "dev"
+    },
+    "labels": []
+  },
+  "diff": {
+    "files": [
+      {
+        "path": "src/metrics/tally.ts",
+        "status": "added",
+        "additions": 12,
+        "deletions": 0,
+        "isBinary": false,
+        "patch": "@@ -0,0 +1,12 @@\n+const RISK_TIERS = [\"trivial\", \"lite\", \"full\"] as const;\n+type RiskTier = (typeof RISK_TIERS)[number];\n+\n+/** Count how many runs fell into each risk tier. The key space is the closed\n+ *  RiskTier union, so this map holds at most RISK_TIERS.length (3) entries. */\n+export function tallyByTier(runs: readonly { tier: RiskTier }[]): Map<RiskTier, number> {\n+  const counts = new Map<RiskTier, number>();\n+  for (const run of runs) {\n+    counts.set(run.tier, (counts.get(run.tier) ?? 0) + 1);\n+  }\n+  return counts;\n+}"
+      }
+    ],
+    "totalAdditions": 12,
+    "totalDeletions": 0,
+    "truncated": false
+  },
+  "config": {
+    "mode": "blocking",
+    "failOn": ["critical"]
+  }
+}
