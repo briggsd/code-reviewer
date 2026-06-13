@@ -11,6 +11,15 @@ per-project via a small `.ai-review.json` (the core is **never forked** per proj
 Deterministic code owns orchestration, state, policy, and CI integration; LLM agents own
 judgment-heavy review. GitHub, GitLab, model providers, and agent runtimes are adapters.
 
+**Product target vs current state (don't anchor on the latter):** the intent is a
+*published, multi-repo* package external parties adopt — so when planning, reason at the
+publish/adopter boundary (who configures via `.ai-review.json` vs trusted factory code; where
+quality/telemetry/secrets cross factory↔adopter; whether a gate belongs at a PR or at
+*publish*). The current artifact state is still prototype — `package.json` is `private:true`
+at v0.x and `release-package.yml` only emits a tarball artifact, not a registry publish — but
+that is the *not-yet*, not the goal. Reviewer definitions are a **shared asset every adopter
+inherits**: a regression in the factory's reviewers degrades all downstream repos on upgrade.
+
 Full design: **docs/architecture.md**. Project purpose & status: **README.md**.
 
 ## Workflow
