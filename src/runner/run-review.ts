@@ -6,14 +6,11 @@ import type {
   CoordinatorRunResult,
   DiffSummary,
   Finding,
-  JsonValue,
   ModelSelection,
   PriorReviewState,
   ReviewConfig,
   ReviewContext,
-  ReviewContextArtifacts,
   ReviewDecision,
-  ReviewErrorClassification,
   ReviewerContextReferences,
   ReviewerRunInput,
   ReviewRunMetrics,
@@ -27,7 +24,6 @@ import type {
   Severity,
   TelemetryEvent,
   TelemetrySink,
-  TokenUsage,
   TraceSink,
 } from "../contracts/index.ts";
 import { resolveRuntimeKind, sanitizeJobKind } from "../runtime/runtime-kind.ts";
@@ -57,6 +53,12 @@ import {
   createRunOverrideEvent,
   createRunStartEvent,
 } from "./run-events.ts";
+import {
+  countFindingsBy,
+  createContextMetrics,
+  createRunMetrics,
+  createRunMetricsTelemetryEvent,
+} from "./run-metrics.ts";
 import { assignStableFindingIds, createStableFindingId } from "./stable-finding-id.ts";
 import { assessThinReview } from "./thin-review.ts";
 import { getTierProfile } from "./tier-profile.ts";
@@ -141,28 +143,22 @@ export async function runReviewFromChange(
   });
 }
 
-export async function runReview(options: RunReviewOptions): Promise<RunReviewResult> {
-  const fixture = options.fixture;
-  const clock = options.clock ?? (() => new Date());
-  const startedAt = options.now ?? clock();
-  const timestamp = startedAt.toISOString();
-  const runId = fixture.runId ?? createRunId(startedAt);
-  const runtimeKind = resolveRuntimeKind(options.runtime?.name);
-  const jobKind = sanitizeJobKind(options.jobKind);
-
-  await emitTrace(options.traceSink, {
-    type: "review.started",
-    runId,
-    timestamp,
-    data: {
-      provider: fixture.metadata.provider,
-      repository: fixture.metadata.repository.slug,
-      changeId: fixture.metadata.changeId,
-      headSha: fixture.metadata.headSha,
-      safetyMode: fixture.safetyMode ?? "trusted",
-    },
-  });
-
+// Note: buildReviewContext folds the classifyRisk call (assessRisk) into the same phase as
+// context building because risk classification is interleaved with context-build timing here —
+// folding the existing classifyRisk call into this one phase is the behavior-preserving choice.
+async function buildReviewContext(input: {
+  fixture: ReviewFixture;
+  options: RunReviewOptions;
+  clock: () => Date;
+  runId: string;
+}): Promise<{
+  context: ReviewContext;
+  reviewedPaths: Set<string> | undefined;
+  incremental: IncrementalReviewPlan | undefined;
+  contextBuildMs: number;
+  riskAssessmentMs: number;
+}> {
+  const { fixture, options, clock, runId } = input;
   // Incremental re-review (#46): when the plan says so, narrow the diff to the
   // delta since previousHeadSha BEFORE filtering/risk-classification, so a small
   // re-push lands in a cheaper tier and reviewers see only the changed files.
@@ -255,6 +251,17 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     },
   });
 
+  return { context, reviewedPaths, incremental, contextBuildMs, riskAssessmentMs };
+}
+
+async function emitRunStartTelemetry(input: {
+  options: RunReviewOptions;
+  context: ReviewContext;
+  runId: string;
+  timestamp: string;
+  clock: () => Date;
+}): Promise<void> {
+  const { options, context, runId, timestamp, clock } = input;
   // S04: run.start — emitted on every run (before agent execution), so
   // completion rate = completed / started is meaningful even for failed runs.
   const selectedReviewerDefs = selectTrustedReviewerDefinitions({
@@ -311,6 +318,507 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       },
     });
   }
+}
+
+async function fuseAndDecide(input: {
+  options: RunReviewOptions;
+  context: ReviewContext;
+  runtimeResult: { summary: ReviewSummary; coordinatorResult?: CoordinatorRunResult };
+  startedAt: Date;
+  reviewedPaths: Set<string> | undefined;
+  coordinatorMs: number;
+  coordinatorCompletedAt: Date;
+  clock: () => Date;
+}): Promise<{
+  summary: ReviewSummary;
+  groundingDroppedCount: number;
+  locationBackfilledCount: number;
+  acknowledgedCount: number;
+  suppressedCount: number;
+}> {
+  const {
+    options,
+    context,
+    runtimeResult,
+    startedAt,
+    reviewedPaths,
+    coordinatorMs,
+    coordinatorCompletedAt,
+    clock,
+  } = input;
+  const runId = context.runId;
+  const grounding = assessFindingGrounding(runtimeResult.summary.findings, context.diff);
+  const groundingDroppedCount = grounding.dropped.length;
+  let groundedSummary = runtimeResult.summary;
+  if (groundingDroppedCount > 0) {
+    const highestSeverity = getHighestSeverity(grounding.grounded);
+    const decision = chooseDecision(grounding.grounded, highestSeverity);
+    const hasBlockingFinding =
+      highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
+    const outcome = context.config.mode === "blocking" && hasBlockingFinding ? "fail" : "pass";
+    groundedSummary = {
+      ...runtimeResult.summary,
+      findings: grounding.grounded,
+      decision,
+      outcome,
+      // The displayed finding set changed (some withheld), so refresh the title — its count must
+      // reflect the findings now shown, not the coordinator's pre-grounding count.
+      title: createSummaryTitle(decision, grounding.grounded),
+      body: `${runtimeResult.summary.body}\n\n_${groundingDroppedCount} finding(s) withheld: the code they cited could not be found in the changed files._`,
+    };
+    await emitTrace(options.traceSink, {
+      type: "grounding.applied",
+      runId,
+      role: "coordinator",
+      timestamp: clock().toISOString(),
+      data: {
+        droppedFindingCount: groundingDroppedCount,
+        dropped: grounding.dropped.map((f) => ({
+          reviewer: f.reviewer,
+          severity: f.severity,
+          category: f.category,
+          title: f.title,
+        })),
+      },
+    });
+  }
+  // Deterministically backfill `location` from `quotedCode` for findings that
+  // have evidence but no usable line — so they become inline-eligible after
+  // assignStableFindingIds keys them at their authoritative coordinates (#87).
+  // The backfill runs after grounding (so we only locate grounded findings) and
+  // before stable-id assignment (so backfilled coordinates feed the id key,
+  // making ids stable across re-reviews).
+  const backfill = backfillFindingLocations(groundedSummary.findings, context.diff);
+  const locationBackfilledCount = backfill.backfilledCount;
+  if (locationBackfilledCount > 0) {
+    groundedSummary = { ...groundedSummary, findings: backfill.findings };
+    await emitTrace(options.traceSink, {
+      type: "location.backfill.applied",
+      runId,
+      role: "coordinator",
+      timestamp: clock().toISOString(),
+      data: { backfilledCount: locationBackfilledCount },
+    });
+  }
+
+  const withIds = assignStableFindingIds(groundedSummary);
+  const acked = applyAcknowledgements(
+    withIds.findings,
+    context.config.acknowledgements ?? [],
+    startedAt,
+  );
+  const acknowledgedCount = acked.acknowledgedCount;
+  const suppressedCount = acked.suppressedCount;
+  let ackedSummary = withIds;
+  if (acked.acknowledgedCount > 0 || acked.suppressedCount > 0) {
+    // Recompute the gate from findings that still count — acknowledged + suppressed are excluded.
+    const gateFindings = acked.findings.filter((f) => f.acknowledged === undefined);
+    const highestSeverity = getHighestSeverity(gateFindings);
+    const decision = chooseDecision(gateFindings, highestSeverity);
+    const hasBlockingFinding =
+      highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
+    const outcome = context.config.mode === "blocking" && hasBlockingFinding ? "fail" : "pass";
+    const notes: string[] = [];
+    if (acked.acknowledgedCount > 0)
+      notes.push(`${acked.acknowledgedCount} finding(s) acknowledged`);
+    if (acked.suppressedCount > 0) notes.push(`${acked.suppressedCount} suppressed`);
+    ackedSummary = {
+      ...withIds,
+      findings: acked.findings,
+      decision,
+      outcome,
+      // Refresh the title for the changed set. Count reflects the findings SHOWN (acked.findings —
+      // acknowledged ones are still listed, annotated); the decision is driven by gateFindings.
+      title: createSummaryTitle(decision, acked.findings),
+      body: `${withIds.body}\n\n_${notes.join("; ")} by project acknowledgements (base-branch .ai-review.json)._`,
+    };
+    await emitTrace(options.traceSink, {
+      type: "acknowledgements.applied",
+      runId,
+      role: "coordinator",
+      timestamp: clock().toISOString(),
+      data: {
+        acknowledgedCount: acked.acknowledgedCount,
+        suppressedCount: acked.suppressedCount,
+      },
+    });
+  }
+  // Stable IDs of findings grounding withheld this run, so re-review classifies a prior
+  // finding that vanished only because grounding dropped it as `withheld`, not `fixed` (#69).
+  // Best-effort match: recomputing the ID here matches the prior stored ID only when it was not
+  // backfill-derived or collision-suffixed (a dropped finding can't be re-backfilled — its quote
+  // is absent from the current diff). When it doesn't match, the prior finding stays in
+  // `fixedFindingIds` (pre-#69 behavior — no regression). This is analytics/signal-accuracy only:
+  // withheld/fixed never affect the CI gate, decision, or outcome (those were finalized above).
+  const withheldStableIds = new Set(grounding.dropped.map((f) => createStableFindingId(f)));
+  const reReviewedSummary = classifyReReviewFindings(
+    ackedSummary,
+    context.priorState,
+    withheldStableIds,
+    reviewedPaths,
+  );
+  // Comprehension-gate verdict (#26): shown only when the opt-in comprehension reviewer actually
+  // ran (trusted dispatched role). The verdict VALUE is computed from the FINAL gated findings —
+  // post-grounding, post-stable-id, post-acknowledgement — so it always matches what CI sees and
+  // what the comment displays; see selectComprehensionGateFindings for the attribution trade-off.
+  // Observability only; CI outcome stays driven by decideCiOutcome over findings.
+  const gateDecision: ReviewSummary["gateDecision"] =
+    runtimeResult.coordinatorResult !== undefined &&
+    comprehensionReviewerRan(runtimeResult.coordinatorResult.reviewerResults)
+      ? deriveGateDecision(selectComprehensionGateFindings(reReviewedSummary.findings))
+      : undefined;
+  const summary: ReviewSummary =
+    gateDecision !== undefined ? { ...reReviewedSummary, gateDecision } : reReviewedSummary;
+
+  await emitTrace(options.traceSink, {
+    type: "coordinator.completed",
+    runId,
+    role: "coordinator",
+    timestamp: coordinatorCompletedAt.toISOString(),
+    data: {
+      decision: summary.decision,
+      outcome: summary.outcome,
+      findingCount: summary.findings.length,
+      durationMs: coordinatorMs,
+      ...(summary.gateDecision !== undefined ? { gateDecision: summary.gateDecision } : {}),
+      ...(runtimeResult.coordinatorResult?.coordinatorShortCircuited === true
+        ? { coordinatorShortCircuited: true }
+        : {}),
+      ...(summary.reReview !== undefined
+        ? {
+            newFindingCount: summary.reReview.newFindingIds.length,
+            recurringFindingCount: summary.reReview.recurringFindingIds.length,
+            fixedFindingCount: summary.reReview.fixedFindingIds.length,
+            withheldFindingCount: summary.reReview.withheldFindingIds.length,
+            carriedForwardFindingCount: summary.reReview.carriedForwardFindingIds.length,
+          }
+        : {}),
+    },
+  });
+
+  return {
+    summary,
+    groundingDroppedCount,
+    locationBackfilledCount,
+    acknowledgedCount,
+    suppressedCount,
+  };
+}
+
+async function emitCompletedRunMetrics(input: {
+  options: RunReviewOptions;
+  context: ReviewContext;
+  summary: ReviewSummary;
+  coordinatorResult: CoordinatorRunResult | undefined;
+  startedAt: Date;
+  timestamp: string;
+  runId: string;
+  runtimeKind: string;
+  jobKind: string | undefined;
+  incremental: IncrementalReviewPlan | undefined;
+  contextBuildMs: number;
+  riskAssessmentMs: number;
+  coordinatorMs: number;
+  groundingDroppedCount: number;
+  locationBackfilledCount: number;
+  acknowledgedCount: number;
+  suppressedCount: number;
+  clock: () => Date;
+}): Promise<void> {
+  const {
+    options,
+    context,
+    summary,
+    coordinatorResult,
+    startedAt,
+    timestamp,
+    runId,
+    runtimeKind,
+    jobKind,
+    incremental,
+    contextBuildMs,
+    riskAssessmentMs,
+    coordinatorMs,
+    groundingDroppedCount,
+    locationBackfilledCount,
+    acknowledgedCount,
+    suppressedCount,
+    clock,
+  } = input;
+  const completedAt = clock();
+  const completedAtTimestamp = completedAt.toISOString();
+  const overallMs = elapsedMs(startedAt, completedAt);
+  const metrics = createRunMetrics({
+    durationsMs: {
+      overallMs,
+      contextBuildMs,
+      riskAssessmentMs,
+      coordinatorMs,
+    },
+    ...(context.contextArtifacts !== undefined
+      ? { contextArtifacts: context.contextArtifacts }
+      : {}),
+    ...(coordinatorResult !== undefined ? { coordinatorResult } : {}),
+  });
+  await options.stateStore?.saveRun({
+    runId,
+    startedAt: timestamp,
+    completedAt: completedAtTimestamp,
+    context: {
+      safetyMode: context.safetyMode,
+      metadata: context.metadata,
+      risk: context.risk,
+    },
+    summary,
+    metrics,
+    ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
+  });
+  await options.stateStore?.saveSummary(runId, summary);
+
+  const thinReview = assessThinReview({
+    riskTier: context.risk.tier,
+    reviewedFileCount: context.risk.reviewedFileCount,
+    outputTokens: metrics.tokens?.outputTokens,
+  });
+
+  await emitTelemetry({
+    telemetrySink: options.telemetrySink,
+    traceSink: options.traceSink,
+    event: createRunMetricsTelemetryEvent({
+      runId,
+      timestamp: completedAtTimestamp,
+      context,
+      summary,
+      metrics,
+      status: "completed",
+      runtime: runtimeKind,
+      ...(jobKind !== undefined ? { jobKind } : {}),
+      ...(groundingDroppedCount > 0 ? { groundingDroppedCount } : {}),
+      ...(locationBackfilledCount > 0 ? { locationBackfilledCount } : {}),
+      ...(acknowledgedCount > 0 ? { acknowledgedCount } : {}),
+      ...(suppressedCount > 0 ? { suppressedCount } : {}),
+      ...(thinReview.thin
+        ? {
+            thinReview: {
+              outputTokens: thinReview.outputTokens,
+              expectedFloor: thinReview.expectedFloor,
+            },
+          }
+        : {}),
+      ...(coordinatorResult?.coordinatorShortCircuited === true
+        ? { coordinatorShortCircuited: true }
+        : {}),
+      ...(incremental !== undefined
+        ? {
+            incremental: {
+              mode: incremental.mode,
+              reason: incremental.reason,
+              reviewedFileCount: context.risk.reviewedFileCount,
+            },
+          }
+        : {}),
+    }),
+  });
+
+  // S04: run.completed — emitted in the completed path only; failed runs
+  // emit no run.completed so completion rate = completed/started.
+  await emitTelemetry({
+    telemetrySink: options.telemetrySink,
+    traceSink: options.traceSink,
+    event: createRunCompletedEvent({
+      runId,
+      timestamp: completedAtTimestamp,
+      repository: context.metadata.repository.slug,
+      riskTier: context.risk.tier,
+      decision: summary.decision,
+      outcome: summary.outcome,
+      durationMs: overallMs,
+      findingCount: summary.findings.length,
+      findingsBySeverity: countFindingsBy(summary.findings, (f) => f.severity),
+      findingsByReviewer: countFindingsBy(summary.findings, (f) => f.reviewer),
+      // Forward tokens whole — the builder is the single per-field filter
+      // (re-spreading fields here would silently drop any future field).
+      ...(metrics.tokens !== undefined ? { tokens: metrics.tokens } : {}),
+    }),
+  });
+
+  // S04/S05: run.correction — emitted only when there is a correction/acceptance signal.
+  const correctionEvent = createRunCorrectionEvent({
+    runId,
+    timestamp: completedAtTimestamp,
+    repository: context.metadata.repository.slug,
+    riskTier: context.risk.tier,
+    summary,
+  });
+  if (correctionEvent !== undefined) {
+    await emitTelemetry({
+      telemetrySink: options.telemetrySink,
+      traceSink: options.traceSink,
+      event: correctionEvent,
+    });
+  }
+
+  if (thinReview.thin) {
+    await emitTrace(options.traceSink, {
+      type: "review.thin_detected",
+      runId,
+      timestamp: clock().toISOString(),
+      data: {
+        riskTier: context.risk.tier,
+        reviewedFileCount: context.risk.reviewedFileCount,
+        outputTokens: thinReview.outputTokens,
+        expectedFloor: thinReview.expectedFloor,
+      },
+    });
+  }
+
+  // Incremental re-review marker (#46): emitted whenever a re-review attempted an
+  // incremental decision (prior head present), recording whether it narrowed and why.
+  if (incremental !== undefined) {
+    await emitTrace(options.traceSink, {
+      type: "review.incremental",
+      runId,
+      timestamp: clock().toISOString(),
+      data: {
+        mode: incremental.mode,
+        reason: incremental.reason,
+        reviewedFileCount: context.risk.reviewedFileCount,
+        carriedForwardFindingCount: summary.reReview?.carriedForwardFindingIds.length ?? 0,
+      },
+    });
+  }
+
+  await emitTrace(options.traceSink, {
+    type: "review.completed",
+    runId,
+    timestamp: completedAtTimestamp,
+    data: {
+      decision: summary.decision,
+      outcome: summary.outcome,
+      durationMs: overallMs,
+    },
+  });
+}
+
+async function emitFailedRunMetrics(input: {
+  options: RunReviewOptions;
+  context: ReviewContext;
+  error: unknown;
+  startedAt: Date;
+  timestamp: string;
+  runId: string;
+  runtimeKind: string;
+  jobKind: string | undefined;
+  contextBuildMs: number;
+  riskAssessmentMs: number;
+  clock: () => Date;
+}): Promise<void> {
+  const {
+    options,
+    context,
+    error,
+    startedAt,
+    timestamp,
+    runId,
+    runtimeKind,
+    jobKind,
+    contextBuildMs,
+    riskAssessmentMs,
+    clock,
+  } = input;
+  const failedAt = clock();
+  const failedAtTimestamp = failedAt.toISOString();
+  const overallMs = elapsedMs(startedAt, failedAt);
+  const serializedError = serializeError(error);
+  const errorClassification = classifyReviewError(error);
+  await emitTrace(options.traceSink, {
+    type: "review.failed",
+    runId,
+    timestamp: failedAtTimestamp,
+    message: serializedError.message,
+    data: {
+      phase: "agent_runtime",
+      errorName: serializedError.name,
+      errorMessage: serializedError.message,
+      errorClassification: {
+        category: errorClassification.category,
+        retryable: errorClassification.retryable,
+        reason: errorClassification.reason,
+      },
+      errorCategory: errorClassification.category,
+      retryable: errorClassification.retryable,
+      ...(serializedError.stack !== undefined ? { errorStack: serializedError.stack } : {}),
+      durationMs: overallMs,
+    },
+  });
+  const metrics: ReviewRunMetrics = {
+    durationsMs: {
+      overallMs,
+      contextBuildMs,
+      riskAssessmentMs,
+    },
+    ...(context.contextArtifacts !== undefined
+      ? {
+          context: createContextMetrics(context.contextArtifacts),
+        }
+      : {}),
+  };
+  await options.stateStore?.saveRun({
+    runId,
+    startedAt: timestamp,
+    completedAt: failedAtTimestamp,
+    context: {
+      safetyMode: context.safetyMode,
+      metadata: context.metadata,
+      risk: context.risk,
+    },
+    metrics,
+    error: serializedError.message,
+    errorClassification,
+    ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
+  });
+  await emitTelemetry({
+    telemetrySink: options.telemetrySink,
+    traceSink: options.traceSink,
+    event: createRunMetricsTelemetryEvent({
+      runId,
+      timestamp: failedAtTimestamp,
+      context,
+      metrics,
+      status: "failed",
+      runtime: runtimeKind,
+      ...(jobKind !== undefined ? { jobKind } : {}),
+      errorClassification,
+    }),
+  });
+}
+
+export async function runReview(options: RunReviewOptions): Promise<RunReviewResult> {
+  const fixture = options.fixture;
+  const clock = options.clock ?? (() => new Date());
+  const startedAt = options.now ?? clock();
+  const timestamp = startedAt.toISOString();
+  const runId = fixture.runId ?? createRunId(startedAt);
+  const runtimeKind = resolveRuntimeKind(options.runtime?.name);
+  const jobKind = sanitizeJobKind(options.jobKind);
+
+  await emitTrace(options.traceSink, {
+    type: "review.started",
+    runId,
+    timestamp,
+    data: {
+      provider: fixture.metadata.provider,
+      repository: fixture.metadata.repository.slug,
+      changeId: fixture.metadata.changeId,
+      headSha: fixture.metadata.headSha,
+      safetyMode: fixture.safetyMode ?? "trusted",
+    },
+  });
+
+  const { context, reviewedPaths, incremental, contextBuildMs, riskAssessmentMs } =
+    await buildReviewContext({ fixture, options, clock, runId });
+
+  await emitRunStartTelemetry({ options, context, runId, timestamp, clock });
 
   try {
     const coordinatorStartedAt = clock();
@@ -322,385 +830,60 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     });
     const coordinatorCompletedAt = clock();
     const coordinatorMs = elapsedMs(coordinatorStartedAt, coordinatorCompletedAt);
-    const grounding = assessFindingGrounding(runtimeResult.summary.findings, context.diff);
-    const groundingDroppedCount = grounding.dropped.length;
-    let groundedSummary = runtimeResult.summary;
-    if (groundingDroppedCount > 0) {
-      const highestSeverity = getHighestSeverity(grounding.grounded);
-      const decision = chooseDecision(grounding.grounded, highestSeverity);
-      const hasBlockingFinding =
-        highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
-      const outcome = context.config.mode === "blocking" && hasBlockingFinding ? "fail" : "pass";
-      groundedSummary = {
-        ...runtimeResult.summary,
-        findings: grounding.grounded,
-        decision,
-        outcome,
-        // The displayed finding set changed (some withheld), so refresh the title — its count must
-        // reflect the findings now shown, not the coordinator's pre-grounding count.
-        title: createSummaryTitle(decision, grounding.grounded),
-        body: `${runtimeResult.summary.body}\n\n_${groundingDroppedCount} finding(s) withheld: the code they cited could not be found in the changed files._`,
-      };
-      await emitTrace(options.traceSink, {
-        type: "grounding.applied",
-        runId,
-        role: "coordinator",
-        timestamp: clock().toISOString(),
-        data: {
-          droppedFindingCount: groundingDroppedCount,
-          dropped: grounding.dropped.map((f) => ({
-            reviewer: f.reviewer,
-            severity: f.severity,
-            category: f.category,
-            title: f.title,
-          })),
-        },
-      });
-    }
-    // Deterministically backfill `location` from `quotedCode` for findings that
-    // have evidence but no usable line — so they become inline-eligible after
-    // assignStableFindingIds keys them at their authoritative coordinates (#87).
-    // The backfill runs after grounding (so we only locate grounded findings) and
-    // before stable-id assignment (so backfilled coordinates feed the id key,
-    // making ids stable across re-reviews).
-    const backfill = backfillFindingLocations(groundedSummary.findings, context.diff);
-    const locationBackfilledCount = backfill.backfilledCount;
-    if (locationBackfilledCount > 0) {
-      groundedSummary = { ...groundedSummary, findings: backfill.findings };
-      await emitTrace(options.traceSink, {
-        type: "location.backfill.applied",
-        runId,
-        role: "coordinator",
-        timestamp: clock().toISOString(),
-        data: { backfilledCount: locationBackfilledCount },
-      });
-    }
 
-    const withIds = assignStableFindingIds(groundedSummary);
-    const acked = applyAcknowledgements(
-      withIds.findings,
-      context.config.acknowledgements ?? [],
+    const fused = await fuseAndDecide({
+      options,
+      context,
+      runtimeResult,
       startedAt,
-    );
-    const acknowledgedCount = acked.acknowledgedCount;
-    const suppressedCount = acked.suppressedCount;
-    let ackedSummary = withIds;
-    if (acked.acknowledgedCount > 0 || acked.suppressedCount > 0) {
-      // Recompute the gate from findings that still count — acknowledged + suppressed are excluded.
-      const gateFindings = acked.findings.filter((f) => f.acknowledged === undefined);
-      const highestSeverity = getHighestSeverity(gateFindings);
-      const decision = chooseDecision(gateFindings, highestSeverity);
-      const hasBlockingFinding =
-        highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
-      const outcome = context.config.mode === "blocking" && hasBlockingFinding ? "fail" : "pass";
-      const notes: string[] = [];
-      if (acked.acknowledgedCount > 0)
-        notes.push(`${acked.acknowledgedCount} finding(s) acknowledged`);
-      if (acked.suppressedCount > 0) notes.push(`${acked.suppressedCount} suppressed`);
-      ackedSummary = {
-        ...withIds,
-        findings: acked.findings,
-        decision,
-        outcome,
-        // Refresh the title for the changed set. Count reflects the findings SHOWN (acked.findings —
-        // acknowledged ones are still listed, annotated); the decision is driven by gateFindings.
-        title: createSummaryTitle(decision, acked.findings),
-        body: `${withIds.body}\n\n_${notes.join("; ")} by project acknowledgements (base-branch .ai-review.json)._`,
-      };
-      await emitTrace(options.traceSink, {
-        type: "acknowledgements.applied",
-        runId,
-        role: "coordinator",
-        timestamp: clock().toISOString(),
-        data: {
-          acknowledgedCount: acked.acknowledgedCount,
-          suppressedCount: acked.suppressedCount,
-        },
-      });
-    }
-    // Stable IDs of findings grounding withheld this run, so re-review classifies a prior
-    // finding that vanished only because grounding dropped it as `withheld`, not `fixed` (#69).
-    // Best-effort match: recomputing the ID here matches the prior stored ID only when it was not
-    // backfill-derived or collision-suffixed (a dropped finding can't be re-backfilled — its quote
-    // is absent from the current diff). When it doesn't match, the prior finding stays in
-    // `fixedFindingIds` (pre-#69 behavior — no regression). This is analytics/signal-accuracy only:
-    // withheld/fixed never affect the CI gate, decision, or outcome (those were finalized above).
-    const withheldStableIds = new Set(grounding.dropped.map((f) => createStableFindingId(f)));
-    const reReviewedSummary = classifyReReviewFindings(
-      ackedSummary,
-      context.priorState,
-      withheldStableIds,
       reviewedPaths,
-    );
-    // Comprehension-gate verdict (#26): shown only when the opt-in comprehension reviewer actually
-    // ran (trusted dispatched role). The verdict VALUE is computed from the FINAL gated findings —
-    // post-grounding, post-stable-id, post-acknowledgement — so it always matches what CI sees and
-    // what the comment displays; see selectComprehensionGateFindings for the attribution trade-off.
-    // Observability only; CI outcome stays driven by decideCiOutcome over findings.
-    const gateDecision: ReviewSummary["gateDecision"] =
-      runtimeResult.coordinatorResult !== undefined &&
-      comprehensionReviewerRan(runtimeResult.coordinatorResult.reviewerResults)
-        ? deriveGateDecision(selectComprehensionGateFindings(reReviewedSummary.findings))
-        : undefined;
-    const summary: ReviewSummary =
-      gateDecision !== undefined ? { ...reReviewedSummary, gateDecision } : reReviewedSummary;
+      coordinatorMs,
+      coordinatorCompletedAt,
+      clock,
+    });
 
-    await emitTrace(options.traceSink, {
-      type: "coordinator.completed",
+    await emitCompletedRunMetrics({
+      options,
+      context,
+      summary: fused.summary,
+      coordinatorResult: runtimeResult.coordinatorResult,
+      startedAt,
+      timestamp,
       runId,
-      role: "coordinator",
-      timestamp: coordinatorCompletedAt.toISOString(),
-      data: {
-        decision: summary.decision,
-        outcome: summary.outcome,
-        findingCount: summary.findings.length,
-        durationMs: coordinatorMs,
-        ...(summary.gateDecision !== undefined ? { gateDecision: summary.gateDecision } : {}),
-        ...(runtimeResult.coordinatorResult?.coordinatorShortCircuited === true
-          ? { coordinatorShortCircuited: true }
-          : {}),
-        ...(summary.reReview !== undefined
-          ? {
-              newFindingCount: summary.reReview.newFindingIds.length,
-              recurringFindingCount: summary.reReview.recurringFindingIds.length,
-              fixedFindingCount: summary.reReview.fixedFindingIds.length,
-              withheldFindingCount: summary.reReview.withheldFindingIds.length,
-              carriedForwardFindingCount: summary.reReview.carriedForwardFindingIds.length,
-            }
-          : {}),
-      },
-    });
-
-    const completedAt = clock();
-    const completedAtTimestamp = completedAt.toISOString();
-    const overallMs = elapsedMs(startedAt, completedAt);
-    const metrics = createRunMetrics({
-      durationsMs: {
-        overallMs,
-        contextBuildMs,
-        riskAssessmentMs,
-        coordinatorMs,
-      },
-      ...(context.contextArtifacts !== undefined
-        ? { contextArtifacts: context.contextArtifacts }
-        : {}),
-      ...(runtimeResult.coordinatorResult !== undefined
-        ? { coordinatorResult: runtimeResult.coordinatorResult }
-        : {}),
-    });
-    await options.stateStore?.saveRun({
-      runId,
-      startedAt: timestamp,
-      completedAt: completedAtTimestamp,
-      context: {
-        safetyMode: context.safetyMode,
-        metadata: context.metadata,
-        risk: context.risk,
-      },
-      summary,
-      metrics,
-      ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
-    });
-    await options.stateStore?.saveSummary(runId, summary);
-
-    const thinReview = assessThinReview({
-      riskTier: context.risk.tier,
-      reviewedFileCount: context.risk.reviewedFileCount,
-      outputTokens: metrics.tokens?.outputTokens,
-    });
-
-    await emitTelemetry({
-      telemetrySink: options.telemetrySink,
-      traceSink: options.traceSink,
-      event: createRunMetricsTelemetryEvent({
-        runId,
-        timestamp: completedAtTimestamp,
-        context,
-        summary,
-        metrics,
-        status: "completed",
-        runtime: runtimeKind,
-        ...(jobKind !== undefined ? { jobKind } : {}),
-        ...(groundingDroppedCount > 0 ? { groundingDroppedCount } : {}),
-        ...(locationBackfilledCount > 0 ? { locationBackfilledCount } : {}),
-        ...(acknowledgedCount > 0 ? { acknowledgedCount } : {}),
-        ...(suppressedCount > 0 ? { suppressedCount } : {}),
-        ...(thinReview.thin
-          ? {
-              thinReview: {
-                outputTokens: thinReview.outputTokens,
-                expectedFloor: thinReview.expectedFloor,
-              },
-            }
-          : {}),
-        ...(runtimeResult.coordinatorResult?.coordinatorShortCircuited === true
-          ? { coordinatorShortCircuited: true }
-          : {}),
-        ...(incremental !== undefined
-          ? {
-              incremental: {
-                mode: incremental.mode,
-                reason: incremental.reason,
-                reviewedFileCount: context.risk.reviewedFileCount,
-              },
-            }
-          : {}),
-      }),
-    });
-
-    // S04: run.completed — emitted in the completed path only; failed runs
-    // emit no run.completed so completion rate = completed/started.
-    await emitTelemetry({
-      telemetrySink: options.telemetrySink,
-      traceSink: options.traceSink,
-      event: createRunCompletedEvent({
-        runId,
-        timestamp: completedAtTimestamp,
-        repository: context.metadata.repository.slug,
-        riskTier: context.risk.tier,
-        decision: summary.decision,
-        outcome: summary.outcome,
-        durationMs: overallMs,
-        findingCount: summary.findings.length,
-        findingsBySeverity: countFindingsBy(summary.findings, (f) => f.severity),
-        findingsByReviewer: countFindingsBy(summary.findings, (f) => f.reviewer),
-        // Forward tokens whole — the builder is the single per-field filter
-        // (re-spreading fields here would silently drop any future field).
-        ...(metrics.tokens !== undefined ? { tokens: metrics.tokens } : {}),
-      }),
-    });
-
-    // S04/S05: run.correction — emitted only when there is a correction/acceptance signal.
-    const correctionEvent = createRunCorrectionEvent({
-      runId,
-      timestamp: completedAtTimestamp,
-      repository: context.metadata.repository.slug,
-      riskTier: context.risk.tier,
-      summary,
-    });
-    if (correctionEvent !== undefined) {
-      await emitTelemetry({
-        telemetrySink: options.telemetrySink,
-        traceSink: options.traceSink,
-        event: correctionEvent,
-      });
-    }
-
-    if (thinReview.thin) {
-      await emitTrace(options.traceSink, {
-        type: "review.thin_detected",
-        runId,
-        timestamp: clock().toISOString(),
-        data: {
-          riskTier: context.risk.tier,
-          reviewedFileCount: context.risk.reviewedFileCount,
-          outputTokens: thinReview.outputTokens,
-          expectedFloor: thinReview.expectedFloor,
-        },
-      });
-    }
-
-    // Incremental re-review marker (#46): emitted whenever a re-review attempted an
-    // incremental decision (prior head present), recording whether it narrowed and why.
-    if (incremental !== undefined) {
-      await emitTrace(options.traceSink, {
-        type: "review.incremental",
-        runId,
-        timestamp: clock().toISOString(),
-        data: {
-          mode: incremental.mode,
-          reason: incremental.reason,
-          reviewedFileCount: context.risk.reviewedFileCount,
-          carriedForwardFindingCount: summary.reReview?.carriedForwardFindingIds.length ?? 0,
-        },
-      });
-    }
-
-    await emitTrace(options.traceSink, {
-      type: "review.completed",
-      runId,
-      timestamp: completedAtTimestamp,
-      data: {
-        decision: summary.decision,
-        outcome: summary.outcome,
-        durationMs: overallMs,
-      },
+      runtimeKind,
+      jobKind,
+      incremental,
+      contextBuildMs,
+      riskAssessmentMs,
+      coordinatorMs,
+      groundingDroppedCount: fused.groundingDroppedCount,
+      locationBackfilledCount: fused.locationBackfilledCount,
+      acknowledgedCount: fused.acknowledgedCount,
+      suppressedCount: fused.suppressedCount,
+      clock,
     });
 
     return {
       context,
-      summary,
+      summary: fused.summary,
       ...(runtimeResult.coordinatorResult !== undefined
         ? { coordinatorResult: runtimeResult.coordinatorResult }
         : {}),
     };
   } catch (error) {
-    const failedAt = clock();
-    const failedAtTimestamp = failedAt.toISOString();
-    const overallMs = elapsedMs(startedAt, failedAt);
-    const serializedError = serializeError(error);
-    const errorClassification = classifyReviewError(error);
-    await emitTrace(options.traceSink, {
-      type: "review.failed",
+    await emitFailedRunMetrics({
+      options,
+      context,
+      error,
+      startedAt,
+      timestamp,
       runId,
-      timestamp: failedAtTimestamp,
-      message: serializedError.message,
-      data: {
-        phase: "agent_runtime",
-        errorName: serializedError.name,
-        errorMessage: serializedError.message,
-        errorClassification: {
-          category: errorClassification.category,
-          retryable: errorClassification.retryable,
-          reason: errorClassification.reason,
-        },
-        errorCategory: errorClassification.category,
-        retryable: errorClassification.retryable,
-        ...(serializedError.stack !== undefined ? { errorStack: serializedError.stack } : {}),
-        durationMs: overallMs,
-      },
+      runtimeKind,
+      jobKind,
+      contextBuildMs,
+      riskAssessmentMs,
+      clock,
     });
-    const metrics: ReviewRunMetrics = {
-      durationsMs: {
-        overallMs,
-        contextBuildMs,
-        riskAssessmentMs,
-      },
-      ...(context.contextArtifacts !== undefined
-        ? {
-            context: createContextMetrics(context.contextArtifacts),
-          }
-        : {}),
-    };
-    await options.stateStore?.saveRun({
-      runId,
-      startedAt: timestamp,
-      completedAt: failedAtTimestamp,
-      context: {
-        safetyMode: context.safetyMode,
-        metadata: context.metadata,
-        risk: context.risk,
-      },
-      metrics,
-      error: serializedError.message,
-      errorClassification,
-      ...(options.tracePath !== undefined ? { tracePath: options.tracePath } : {}),
-    });
-    await emitTelemetry({
-      telemetrySink: options.telemetrySink,
-      traceSink: options.traceSink,
-      event: createRunMetricsTelemetryEvent({
-        runId,
-        timestamp: failedAtTimestamp,
-        context,
-        metrics,
-        status: "failed",
-        runtime: runtimeKind,
-        ...(jobKind !== undefined ? { jobKind } : {}),
-        errorClassification,
-      }),
-    });
-
     throw error;
   }
 }
@@ -858,304 +1041,6 @@ function countIgnoredByReason(ignoredFiles: readonly IgnoredFile[]): Record<stri
     counts[ignored.reason] = (counts[ignored.reason] ?? 0) + 1;
   }
   return counts;
-}
-
-function createRunMetrics(input: {
-  durationsMs: ReviewRunMetrics["durationsMs"];
-  contextArtifacts?: ReviewContextArtifacts;
-  coordinatorResult?: CoordinatorRunResult;
-}): ReviewRunMetrics {
-  const agentMetrics =
-    input.coordinatorResult === undefined
-      ? []
-      : [
-          ...input.coordinatorResult.reviewerResults.flatMap((result) =>
-            result.usage === undefined
-              ? []
-              : [
-                  {
-                    agentRunId: result.agentRunId,
-                    role: result.role,
-                    kind: "reviewer" as const,
-                    usage: result.usage,
-                    ...(result.promptMetrics !== undefined ? { prompt: result.promptMetrics } : {}),
-                    ...(result.attemptCount !== undefined
-                      ? { attemptCount: result.attemptCount }
-                      : {}),
-                    ...(result.retryCount !== undefined ? { retryCount: result.retryCount } : {}),
-                  },
-                ],
-          ),
-          ...(input.coordinatorResult.usage === undefined
-            ? []
-            : [
-                {
-                  agentRunId: input.coordinatorResult.agentRunId,
-                  role: "coordinator",
-                  kind: "coordinator" as const,
-                  usage: input.coordinatorResult.usage,
-                },
-              ]),
-        ];
-
-  const failureMetrics =
-    input.coordinatorResult?.reviewerFailures?.map((failure) => ({
-      agentRunId: failure.agentRunId,
-      role: failure.role,
-      kind: "reviewer" as const,
-      errorName: failure.errorName,
-      errorClassification: failure.errorClassification,
-      ...(failure.durationMs !== undefined ? { durationMs: failure.durationMs } : {}),
-      ...(failure.attemptCount !== undefined ? { attemptCount: failure.attemptCount } : {}),
-      ...(failure.retryCount !== undefined ? { retryCount: failure.retryCount } : {}),
-    })) ?? [];
-
-  // Counts-only structured-output tally (M015 S05, #128): how many Pi agents delivered via the
-  // structured tool vs the prose fallback. Agents with no structuredOutput (e.g. dummy runtime,
-  // short-circuit / degraded paths) are excluded from totalCount so a non-Pi run reports nothing.
-  const structuredFlags: boolean[] = [];
-  if (input.coordinatorResult !== undefined) {
-    for (const reviewer of input.coordinatorResult.reviewerResults) {
-      if (reviewer.structuredOutput !== undefined) structuredFlags.push(reviewer.structuredOutput);
-    }
-    if (input.coordinatorResult.structuredOutput !== undefined) {
-      structuredFlags.push(input.coordinatorResult.structuredOutput);
-    }
-  }
-  const structuredOutput =
-    structuredFlags.length === 0
-      ? undefined
-      : {
-          structuredCount: structuredFlags.filter((flag) => flag).length,
-          totalCount: structuredFlags.length,
-        };
-
-  return {
-    durationsMs: input.durationsMs,
-    ...(input.contextArtifacts !== undefined
-      ? {
-          context: createContextMetrics(input.contextArtifacts),
-        }
-      : {}),
-    ...(agentMetrics.length > 0
-      ? {
-          agents: agentMetrics,
-          tokens: sumTokenUsage(agentMetrics.map((agent) => agent.usage)),
-        }
-      : {}),
-    ...(failureMetrics.length > 0 ? { failures: failureMetrics } : {}),
-    ...(structuredOutput !== undefined ? { structuredOutput } : {}),
-  };
-}
-
-function createRunMetricsTelemetryEvent(input: {
-  runId: string;
-  timestamp: string;
-  context: ReviewContext;
-  metrics: ReviewRunMetrics;
-  status: "completed" | "failed";
-  runtime: string;
-  jobKind?: string;
-  groundingDroppedCount?: number;
-  locationBackfilledCount?: number;
-  acknowledgedCount?: number;
-  suppressedCount?: number;
-  thinReview?: { outputTokens: number; expectedFloor: number };
-  coordinatorShortCircuited?: boolean;
-  incremental?: { mode: string; reason: string; reviewedFileCount: number };
-  summary?: ReviewSummary;
-  errorClassification?: ReviewErrorClassification;
-}): TelemetryEvent {
-  const data: Record<string, JsonValue> = {
-    schemaVersion: "ai-review.run_metrics.v1",
-    status: input.status,
-    runtime: input.runtime,
-    provider: input.context.metadata.provider,
-    repository: input.context.metadata.repository.slug,
-    changeId: input.context.metadata.changeId,
-    headSha: input.context.metadata.headSha,
-    safetyMode: input.context.safetyMode,
-    riskTier: input.context.risk.tier,
-    riskReason: input.context.risk.reason,
-    reviewedFileCount: input.context.risk.reviewedFileCount,
-    ignoredFileCount: input.context.risk.ignoredFileCount,
-    durationMs: input.metrics.durationsMs.overallMs,
-    durationsMs: toJsonRecord(input.metrics.durationsMs),
-    findingCount: input.summary?.findings.length ?? 0,
-    findingsBySeverity: countFindingsBy(
-      input.summary?.findings ?? [],
-      (finding) => finding.severity,
-    ),
-    findingsByReviewer: countFindingsBy(
-      input.summary?.findings ?? [],
-      (finding) => finding.reviewer,
-    ),
-    decision: input.summary?.decision ?? "review_failed",
-    outcome: input.summary?.outcome ?? "fail",
-  };
-
-  if (input.jobKind !== undefined) {
-    data.jobKind = input.jobKind;
-  }
-
-  if (input.metrics.context !== undefined) {
-    data.context = toJsonRecord(input.metrics.context);
-  }
-  if (input.metrics.tokens !== undefined) {
-    data.tokens = toJsonRecord(input.metrics.tokens);
-  }
-  if (input.metrics.structuredOutput !== undefined) {
-    data.structuredOutput = {
-      structuredCount: input.metrics.structuredOutput.structuredCount,
-      totalCount: input.metrics.structuredOutput.totalCount,
-    };
-  }
-  if (input.metrics.agents !== undefined) {
-    data.agents = input.metrics.agents.map((agent) => ({
-      agentRunId: agent.agentRunId,
-      role: agent.role,
-      kind: agent.kind,
-      usage: toJsonRecord(agent.usage),
-      ...(agent.prompt !== undefined ? { prompt: toJsonRecord(agent.prompt) } : {}),
-      ...(agent.attemptCount !== undefined ? { attemptCount: agent.attemptCount } : {}),
-      ...(agent.retryCount !== undefined ? { retryCount: agent.retryCount } : {}),
-    }));
-  }
-  if (input.metrics.failures !== undefined) {
-    data.failures = input.metrics.failures.map((failure) => ({
-      agentRunId: failure.agentRunId,
-      role: failure.role,
-      kind: failure.kind,
-      errorName: failure.errorName,
-      errorCategory: failure.errorClassification.category,
-      retryable: failure.errorClassification.retryable,
-      ...(failure.durationMs !== undefined ? { durationMs: failure.durationMs } : {}),
-      ...(failure.attemptCount !== undefined ? { attemptCount: failure.attemptCount } : {}),
-      ...(failure.retryCount !== undefined ? { retryCount: failure.retryCount } : {}),
-    }));
-  }
-  if (input.summary?.reReview !== undefined) {
-    data.reReview = {
-      newFindingCount: input.summary.reReview.newFindingIds.length,
-      recurringFindingCount: input.summary.reReview.recurringFindingIds.length,
-      fixedFindingCount: input.summary.reReview.fixedFindingIds.length,
-      withheldFindingCount: input.summary.reReview.withheldFindingIds.length,
-      carriedForwardFindingCount: input.summary.reReview.carriedForwardFindingIds.length,
-    };
-  }
-
-  if (input.incremental !== undefined) {
-    data.incremental = {
-      mode: input.incremental.mode,
-      reason: input.incremental.reason,
-      reviewedFileCount: input.incremental.reviewedFileCount,
-    };
-  }
-  if (input.groundingDroppedCount !== undefined && input.groundingDroppedCount > 0) {
-    data.grounding = { droppedFindingCount: input.groundingDroppedCount };
-  }
-  if (input.locationBackfilledCount !== undefined && input.locationBackfilledCount > 0) {
-    data.locationBackfill = { backfilledCount: input.locationBackfilledCount };
-  }
-  if (
-    (input.acknowledgedCount !== undefined && input.acknowledgedCount > 0) ||
-    (input.suppressedCount !== undefined && input.suppressedCount > 0)
-  ) {
-    const ackData: Record<string, number> = {};
-    if (input.acknowledgedCount !== undefined && input.acknowledgedCount > 0) {
-      ackData.acknowledgedCount = input.acknowledgedCount;
-    }
-    if (input.suppressedCount !== undefined && input.suppressedCount > 0) {
-      ackData.suppressedCount = input.suppressedCount;
-    }
-    data.acknowledgements = ackData;
-  }
-  if (input.thinReview !== undefined) {
-    data.thinReview = {
-      flagged: true,
-      outputTokens: input.thinReview.outputTokens,
-      expectedFloor: input.thinReview.expectedFloor,
-    };
-  }
-  if (input.coordinatorShortCircuited === true) {
-    data.coordinatorShortCircuited = true;
-  }
-  if (input.errorClassification !== undefined) {
-    data.errorClassification = {
-      category: input.errorClassification.category,
-      retryable: input.errorClassification.retryable,
-      reason: input.errorClassification.reason,
-    };
-  }
-
-  return {
-    type: "ai_review.run_metrics",
-    runId: input.runId,
-    timestamp: input.timestamp,
-    data,
-  };
-}
-
-function countFindingsBy(
-  findings: Finding[],
-  selectKey: (finding: Finding) => string,
-): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const finding of findings) {
-    const key = selectKey(finding);
-    counts[key] = (counts[key] ?? 0) + 1;
-  }
-
-  return counts;
-}
-
-function toJsonRecord(record: object): Record<string, JsonValue> {
-  const jsonRecord: Record<string, JsonValue> = {};
-  for (const [key, value] of Object.entries(record)) {
-    if (value === undefined) {
-      continue;
-    }
-    jsonRecord[key] = value as JsonValue;
-  }
-
-  return jsonRecord;
-}
-
-function createContextMetrics(
-  artifacts: ReviewContextArtifacts,
-): NonNullable<ReviewRunMetrics["context"]> {
-  return {
-    artifactBytes: artifacts.totalBytes,
-    changeContextBytes: artifacts.changeContextBytes,
-    patchBytes: artifacts.patchBytes,
-    patchFileCount: artifacts.patchFileCount,
-  };
-}
-
-function sumTokenUsage(usages: TokenUsage[]): NonNullable<ReviewRunMetrics["tokens"]> {
-  const inputTokens = sumOptional(usages.map((usage) => usage.inputTokens));
-  const outputTokens = sumOptional(usages.map((usage) => usage.outputTokens));
-  const cacheReadTokens = sumOptional(usages.map((usage) => usage.cacheReadTokens));
-  const cacheWriteTokens = sumOptional(usages.map((usage) => usage.cacheWriteTokens));
-  const estimatedCostUsd = sumOptional(usages.map((usage) => usage.estimatedCostUsd));
-
-  return {
-    agentCount: usages.length,
-    ...(inputTokens !== undefined ? { inputTokens } : {}),
-    ...(outputTokens !== undefined ? { outputTokens } : {}),
-    ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
-    ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
-    ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
-  };
-}
-
-function sumOptional(values: Array<number | undefined>): number | undefined {
-  const present = values.filter((value): value is number => value !== undefined);
-  if (present.length === 0) {
-    return undefined;
-  }
-
-  return present.reduce((total, value) => total + value, 0);
 }
 
 function runDeterministicFakeReviewers(fakeFindings: Finding[]): Finding[] {

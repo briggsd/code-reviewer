@@ -29,7 +29,7 @@ Gotchas:
 ## Key landmarks (the spine)
 
 - **Lifecycle:** `src/runner/run-review.ts` → `runReview()` (the spine; `runReviewFromChange` wraps it).
-- **Telemetry event:** `createRunMetricsTelemetryEvent(...)` in `run-review.ts` builds the `data` record.
+- **Telemetry event:** `createRunMetricsTelemetryEvent(...)` in `src/runner/run-metrics.ts` builds the `data` record (called from `emitCompletedRunMetrics`/`emitFailedRunMetrics` in `run-review.ts`).
 - **Prompts:** `buildReviewerPrompt` / `buildCoordinatorPrompt` in `src/runtime/pi-agent-runtime.ts`.
 - **Untrusted-content sanitizer:** `stringifyPromptData` / `sanitizePromptData` in `src/runtime/prompt-boundary.ts`.
 - **Config:** type `ReviewConfig` (`src/contracts/review.ts`); load/merge `src/runner/config.ts`;
@@ -42,8 +42,9 @@ Gotchas:
 **Add a `run_metrics` telemetry field** (e.g. `runtime` #48, `jobKind` #58):
 1. Add the source (a CLI flag and/or `RunReviewOptions` field). 2. Resolve/sanitize it ONCE
 near the top of `runReview` (mirror `resolveRuntimeKind`). 3. Pass it into **both** the
-completed and failed `createRunMetricsTelemetryEvent(...)` calls; add it to that function's
-input type; emit into `data` (conditionally `if (input.x !== undefined)` for optional fields).
+completed and failed `createRunMetricsTelemetryEvent(...)` calls (in `emitCompletedRunMetrics`/
+`emitFailedRunMetrics` in `run-review.ts`); add it to that function's input type and emit into
+`data` (both in `src/runner/run-metrics.ts`; conditionally `if (input.x !== undefined)` for optional fields).
 4. Test via `RecordingTelemetrySink` (present when set, absent when not). **Counts/metadata
 only (M008)** — never diff text, finding bodies, prompts, or secrets.
 
