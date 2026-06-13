@@ -45,9 +45,35 @@ mandatory — this repo's reviewer is non-deterministic and confabulation has ha
   `gh api -X PATCH repos/briggsd/ai-code-review-factory/pulls/<N> -f base=main`) and
   `gh issue view <N> --json <fields>` for reads.
 - **This repo auto-reviews its own PRs** (`.github/workflows/ai-review.yml`, real-Pi when
-  `AI_REVIEW_REAL_REVIEW_ENABLED=true`, ~4–8 min). Apply the real/hold/defer triage + noise-floor
-  stop. It has repeatedly pushed **allowlisting** where denylist+sanitize is correct for
-  extensibility — hold that line.
+  `AI_REVIEW_REAL_REVIEW_ENABLED=true`, ~4–8 min). See **Tighten the PR → review → fix loop** below.
+  It has repeatedly pushed **allowlisting** where denylist+sanitize is correct for extensibility —
+  hold that line.
+
+## Tighten the PR → review → fix loop
+Each fix-commit re-triggers a full ~4–8 min real-Pi review that then surfaces *new, more marginal*
+findings (the asymptote: 8→4→2→1). The blocking merge gate is only **Type-check & tests** (~30s);
+the real-Pi review is **advisory**. Don't let the CI review be round 1 — front-load it.
+
+1. **Self-review BEFORE opening the PR.** Two tiers, cheapest first:
+   - **Free checklist pass (always):** scan the diff for this reviewer's predictable hot-buttons —
+     untrusted/author-controllable content & injection, secret handling (argv/log/trace exposure),
+     **allowlisting-vs-extensibility** (CLAUDE.md Do-not), markdown escaping, *symmetric* validation
+     (e.g. empty-string on every input path), and **doc claims that overstate** (don't assert a
+     guarantee the code doesn't make). Most round-1 findings live here and need no model to catch.
+   - **Local dogfood review (security/correctness-heavy diffs only):** run the factory on its own
+     branch first — `bun run src/cli.ts run --git-diff --base main --runtime pi --pi-api-key
+     env:ANTHROPIC_API_KEY --output-dir /tmp/x` (key in macOS keychain: `security
+     find-generic-password -s ANTHROPIC_API_KEY -w`). Same reviewer as CI, but iterate locally with
+     no push/queue/runner latency, so the PR opens near the noise floor. Worth the ~1 review's tokens
+     when round-1 reliably has real findings (new auth flag, content-based skip-review heuristic); skip
+     for doc/trivial diffs.
+2. **Hard stopping rule: max ~2 CI review rounds.** After round 2, accept-and-document the remaining
+   findings (they're typically suggestions / impossible-given-invariants) and **merge on the green
+   blocking check** — don't spend a full advisory cycle on a doc-only or pure-suggestion round.
+3. **Post a triage note IN THE SAME PUSH as the fixes.** State "fixed X / accepted Y because
+   <impossible-given-runtime-ordering | inherent-tradeoff, documented>". Documenting an accepted
+   limitation in a PR comment demonstrably makes the reviewer **stop re-raising it** next round.
+   Update the PR body after any mid-review pivot (the reviewer reads it as ground truth).
 - **Codex auth backup:** ChatGPT auth at `~/.codex/auth.json.bak-chatgpt`; `gpt-5-codex` needs
   API-key auth (restore the backup when done).
 - **Don't `git add -A`** when committing delegated work — it has swept `M009-SUMMARY.md` in.
