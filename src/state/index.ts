@@ -3,6 +3,7 @@ export * from "./filesystem-state-store.ts";
 export * from "./http-telemetry-transport.ts";
 export * from "./jsonl-telemetry-transport.ts";
 export * from "./jsonl-trace-sink.ts";
+export * from "./loki-telemetry-transport.ts";
 export * from "./non-blocking-telemetry-sink.ts";
 export * from "./redacting-trace-sink.ts";
 export * from "./run-metrics-rollup.ts";

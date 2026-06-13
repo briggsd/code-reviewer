@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { finalizeCiExit } from "./cli/ci-exit.ts";
 import { ReviewProgressReporter } from "./cli/review-progress-reporter.ts";
 import { parseRunPublishOptions } from "./cli/run-options.ts";
-import { assertHttpUrl, parseBasicAuth } from "./cli/telemetry-auth.ts";
+import { resolveRemoteEndpoint } from "./cli/telemetry-auth.ts";
 import type {
   BreakGlassOverride,
   ChangeMetadata,
@@ -23,6 +23,7 @@ import type {
 import {
   CountsOnlyTelemetryTransport,
   createDefaultReviewConfig,
+  createLokiTelemetryTransport,
   createRunId,
   createTelemetryFailureTraceLogger,
   DummyAgentRuntime,
@@ -54,13 +55,13 @@ import {
 } from "./index.ts";
 
 // Build the telemetry transport: a durable JSONL file (always) plus an optional remote mirror.
-// The remote is default-off; unset = byte-identical to today (#51 AC). It is the generic
-// authenticated NDJSON HTTP POST #51 specs, selected by AI_REVIEW_TELEMETRY_URL; auth via
-// AI_REVIEW_TELEMETRY_AUTHORIZATION (raw header) or AI_REVIEW_TELEMETRY_BASIC_AUTH ("user:token").
-//
-// Vendor-specific exporters (e.g. the Loki push-API variant in loki-telemetry-transport.ts) are
-// explicitly OUT OF SCOPE for #51 ("a later second adapter"). That file is parked, not wired:
-// the layering composes this same HTTP core, so enabling it later is a wiring change, not a rewrite.
+// The remote is default-off; unset = byte-identical behavior. Each exporter owns its own env
+// namespace `AI_REVIEW_<NAME>_{URL,AUTHORIZATION,BASIC_AUTH}` (see resolveRemoteEndpoint):
+//   • AI_REVIEW_TELEMETRY_* → generic authenticated NDJSON HTTP POST (#51 send-side).
+//   • AI_REVIEW_LOKI_*      → Grafana Loki push-API variant (push straight to Loki, no
+//     promtail/Alloy hop). Composes the same HTTP core via createLokiTelemetryTransport.
+// Loki takes precedence if more than one is configured. (Adding a future exporter = a new
+// namespace here; multiples could later be tee'd together rather than precedence-selected.)
 //
 // JSONL is the PRIMARY tee leg (durable artifact `telemetry:rollup`/`:analyze` read) and stays
 // local/unwrapped. The remote leg is wrapped in CountsOnlyTelemetryTransport so every egressed
@@ -75,31 +76,28 @@ function buildTelemetryTransport(telemetryPath: string): TelemetryTransport {
 }
 
 function buildRemoteTelemetryTransport(): TelemetryTransport | undefined {
-  const httpUrl = process.env.AI_REVIEW_TELEMETRY_URL;
-  if (httpUrl === undefined || httpUrl.length === 0) {
-    return undefined;
+  // Loki takes precedence when both are configured — it is the more specific endpoint.
+  const loki = resolveRemoteEndpoint("AI_REVIEW_LOKI", process.env);
+  if (loki !== undefined) {
+    // Low-cardinality labels only — everything else stays in the log line, queried via `| json`.
+    return createLokiTelemetryTransport({
+      url: loki.url,
+      labelFromData: ["riskTier", "decision", "outcome"],
+      ...(loki.authorization !== undefined ? { authorization: loki.authorization } : {}),
+      ...(loki.basicAuth !== undefined ? { basicAuth: loki.basicAuth } : {}),
+    });
   }
 
-  const authorization = process.env.AI_REVIEW_TELEMETRY_AUTHORIZATION;
-  const hasAuthorization = authorization !== undefined && authorization.length > 0;
-  // AUTHORIZATION takes precedence: only consult (and validate) BASIC_AUTH when AUTHORIZATION is
-  // absent, so a stale/malformed BASIC_AUTH can't abort the run while a valid AUTHORIZATION is
-  // set (e.g. mid credential-rotation).
-  const basicAuth = hasAuthorization
-    ? undefined
-    : parseBasicAuth(process.env.AI_REVIEW_TELEMETRY_BASIC_AUTH);
-  const hasAuth = hasAuthorization || basicAuth !== undefined;
+  const generic = resolveRemoteEndpoint("AI_REVIEW_TELEMETRY", process.env);
+  if (generic !== undefined) {
+    return new HttpTelemetryTransport({
+      url: generic.url,
+      ...(generic.authorization !== undefined ? { authorization: generic.authorization } : {}),
+      ...(generic.basicAuth !== undefined ? { basicAuth: generic.basicAuth } : {}),
+    });
+  }
 
-  // Validate the endpoint at startup (http(s) only, not a cloud metadata host, and https when
-  // credentials are present). A bad endpoint is an operator configuration error surfaced early,
-  // not a silent no-op.
-  assertHttpUrl(httpUrl, { hasAuth });
-
-  return new HttpTelemetryTransport({
-    url: httpUrl,
-    ...(hasAuthorization ? { authorization } : {}),
-    ...(basicAuth !== undefined ? { basicAuth } : {}),
-  });
+  return undefined;
 }
 
 const gitRunner: GitRunner = async (args) => {

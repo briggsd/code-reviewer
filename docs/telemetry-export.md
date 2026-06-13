@@ -224,37 +224,49 @@ Remote send-side egress lives in the transport layer (#51, below); factory-side 
 
 ## Remote telemetry transport (#51, send-side)
 
-Telemetry is written to a local JSONL artifact by default. To **also** mirror events to a
-remote collector (e.g. a fleet-wide aggregation endpoint), set `AI_REVIEW_TELEMETRY_URL`. The
-remote leg is **default-off** (unset = byte-identical behavior), **fail-open** (a slow or
+Telemetry is written to a local JSONL artifact by default. To **also** mirror events to a remote
+collector (e.g. a fleet-wide aggregation endpoint), configure an exporter. The remote leg is
+**default-off** (no exporter configured = byte-identical behavior), **fail-open** (a slow or
 failing endpoint never blocks or fails the review), and **counts-only** — every egressed event
 passes the same `rollup-export.ts` boundary (type allowlist + key/slug/envelope shape-bounding)
 before leaving the process.
 
-| Env var | Purpose |
-| --- | --- |
-| `AI_REVIEW_TELEMETRY_URL` | Enables the remote mirror. Must be an `http(s)` URL; the events are POSTed as newline-delimited JSON. Unset ⇒ feature off. |
-| `AI_REVIEW_TELEMETRY_AUTHORIZATION` | Raw `Authorization` header value (e.g. `Bearer <token>`). |
-| `AI_REVIEW_TELEMETRY_BASIC_AUTH` | `user:token` basic-auth pair (e.g. a Grafana Cloud `<instance-id>:<api-token>`). A malformed value (no colon, empty user, or empty token) is a hard startup error — **unless** `AI_REVIEW_TELEMETRY_AUTHORIZATION` is also set, in which case `BASIC_AUTH` is ignored and not validated. |
+**Exporter env namespaces.** Each exporter owns an `AI_REVIEW_<NAME>_{URL,AUTHORIZATION,BASIC_AUTH}`
+namespace, so exporters are configured independently (no shared/ambiguous auth). Setting an
+exporter's `_URL` enables it; Loki takes precedence if more than one is configured.
 
-When both auth vars are set, `AI_REVIEW_TELEMETRY_AUTHORIZATION` takes precedence and
-`AI_REVIEW_TELEMETRY_BASIC_AUTH` is **ignored (and not validated)** — so a stale `BASIC_AUTH`
-left over from a credential rotation will not abort the run. The local JSONL artifact remains
-the primary, durable record regardless of remote configuration. Each remote request has a
-~10-second abort timeout so a hung connection cannot outlive the run. The POST does **not**
-follow redirects (`redirect: "error"`, a runtime SSRF guard) — point `AI_REVIEW_TELEMETRY_URL`
-at the final endpoint; a collector behind an HTTP→HTTPS redirect will record delivery failures.
+| Exporter | `…_URL` | Auth (`…_AUTHORIZATION` / `…_BASIC_AUTH`) |
+| --- | --- | --- |
+| Generic HTTP | `AI_REVIEW_TELEMETRY_URL` — `http(s)` URL; events POSTed as newline-delimited JSON. | `AI_REVIEW_TELEMETRY_AUTHORIZATION` / `AI_REVIEW_TELEMETRY_BASIC_AUTH` |
+| Grafana Loki | `AI_REVIEW_LOKI_URL` — the **base** Loki URL (e.g. `https://logs-prod-012.grafana.net`); `/loki/api/v1/push` is appended and events use Loki's `{streams:[…]}` envelope. | `AI_REVIEW_LOKI_AUTHORIZATION` / `AI_REVIEW_LOKI_BASIC_AUTH` |
+
+Within a namespace: `…_AUTHORIZATION` is a raw `Authorization` header (e.g. `Bearer <token>`);
+`…_BASIC_AUTH` is a `user:token` pair (e.g. a Grafana Cloud `<instance-id>:<api-token>`) sent as
+`Basic`. When both are set, `…_AUTHORIZATION` takes precedence and `…_BASIC_AUTH` is **ignored and
+not validated** (so a stale value from a credential rotation won't abort the run). A *set* but
+malformed `…_BASIC_AUTH` (no colon, empty user, or empty token) is a hard startup error.
+
+The Loki variant labels each stream by `service`, `event_type`, and a low-cardinality allowlist
+(`riskTier`, `decision`, `outcome`); the full counts-only event is the log line, queryable with
+LogQL `| json`. It reuses the generic transport's POST / redirect / timeout / fail-open behavior
+— only the wire shape and env namespace differ.
+
+The local JSONL artifact remains the primary, durable record regardless of remote configuration.
+Each remote request has a ~10-second abort timeout so a hung connection cannot outlive the run.
+The POST does **not** follow redirects (`redirect: "error"`, a runtime SSRF guard) — point the
+`…_URL` at the final endpoint; a collector behind an HTTP→HTTPS redirect will record delivery
+failures.
 
 **Fail-open vs. startup validation.** "Fail-open" describes *runtime* delivery: once configured,
 a slow or failing endpoint never blocks or fails the review. It does **not** mean misconfiguration
-is ignored — the following are **hard startup errors that abort the run**: a non-`http(s)`
-`AI_REVIEW_TELEMETRY_URL`; a URL pointing at a cloud metadata endpoint (`169.254.169.254`,
-`fd00:ec2::254`, `metadata.google.internal`); a plain `http://` URL when credentials are present
-(in the auth env vars **or** embedded as `user:pass@host` — credentials must not be sent in
-plaintext, use `https://`); or a malformed `AI_REVIEW_TELEMETRY_BASIC_AUTH` (not `user:token`,
-and only when no `AI_REVIEW_TELEMETRY_AUTHORIZATION` is set). Plain `http://` is allowed only for
-a no-auth internal collector. Set these only
-after verifying the values in CI; a bad value fails fast rather than silently sending nowhere.
+is ignored — for the configured exporter's namespace, the following are **hard startup errors
+that abort the run**: a non-`http(s)` `…_URL`; a URL pointing at a cloud metadata endpoint
+(`169.254.169.254`, `fd00:ec2::254`, `metadata.google.internal`); a plain `http://` URL when
+credentials are present (in `…_AUTHORIZATION`/`…_BASIC_AUTH` **or** embedded as `user:pass@host` —
+credentials must not be sent in plaintext, use `https://`); or a malformed `…_BASIC_AUTH` (not
+`user:token`, and only when no `…_AUTHORIZATION` is set). Plain `http://` is allowed only for a
+no-auth internal collector. Set these only after verifying the values in CI; a bad value fails
+fast rather than silently sending nowhere.
 
 **Counts-only scope.** The egress projection enforces the type allowlist, key shape-bounding,
 repo-slug shape, and top-level envelope (`runId`/`timestamp`) shape. Value-level free-text

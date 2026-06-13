@@ -62,18 +62,22 @@ export class HttpTelemetryTransport implements TelemetryTransport {
       return;
     }
 
-    const request = this.formatRequest(event);
-    const headers: Record<string, string> = { "content-type": request.contentType };
-    if (this.authorization !== undefined) {
-      headers.authorization = this.authorization;
-    }
-
     // Bound a hung connection — the tee fires this off without awaiting, so nothing else would
     // otherwise time it out. clearTimeout in finally so a settled request leaves no live timer.
     const controller = new AbortController();
     this.inFlight.add(controller);
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
+      // formatRequest is INSIDE the try so a throwing formatter (e.g. a vendor variant rejecting
+      // a malformed event) surfaces as a rejected send() — caught by the sink / tee `.catch` —
+      // rather than a synchronous throw that bypasses fail-open. The timer/inFlight cleanup in
+      // `finally` runs either way.
+      const request = this.formatRequest(event);
+      const headers: Record<string, string> = { "content-type": request.contentType };
+      if (this.authorization !== undefined) {
+        headers.authorization = this.authorization;
+      }
+
       const response = await this.fetchImpl(this.url, {
         method: "POST",
         headers,

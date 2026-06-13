@@ -1,11 +1,17 @@
 import { describe, expect, test } from "bun:test";
 
-import { assertHttpUrl, parseBasicAuth } from "../src/cli/telemetry-auth.ts";
+import { assertHttpUrl, parseBasicAuth, resolveRemoteEndpoint } from "../src/cli/telemetry-auth.ts";
 
 describe("parseBasicAuth", () => {
   test("returns undefined when unset/empty (feature not configured)", () => {
     expect(parseBasicAuth(undefined)).toBeUndefined();
     expect(parseBasicAuth("")).toBeUndefined();
+  });
+
+  test("names the given var in its error", () => {
+    expect(() => parseBasicAuth("nocolon", "AI_REVIEW_LOKI_BASIC_AUTH")).toThrow(
+      /AI_REVIEW_LOKI_BASIC_AUTH must be/,
+    );
   });
 
   test("parses a well-formed user:token", () => {
@@ -61,6 +67,18 @@ describe("assertHttpUrl", () => {
     expect(() => assertHttpUrl("http://metadata.google.internal./")).toThrow(/metadata/);
   });
 
+  test("names the configured env var in error messages (Loki path)", () => {
+    expect(() => assertHttpUrl("ftp://x", { varName: "AI_REVIEW_LOKI_URL" })).toThrow(
+      /AI_REVIEW_LOKI_URL must use http/,
+    );
+    expect(() =>
+      assertHttpUrl("http://169.254.169.254/", { varName: "AI_REVIEW_LOKI_URL" }),
+    ).toThrow(/AI_REVIEW_LOKI_URL must not target/);
+    expect(() =>
+      assertHttpUrl("http://collector/ingest", { hasAuth: true, varName: "AI_REVIEW_LOKI_URL" }),
+    ).toThrow(/AI_REVIEW_LOKI_URL uses http/);
+  });
+
   test("rejects plain http when auth is configured (no plaintext credentials)", () => {
     expect(() => assertHttpUrl("http://collector.internal/ingest", { hasAuth: true })).toThrow(
       /plaintext/,
@@ -89,5 +107,49 @@ describe("assertHttpUrl", () => {
     } catch (error) {
       expect((error as Error).message).not.toContain("secret");
     }
+  });
+});
+
+describe("resolveRemoteEndpoint", () => {
+  test("returns undefined when the namespace's _URL is unset", () => {
+    expect(resolveRemoteEndpoint("AI_REVIEW_LOKI", {})).toBeUndefined();
+    expect(resolveRemoteEndpoint("AI_REVIEW_LOKI", { AI_REVIEW_LOKI_URL: "" })).toBeUndefined();
+  });
+
+  test("reads URL + basic auth from the given namespace", () => {
+    const config = resolveRemoteEndpoint("AI_REVIEW_LOKI", {
+      AI_REVIEW_LOKI_URL: "https://logs.example.net",
+      AI_REVIEW_LOKI_BASIC_AUTH: "12345:key",
+      // A different namespace's vars must be ignored.
+      AI_REVIEW_TELEMETRY_BASIC_AUTH: "should:ignore",
+    });
+    expect(config).toEqual({
+      url: "https://logs.example.net",
+      basicAuth: { user: "12345", token: "key" },
+    });
+  });
+
+  test("AUTHORIZATION takes precedence; BASIC_AUTH is then ignored and not validated", () => {
+    const config = resolveRemoteEndpoint("AI_REVIEW_LOKI", {
+      AI_REVIEW_LOKI_URL: "https://logs.example.net",
+      AI_REVIEW_LOKI_AUTHORIZATION: "Bearer xyz",
+      AI_REVIEW_LOKI_BASIC_AUTH: "malformed-no-colon", // would throw if validated
+    });
+    expect(config).toEqual({ url: "https://logs.example.net", authorization: "Bearer xyz" });
+  });
+
+  test("validates the URL under the namespace's var name", () => {
+    expect(() =>
+      resolveRemoteEndpoint("AI_REVIEW_LOKI", { AI_REVIEW_LOKI_URL: "http://169.254.169.254/" }),
+    ).toThrow(/AI_REVIEW_LOKI_URL must not target/);
+  });
+
+  test("throws on a malformed BASIC_AUTH naming the namespace's var", () => {
+    expect(() =>
+      resolveRemoteEndpoint("AI_REVIEW_LOKI", {
+        AI_REVIEW_LOKI_URL: "https://logs.example.net",
+        AI_REVIEW_LOKI_BASIC_AUTH: "nocolon",
+      }),
+    ).toThrow(/AI_REVIEW_LOKI_BASIC_AUTH must be/);
   });
 });
