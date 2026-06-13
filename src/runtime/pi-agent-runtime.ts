@@ -25,6 +25,7 @@ import {
   summarizeReview,
 } from "../runner/run-review.ts";
 import { stringifyPromptData } from "./prompt-boundary.ts";
+import { getRecord, validateFinding } from "./structured-tool-output.ts";
 
 export interface PiProcessRunInput {
   runId: string;
@@ -1402,89 +1403,6 @@ function parseCoordinatorOutput(text: string, allowedReviewerRoles: readonly str
   };
 }
 
-function validateFinding(value: unknown): Finding {
-  const finding = getRecord(value);
-  const evidence = normalizeEvidence(finding.evidence);
-  const quotedCode = normalizeQuotedCode(finding.quotedCode);
-  if (
-    typeof finding.reviewer !== "string" ||
-    !isSeverity(finding.severity) ||
-    typeof finding.category !== "string" ||
-    typeof finding.title !== "string" ||
-    typeof finding.body !== "string" ||
-    !isConfidence(finding.confidence) ||
-    evidence === undefined ||
-    typeof finding.recommendation !== "string"
-  ) {
-    throw new Error("Pi reviewer output contained an invalid finding");
-  }
-
-  // A model-emitted `id` is never honored: Pi output is untrusted, and
-  // assignStableFindingIds resolves identity with `finding.id ?? hash`, so a
-  // passed-through id would win and could carry a value matching a *spoofed*
-  // reviewer's hash (re-opening the #31 corruption #32 closes). Dropping it here
-  // — the single chokepoint for all Pi findings — keeps the factory-computed
-  // stable id authoritative for both specialist and coordinator output.
-  return {
-    reviewer: finding.reviewer,
-    severity: finding.severity,
-    category: finding.category,
-    title: finding.title,
-    body: finding.body,
-    ...(isValidFindingLocation(finding.location) ? { location: finding.location } : {}),
-    confidence: finding.confidence,
-    evidence,
-    ...(quotedCode !== undefined ? { quotedCode } : {}),
-    recommendation: finding.recommendation,
-  };
-}
-
-function normalizeEvidence(value: unknown): string[] | undefined {
-  if (value === undefined) {
-    return [];
-  }
-
-  if (typeof value === "string") {
-    return [value];
-  }
-
-  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
-    return value;
-  }
-
-  return undefined;
-}
-
-// A model may emit a `location` object missing a string `path` (or with a non-string path).
-// Honoring it would crash stable-id computation (`normalizePath` -> `path.trim()`). Untrusted
-// model output is validated here (principle #6), so require a string `path` before passing it
-// through; otherwise drop the location and keep the finding.
-function isValidFindingLocation(value: unknown): value is NonNullable<Finding["location"]> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as Record<string, unknown>).path === "string"
-  );
-}
-
-function normalizeQuotedCode(value: unknown): string[] | undefined {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? [trimmed] : undefined;
-  }
-
-  if (Array.isArray(value)) {
-    // Trim kept entries so both branches store canonically-trimmed strings (the future #54.2
-    // grounding step matches these against diff lines; padded entries would fail that match).
-    const trimmed = value.flatMap((item) =>
-      typeof item === "string" && item.trim().length > 0 ? [item.trim()] : [],
-    );
-    return trimmed.length > 0 ? trimmed : undefined;
-  }
-
-  return undefined;
-}
-
 function parseJsonObject(text: string): unknown {
   const trimmed = text.trim();
   const candidate = extractFencedJson(trimmed) ?? trimmed;
@@ -1781,14 +1699,6 @@ function sanitizeForBodyCodeSpan(value: string): string {
     .slice(0, 80);
 }
 
-function getRecord(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("Expected JSON object");
-  }
-
-  return value as Record<string, unknown>;
-}
-
 async function readJsonlStream(
   stream: ReadableStream<Uint8Array>,
   onEvent: ((event: unknown) => void) | undefined,
@@ -2021,14 +1931,6 @@ function sanitizeJsonValue(value: unknown): JsonValue {
   }
 
   return String(value);
-}
-
-function isSeverity(value: unknown): value is Finding["severity"] {
-  return value === "critical" || value === "warning" || value === "suggestion";
-}
-
-function isConfidence(value: unknown): value is Finding["confidence"] {
-  return value === "high" || value === "medium" || value === "low";
 }
 
 function isReviewDecision(value: unknown): value is ReturnType<typeof summarizeReview>["decision"] {
