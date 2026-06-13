@@ -2,6 +2,7 @@ import type {
   BreakGlassOverride,
   ChangedFile,
   ChangedFileStatus,
+  ChangedPathsSince,
   ChangeMetadata,
   ChangeRef,
   DiffSummary,
@@ -80,6 +81,18 @@ interface GitLabChangeResponse {
 interface GitLabChangesResponse {
   changes: GitLabChangeResponse[];
   overflow?: boolean;
+}
+
+// Repository-compare response (GET /repository/compare) — used for incremental re-review (#115).
+interface GitLabCompareDiff {
+  old_path?: string;
+  new_path?: string;
+}
+interface GitLabCompareResponse {
+  commits?: Array<{ id?: string }>;
+  diffs?: GitLabCompareDiff[];
+  // GitLab sets this when the diff is too large to compute in time → coverage not guaranteed.
+  compare_timeout?: boolean;
 }
 
 interface GitLabNoteResponse {
@@ -216,6 +229,63 @@ export class GitLabVcsAdapter implements VcsAdapter {
     const metadata = parseSummaryHiddenMetadata(existing?.body);
 
     return metadata === undefined ? undefined : createPriorReviewStateFromMetadata(metadata, ref);
+  }
+
+  async getChangedPathsSince(
+    ref: ChangeRef,
+    sinceSha: string,
+  ): Promise<ChangedPathsSince | undefined> {
+    try {
+      // sinceSha originates from prior-review metadata (untrusted reviewed-repo content).
+      // Require a commit-SHA shape before interpolating it into the API query — a malformed
+      // value would only error anyway; rejecting it avoids a wasted call (→ full-review fallback).
+      if (!/^[0-9a-f]{7,64}$/i.test(sinceSha)) {
+        return undefined;
+      }
+
+      // GitLab's compare response has no GitHub-style `status` field, so ancestry is DERIVED.
+      // A reverse straight compare (headSha..sinceSha) returns the commits reachable from sinceSha
+      // but NOT from head: on a clean fast-forward re-push that set is empty; a force-push/rebase
+      // leaves sinceSha-only commits → non-empty → not safe to narrow. A timed-out compare can't
+      // confirm emptiness, so it counts as non-ancestor (the safe, full-review direction).
+      const reverse = await this.request<GitLabCompareResponse>(
+        this.comparePath(ref, ref.headSha, sinceSha),
+      );
+      const isAncestor = reverse.compare_timeout !== true && (reverse.commits?.length ?? 0) === 0;
+
+      if (!isAncestor) {
+        // Force-push/rebase (or unconfirmable): return empty changedPaths so a caller that narrows
+        // without checking isAncestor reviews nothing (the safe direction) rather than a misleading
+        // partial set. The flag is still returned so the runner records `base_changed` (distinct
+        // from the `delta_unavailable` that an undefined result yields).
+        return { changedPaths: [], isAncestor: false };
+      }
+
+      // Forward straight compare (sinceSha..headSha): the net paths changed since the prior head.
+      const forward = await this.request<GitLabCompareResponse>(
+        this.comparePath(ref, sinceSha, ref.headSha),
+      );
+      if (forward.compare_timeout === true) {
+        // Too large to compute → coverage not guaranteed → full review (correctness over savings).
+        return undefined;
+      }
+
+      const diffs = forward.diffs ?? [];
+      // Mirror the GitHub 300-file cap: a very large delta is no cheaper to review incrementally
+      // and risks truncation → fall back to full review.
+      if (diffs.length >= 300) {
+        return undefined;
+      }
+
+      const changedPaths = diffs
+        .map((diff) => diff.new_path ?? diff.old_path ?? "")
+        .filter((path) => path.length > 0);
+
+      return { changedPaths, isAncestor: true };
+    } catch {
+      // Best-effort: any error (network, 404, auth) degrades to full review, never throws.
+      return undefined;
+    }
   }
 
   async detectBreakGlassOverride(ref: ChangeRef): Promise<BreakGlassOverride | undefined> {
@@ -480,6 +550,12 @@ export class GitLabVcsAdapter implements VcsAdapter {
 
   private mergeRequestPath(ref: ChangeRef): string {
     return `/projects/${encodeURIComponent(ref.repository.slug)}/merge_requests/${encodeURIComponent(ref.changeId)}`;
+  }
+
+  private comparePath(ref: ChangeRef, from: string, to: string): string {
+    // straight=true → direct from..to comparison (not the default merge-base/three-dot); ancestry
+    // is derived separately from the reverse compare's commit set (see getChangedPathsSince).
+    return `/projects/${encodeURIComponent(ref.repository.slug)}/repository/compare?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&straight=true`;
   }
 
   private mergeRequestNotesPath(ref: ChangeRef | ChangeMetadata): string {

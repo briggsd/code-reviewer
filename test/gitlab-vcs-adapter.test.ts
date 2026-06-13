@@ -1219,6 +1219,271 @@ describe("GitLabVcsAdapter", () => {
       providerCommentId: "888",
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // getChangedPathsSince tests (#115 — GitLab compare-API incremental delta)
+  // ---------------------------------------------------------------------------
+
+  // A valid commit-SHA-shaped previousHeadSha (passes the untrusted-input guard).
+  const validSinceSha = "0123456789abcdef0123456789abcdef01234567";
+  const reverseCompareUrl = `https://gitlab.com/api/v4/projects/example%2Fpayments-api/repository/compare?from=headsha123&to=${validSinceSha}&straight=true`;
+  const forwardCompareUrl = `https://gitlab.com/api/v4/projects/example%2Fpayments-api/repository/compare?from=${validSinceSha}&to=headsha123&straight=true`;
+
+  test("getChangedPathsSince: a non-SHA-shaped sinceSha is rejected without an API call", async () => {
+    let called = false;
+    const adapter = new GitLabVcsAdapter({
+      fetch: async () => {
+        called = true;
+        return jsonResponse({ commits: [], diffs: [] });
+      },
+    });
+    // "oldsha" contains non-hex chars → rejected by the SHA-shape guard (untrusted input).
+    const result = await adapter.getChangedPathsSince(changeRef, "oldsha");
+    expect(result).toBeUndefined();
+    expect(called).toBe(false);
+  });
+
+  test("getChangedPathsSince: clean ancestor (no reverse commits) with 2 files → isAncestor true, changedPaths populated", async () => {
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url === reverseCompareUrl) {
+          // sinceSha has no commits unreachable from head → clean fast-forward.
+          return jsonResponse({ commits: [], diffs: [] });
+        }
+        if (url === forwardCompareUrl) {
+          return jsonResponse({
+            commits: [{ id: "abc" }, { id: "def" }],
+            diffs: [
+              { old_path: "src/auth/accounts.ts", new_path: "src/auth/accounts.ts" },
+              { old_path: "src/billing/invoice.ts", new_path: "src/billing/invoice.ts" },
+            ],
+          });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(changeRef, validSinceSha);
+
+    expect(result).toBeDefined();
+    expect(result?.isAncestor).toBe(true);
+    expect(result?.changedPaths).toEqual(["src/auth/accounts.ts", "src/billing/invoice.ts"]);
+  });
+
+  test("getChangedPathsSince: ancestor with empty forward diff → isAncestor true, empty changedPaths", async () => {
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url === reverseCompareUrl) {
+          return jsonResponse({ commits: [], diffs: [] });
+        }
+        if (url === forwardCompareUrl) {
+          return jsonResponse({ commits: [], diffs: [] });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(changeRef, validSinceSha);
+
+    expect(result?.isAncestor).toBe(true);
+    expect(result?.changedPaths).toEqual([]);
+  });
+
+  test("getChangedPathsSince: force-push/rebase (reverse commits non-empty) → isAncestor false, forward compare skipped", async () => {
+    const urls: string[] = [];
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        urls.push(url);
+        if (url === reverseCompareUrl) {
+          // sinceSha has a commit NOT reachable from head → diverged (force-push/rebase).
+          return jsonResponse({ commits: [{ id: "orphan" }], diffs: [] });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(changeRef, validSinceSha);
+
+    expect(result?.isAncestor).toBe(false);
+    // Not an ancestor → changedPaths emptied (the delta is meaningless on a force-push/rebase).
+    expect(result?.changedPaths).toEqual([]);
+    // The forward compare is skipped once ancestry is disproven (no wasted call).
+    expect(urls).toEqual([reverseCompareUrl]);
+  });
+
+  test("getChangedPathsSince: reverse compare_timeout → isAncestor false (ancestry unconfirmable)", async () => {
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url === reverseCompareUrl) {
+          // A timed-out compare cannot confirm the commit set is empty → treat as non-ancestor.
+          return jsonResponse({ commits: [], diffs: [], compare_timeout: true });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(changeRef, validSinceSha);
+
+    expect(result?.isAncestor).toBe(false);
+    expect(result?.changedPaths).toEqual([]);
+  });
+
+  test("getChangedPathsSince: deletion diff falls back to old_path", async () => {
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url === reverseCompareUrl) {
+          return jsonResponse({ commits: [], diffs: [] });
+        }
+        if (url === forwardCompareUrl) {
+          return jsonResponse({
+            commits: [{ id: "abc" }],
+            // A deletion: new_path absent → fall back to old_path; an empty path is dropped.
+            diffs: [
+              { old_path: "src/legacy/removed.ts" },
+              { old_path: "", new_path: "" },
+              { new_path: "src/new.ts" },
+            ],
+          });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(changeRef, validSinceSha);
+
+    expect(result?.isAncestor).toBe(true);
+    expect(result?.changedPaths).toEqual(["src/legacy/removed.ts", "src/new.ts"]);
+  });
+
+  test("getChangedPathsSince: forward compare_timeout → returns undefined (truncation safety)", async () => {
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url === reverseCompareUrl) {
+          return jsonResponse({ commits: [], diffs: [] });
+        }
+        if (url === forwardCompareUrl) {
+          return jsonResponse({ commits: [], diffs: [], compare_timeout: true });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(changeRef, validSinceSha);
+    expect(result).toBeUndefined();
+  });
+
+  test("getChangedPathsSince: 300 forward diffs → returns undefined (file-cap safety)", async () => {
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url === reverseCompareUrl) {
+          return jsonResponse({ commits: [], diffs: [] });
+        }
+        if (url === forwardCompareUrl) {
+          const diffs = Array.from({ length: 300 }, (_, i) => ({ new_path: `src/file-${i}.ts` }));
+          return jsonResponse({ commits: [{ id: "abc" }], diffs });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(changeRef, validSinceSha);
+    expect(result).toBeUndefined();
+  });
+
+  test("getChangedPathsSince: 299 forward diffs → returned (not truncated)", async () => {
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url === reverseCompareUrl) {
+          return jsonResponse({ commits: [], diffs: [] });
+        }
+        if (url === forwardCompareUrl) {
+          const diffs = Array.from({ length: 299 }, (_, i) => ({ new_path: `src/file-${i}.ts` }));
+          return jsonResponse({ commits: [{ id: "abc" }], diffs });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(changeRef, validSinceSha);
+    expect(result?.changedPaths).toHaveLength(299);
+    expect(result?.isAncestor).toBe(true);
+  });
+
+  test("getChangedPathsSince: fetch throws → returns undefined (best-effort, never throws)", async () => {
+    const adapter = new GitLabVcsAdapter({
+      fetch: async () => {
+        throw new Error("network error");
+      },
+    });
+    const result = await adapter.getChangedPathsSince(changeRef, validSinceSha);
+    expect(result).toBeUndefined();
+  });
+
+  test("getChangedPathsSince: non-2xx response → returns undefined", async () => {
+    const adapter = new GitLabVcsAdapter({
+      fetch: async () =>
+        new Response(JSON.stringify({ message: "not found" }), {
+          status: 404,
+          statusText: "Not Found",
+        }),
+    });
+    const result = await adapter.getChangedPathsSince(changeRef, validSinceSha);
+    expect(result).toBeUndefined();
+  });
+
+  test("getChangedPathsSince: missing diffs field → empty changedPaths", async () => {
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url === reverseCompareUrl) {
+          return jsonResponse({ commits: [] });
+        }
+        if (url === forwardCompareUrl) {
+          return jsonResponse({ commits: [{ id: "abc" }] });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(changeRef, validSinceSha);
+    expect(result?.isAncestor).toBe(true);
+    expect(result?.changedPaths).toEqual([]);
+  });
 });
 
 function fixtureFetch(calls: Array<{ url: string; init?: RequestInit }>): GitLabFetchLike {

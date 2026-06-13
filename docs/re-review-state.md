@@ -142,7 +142,7 @@ The `run_metrics` telemetry event also includes an `incremental` block when the 
 ### GitHub vs GitLab
 
 - **GitHub**: `getChangedPathsSince` is implemented using `GET /repos/{owner}/{repo}/compare/{sinceSha}...{headSha}`. Returns `undefined` on any error or when ≥300 files are returned (truncation safety). This is the supported incremental path.
-- **GitLab**: `getChangedPathsSince` is NOT implemented (the optional method is undefined on the GitLab adapter). The runner falls back to a full review on every re-push. GitLab parity is a follow-up.
+- **GitLab**: `getChangedPathsSince` is implemented using the compare API (`GET /projects/{id}/repository/compare?from=…&to=…&straight=true`). GitLab's compare response has no GitHub-style `status` field, so ancestry is **derived**: a reverse compare (`headSha..sinceSha`) whose commit set is empty proves `sinceSha` is a clean ancestor of head (a plain fast-forward re-push) → `isAncestor: true`; a non-empty set or a `compare_timeout` means a force-push/rebase or unconfirmable history → `isAncestor: false` (full-review fallback, the safe direction). When ancestry holds, a forward compare (`sinceSha..headSha`) yields the changed paths (`new_path`, falling back to `old_path` for deletions). Returns `undefined` on any error, on a forward `compare_timeout`, or when ≥300 files are returned (truncation safety) — same correctness-over-savings guards as GitHub (#115).
 
 ## Hidden summary metadata
 
