@@ -10,13 +10,43 @@ That means:
 - Use read-only repository and PR/MR permissions.
 - Do not expose model provider secrets or write tokens to fork PRs.
 - Do not publish comments from the fork-triggered job.
-- Upload `.ai-review/` as a CI artifact and use the CI status as the merge signal.
+- Upload `.ai-review/runs` as a CI artifact (counts-only telemetry + run/summary/redacted trace) and use the CI status as the merge signal. The PR diff and metadata under `.ai-review/context/` are deliberately not uploaded.
 
 Use summary publishing only in a separate job that is guarded to same-repository/same-project changes, or after an explicit maintainer approval flow.
 
 ## Why this is the default
 
 Fork PR/MR content is untrusted. Titles, descriptions, diffs, project config, and checked-out files can contain prompt injection or malicious code. The review factory can fetch metadata and diffs through provider APIs without executing project code, so privileged credentials should not be present in jobs that process untrusted fork content.
+
+## Trace redaction in CI artifacts
+
+`trace.jsonl` reproduces, verbatim, both the operator reviewer-definition system prompts and
+the embedded untrusted PR context (Pi `message_start` events) **and** the model's reply text,
+which can quote diff excerpts including secrets (Pi `message_end` and streamed
+`content_block_*` / `message_delta` events). To keep downloadable CI artifacts safe, the
+real-review job passes **`--redact-trace` by default**, which replaces the text `content` of
+both `message_start` and `message_end` events with a redaction marker while preserving the
+event envelope and numeric token-usage metadata.
+
+Only the `trusted-real-review` (Pi) job redacts, because it is the only job whose runtime
+emits `message_start` / `message_end` events. The `dry-run` and `trusted-publish` jobs use the
+dummy runtime, which emits no such events, so their traces carry no prompt or model-output text.
+
+**Exposing the full trace for troubleshooting.** Set the repository variable
+`AI_REVIEW_EXPOSE_TRACE_PROMPTS=true` to drop `--redact-trace` for the real-review job and write
+the **unredacted** trace. This exposes the operator prompts, the embedded PR diff/metadata
+(`message_start.content`), and the model output — enable it only when you accept that wider
+egress for the artifact's audience. `--redact-trace` is a plain CLI flag, so any direct
+`bun run src/cli.ts run` invocation (local debugging, non-GitHub CI) can pass or omit it the
+same way; omitting it writes the full prompt and reply text to `trace.jsonl`.
+
+**Artifact scope.** CI artifacts are scoped to `.ai-review/runs` (counts-only telemetry +
+`run.json` / `summary.json` + the redacted trace); the PR diff and metadata under
+`.ai-review/context/` (`patches/*.patch`, `change-context.json`) are deliberately excluded from
+every artifact upload. Operators who copied an earlier version of the workflow template should
+update all three `upload-artifact` `path:` values from `.ai-review` to `.ai-review/runs` and add
+`--redact-trace` (or the `AI_REVIEW_EXPOSE_TRACE_PROMPTS` toggle) to the real-review invocation;
+the old layout uploaded the full `.ai-review/` tree with unredacted prompts and PR diffs.
 
 ## Trusted operator resources vs reviewed-repo resources
 

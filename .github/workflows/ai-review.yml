@@ -50,7 +50,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ai-review-${{ github.event.pull_request.number }}
-          path: .ai-review
+          path: .ai-review/runs
           include-hidden-files: true
 
   trusted-publish:
@@ -93,7 +93,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ai-review-trusted-${{ github.event.pull_request.number }}
-          path: .ai-review
+          path: .ai-review/runs
           include-hidden-files: true
 
   trusted-real-review:
@@ -127,13 +127,24 @@ jobs:
           GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
           AI_REVIEW_PI_PROVIDER: ${{ vars.AI_REVIEW_PI_PROVIDER }}
           AI_REVIEW_PI_MODEL: ${{ vars.AI_REVIEW_PI_MODEL }}
+          AI_REVIEW_EXPOSE_TRACE_PROMPTS: ${{ vars.AI_REVIEW_EXPOSE_TRACE_PROMPTS }}
         run: |
+          # Redact operator prompts + model output from trace.jsonl by default;
+          # set the AI_REVIEW_EXPOSE_TRACE_PROMPTS repo variable to "true" to
+          # write the full (unredacted) trace for troubleshooting. Array form so
+          # the empty case contributes no argument and never word-splits (SC2086).
+          REDACT_ARGS=("--redact-trace")
+          if [ "${AI_REVIEW_EXPOSE_TRACE_PROMPTS}" = "true" ]; then
+            REDACT_ARGS=()
+            echo "::warning::AI_REVIEW_EXPOSE_TRACE_PROMPTS is true — trace.jsonl will contain unredacted operator prompts, embedded PR diff, and model output"
+          fi
           bun run src/cli.ts run \
             --provider github \
             --repo "${{ github.repository }}" \
             --change-id "${{ github.event.pull_request.number }}" \
             --head-sha "${{ github.event.pull_request.head.sha }}" \
             --runtime pi \
+            "${REDACT_ARGS[@]}" \
             --job-kind real-review \
             --pi-provider "${AI_REVIEW_PI_PROVIDER:-anthropic}" \
             --pi-model "${AI_REVIEW_PI_MODEL:-claude-sonnet-4-6}" \
@@ -146,5 +157,5 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ai-review-real-${{ github.event.pull_request.number }}
-          path: .ai-review
+          path: .ai-review/runs
           include-hidden-files: true
