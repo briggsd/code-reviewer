@@ -94,6 +94,22 @@ export interface VcsAdapter {
   // errors included) — a read hiccup must degrade to "no base config", never fail the review.
   // First of the base-ref reads (Foundation B; #46's prev-head..head diff will be a sibling later).
   readBaseBranchFile?(change: ChangeMetadata, path: string): Promise<string | undefined>;
+
+  // Detect a human "break glass" override from a PR/MR comment by a TRUSTED author (#22 phase 2).
+  // Returns the most recent qualifying override, or undefined when none is present. Best-effort:
+  // a fetch failure degrades to "no override" (returns undefined), never fails the review — the
+  // canonical CI gate is unaffected by a detection hiccup. All comment content is untrusted; only
+  // a leading break-glass marker from an OWNER/MEMBER/COLLABORATOR-equivalent author qualifies.
+  detectBreakGlassOverride?(ref: ChangeRef): Promise<BreakGlassOverride | undefined>;
+}
+
+// A recognized human break-glass override (#22 phase 2). Counts/identifiers only — the human
+// audit trail (who, why) lives in the PR/MR comment itself, not in telemetry (M008). `commentId`
+// is the stable identifier of the triggering comment; `authorAssociation` is the coarse role
+// category that authorized it (e.g. "OWNER"/"MEMBER"/"COLLABORATOR"), never an author name.
+export interface BreakGlassOverride {
+  commentId: string;
+  authorAssociation: string;
 }
 
 export interface ReviewStateStore {

@@ -114,6 +114,36 @@ describe("CI decision policy", () => {
       reason: "Review failed and policy is fail-closed.",
     });
   });
+
+  test("break-glass override forces a non-blocking outcome over a would-be fail", async () => {
+    // A blocking-mode critical finding that would normally fail CI...
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const result = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+    expect(decideCiOutcome(result.summary, fixture.config)).toEqual({
+      outcome: "fail",
+      exitCode: 1,
+      reason: "Blocking mode fails CI because a critical finding matched fail_on policy.",
+    });
+
+    // ...is overridden to neutral / exit 0 when a trusted human broke glass.
+    expect(decideCiOutcome(result.summary, fixture.config, { overridden: true })).toEqual({
+      outcome: "neutral",
+      exitCode: 0,
+      reason: "Human break-glass override — CI status is non-blocking for this run.",
+    });
+  });
+
+  test("review_failed override is neutral even under fail-closed blocking", () => {
+    const config = createDefaultReviewConfig();
+    const summary = reviewFailedSummary();
+    expect(decideCiOutcome(summary, { ...config, mode: "blocking" }, { overridden: true })).toEqual(
+      {
+        outcome: "neutral",
+        exitCode: 0,
+        reason: "Human break-glass override — CI status is non-blocking for this run.",
+      },
+    );
+  });
 });
 
 describe("summary markdown formatting", () => {

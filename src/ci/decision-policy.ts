@@ -2,6 +2,17 @@ import type { CiDecision, ReviewConfig, ReviewSummary, Severity } from "../contr
 
 export interface CiDecisionPolicyOptions {
   failOpenOnReviewFailed?: boolean;
+  /**
+   * A human break-glass override was recognized for this run (#22 phase 2):
+   * a trusted commenter posted a `break glass` PR/MR comment. The CI outcome
+   * becomes non-blocking (neutral / exit 0) regardless of findings — the human
+   * accepts the risk and the override is recorded as a `run.override` event.
+   *
+   * This is the single "non-blocking outcome" path in the policy; #26-S02
+   * (gate → advisory CI outcome) is intended to route through this same neutral
+   * result rather than introduce a second mechanism.
+   */
+  overridden?: boolean;
 }
 
 export function decideCiOutcome(
@@ -9,6 +20,17 @@ export function decideCiOutcome(
   config: ReviewConfig,
   options: CiDecisionPolicyOptions = {},
 ): CiDecision {
+  // Break-glass override short-circuits everything else: a trusted human has
+  // accepted the risk for this run, so CI must not block. The override is still
+  // measured (run.override) so a rising override rate surfaces a misfiring bot.
+  if (options.overridden === true) {
+    return {
+      outcome: "neutral",
+      exitCode: 0,
+      reason: "Human break-glass override — CI status is non-blocking for this run.",
+    };
+  }
+
   if (summary.decision === "review_failed") {
     const failOpen = options.failOpenOnReviewFailed ?? config.mode === "advisory";
     return {

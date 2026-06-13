@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { finalizeCiExit } from "./cli/ci-exit.ts";
 import { parseRunPublishOptions } from "./cli/run-options.ts";
 import type {
+  BreakGlassOverride,
   ChangeMetadata,
   ChangeRef,
   DiffSummary,
@@ -86,6 +87,7 @@ type ReviewSource =
       fakeFindings: Finding[];
       adapter?: VcsAdapter;
       conventionsResolution?: ResolvedBaseConfig;
+      breakGlassOverride?: BreakGlassOverride;
     };
 
 async function runCommand(args: string[]): Promise<void> {
@@ -194,6 +196,9 @@ async function runCommand(args: string[]): Promise<void> {
             ...(telemetrySink !== undefined ? { telemetrySink } : {}),
             ...(runtime !== undefined ? { runtime } : {}),
             ...(jobKind !== undefined ? { jobKind } : {}),
+            ...(source.breakGlassOverride !== undefined
+              ? { breakGlassOverride: source.breakGlassOverride }
+              : {}),
           });
 
     if (publishOptions.publishInline) {
@@ -235,7 +240,9 @@ async function runCommand(args: string[]): Promise<void> {
     }
 
     if (ciExit) {
-      const decision = decideCiOutcome(result.summary, source.config);
+      const decision = decideCiOutcome(result.summary, source.config, {
+        overridden: source.kind === "change" && source.breakGlassOverride !== undefined,
+      });
       await new LocalCiAdapter().emitDecision(decision);
       ciExitCode = decision.exitCode;
     }
@@ -325,10 +332,13 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
     provider === "github"
       ? new GitHubVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) })
       : new GitLabVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) });
-  const [metadata, diff, priorState] = await Promise.all([
+  const [metadata, diff, priorState, breakGlassOverride] = await Promise.all([
     adapter.getChange(ref),
     adapter.getDiff(ref),
     adapter.getPriorReviewState(ref),
+    adapter.detectBreakGlassOverride
+      ? adapter.detectBreakGlassOverride(ref)
+      : Promise.resolve(undefined),
   ]);
 
   // Base-branch trust boundary (#60-P2/P3a): conventions and acknowledgements come from the
@@ -350,6 +360,7 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
     fakeFindings: seedFixture?.fakeFindings ?? [],
     adapter,
     conventionsResolution: resolved,
+    ...(breakGlassOverride !== undefined ? { breakGlassOverride } : {}),
   };
 }
 

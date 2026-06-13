@@ -1,4 +1,5 @@
 import type {
+  BreakGlassOverride,
   ChangedFile,
   ChangedFileStatus,
   ChangeMetadata,
@@ -22,6 +23,11 @@ import {
   createPriorReviewStateFromMetadata,
   parseSummaryHiddenMetadata,
 } from "../../publisher/summary-metadata.ts";
+import {
+  breakGlassMatchesHead,
+  GITLAB_MIN_TRUSTED_ACCESS_LEVEL,
+  mapGitLabAccessLevel,
+} from "../break-glass-marker.ts";
 
 export type GitLabFetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -210,6 +216,62 @@ export class GitLabVcsAdapter implements VcsAdapter {
     const metadata = parseSummaryHiddenMetadata(existing?.body);
 
     return metadata === undefined ? undefined : createPriorReviewStateFromMetadata(metadata, ref);
+  }
+
+  async detectBreakGlassOverride(ref: ChangeRef): Promise<BreakGlassOverride | undefined> {
+    try {
+      const notes = await this.request<GitLabNoteResponse[]>(this.mergeRequestNotesPath(ref));
+      // Candidates: non-system notes whose leading line is `break glass <head-sha>` for THIS head
+      // commit and that are not bot summaries. Iterate most-recent-first so the first qualifying
+      // author wins.
+      const candidates = notes
+        .filter(
+          (note) =>
+            note.system !== true &&
+            note.body?.includes("<!-- ai-code-review-factory") !== true &&
+            breakGlassMatchesHead(note.body, ref.headSha),
+        )
+        .reverse();
+
+      for (const note of candidates) {
+        const userId = note.author?.id;
+        if (userId === undefined) {
+          continue;
+        }
+        const level = await this.projectMemberAccessLevel(ref.repository.slug, userId);
+        if (level !== undefined && level >= GITLAB_MIN_TRUSTED_ACCESS_LEVEL) {
+          return {
+            commentId: String(note.id),
+            authorAssociation: mapGitLabAccessLevel(level),
+          };
+        }
+      }
+
+      return undefined;
+    } catch {
+      // Best-effort: a detection hiccup must never throw — the canonical CI gate is unaffected.
+      return undefined;
+    }
+  }
+
+  // Fetch the numeric project access level for a user via the GitLab members/all API.
+  // Returns undefined on 404 (user is not a direct or inherited member) or any fetch error.
+  // Best-effort: a membership lookup failure means "not trusted enough", not a hard error.
+  private async projectMemberAccessLevel(
+    slug: string,
+    userId: number,
+  ): Promise<number | undefined> {
+    try {
+      const url = `${this.apiBaseUrl}/projects/${encodeURIComponent(slug)}/members/all/${encodeURIComponent(String(userId))}`;
+      const response = await this.fetchImpl(url, { headers: this.headers() });
+      if (!response.ok) {
+        return undefined;
+      }
+      const data = (await response.json()) as { access_level?: unknown };
+      return typeof data.access_level === "number" ? data.access_level : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   async publishSummary(input: PublishSummaryInput): Promise<PublishSummaryResult> {

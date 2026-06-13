@@ -608,3 +608,279 @@ describe("analyzeRunMetrics with run_event stream", () => {
     expect(output).toContain("correctionCount");
   });
 });
+
+// ---------------------------------------------------------------------------
+// #22 override rate in RunEventsAnalysis
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics override rate (#22)", () => {
+  // Stream: 2 real runs, 1 with a run.override event (full tier), 1 without.
+  // 2 run.start events → overrideRate = 1/2 = 0.5
+  const overrideStream: TelemetryEvent[] = [
+    // run-a: real, full tier, has run.start + run.override
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-12T10:00:00.000Z",
+      runId: "run-a",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 2000,
+        findingCount: 0,
+        findingsByReviewer: {},
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-12T10:00:00.100Z",
+      runId: "run-a",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.start",
+        repository: "acme/api",
+        riskTier: "full",
+        selectedReviewerRoles: ["security"],
+        modelIds: ["model-x"],
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-12T10:00:00.200Z",
+      runId: "run-a",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.override",
+        repository: "acme/api",
+        changeId: "42",
+        riskTier: "full",
+        overrideCommentId: "c1",
+      },
+    },
+    // run-b: real, lite tier, has run.start, no override
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-12T11:00:00.000Z",
+      runId: "run-b",
+      data: {
+        runtime: "pi",
+        riskTier: "lite",
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 1000,
+        findingCount: 0,
+        findingsByReviewer: {},
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-12T11:00:00.100Z",
+      runId: "run-b",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.start",
+        repository: "acme/api",
+        riskTier: "lite",
+        selectedReviewerRoles: ["security"],
+        modelIds: ["model-x"],
+      },
+    },
+  ];
+
+  test("overrideCount is 1 (only run-a has a run.override)", () => {
+    const analysis = analyzeRunMetrics(overrideStream);
+    expect(analysis.runEvents?.overrideCount).toBe(1);
+  });
+
+  test("overrideRate is 0.5 (1 override / 2 starts)", () => {
+    const analysis = analyzeRunMetrics(overrideStream);
+    expect(analysis.runEvents?.overrideRate).toBeCloseTo(0.5, 5);
+  });
+
+  test("overrideCountByTier attributes override to full tier", () => {
+    const analysis = analyzeRunMetrics(overrideStream);
+    const byTier = analysis.runEvents?.overrideCountByTier;
+    expect(byTier).toBeDefined();
+    expect(byTier?.full).toBe(1);
+    expect(byTier?.lite).toBeUndefined();
+  });
+
+  test("overrideCountByTier keys are stable-sorted", () => {
+    // Add a second run.override for a 'lite' tier to get two keys
+    const twoTierStream: TelemetryEvent[] = [
+      ...overrideStream,
+      {
+        type: "ai_review.run_event",
+        timestamp: "2026-06-12T11:00:00.200Z",
+        runId: "run-b",
+        data: {
+          schemaVersion: "ai-review.run_event.v1",
+          event: "run.override",
+          repository: "acme/api",
+          changeId: "43",
+          riskTier: "lite",
+          overrideCommentId: "c2",
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(twoTierStream);
+    const keys = Object.keys(analysis.runEvents?.overrideCountByTier ?? {});
+    expect(keys).toEqual([...keys].sort());
+    expect(analysis.runEvents?.overrideCountByTier.full).toBe(1);
+    expect(analysis.runEvents?.overrideCountByTier.lite).toBe(1);
+  });
+
+  test("overrideRate is null when startCount is 0 (no run.start events)", () => {
+    // A stream with only a run.override event (orphan-ish — no real run_metrics start)
+    // But run.override with a matching run_metrics but no run.start → startCount=0
+    const noStartStream: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-12T12:00:00.000Z",
+        runId: "run-c",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 1000,
+          findingCount: 0,
+          findingsByReviewer: {},
+        },
+      },
+      {
+        type: "ai_review.run_event",
+        timestamp: "2026-06-12T12:00:00.100Z",
+        runId: "run-c",
+        data: {
+          schemaVersion: "ai-review.run_event.v1",
+          event: "run.override",
+          repository: "acme/api",
+          changeId: "44",
+          riskTier: "full",
+          overrideCommentId: "c3",
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(noStartStream);
+    expect(analysis.runEvents?.overrideCount).toBe(1);
+    expect(analysis.runEvents?.overrideRate).toBeNull();
+  });
+
+  test("overrideCount is 0 and overrideRate is 0 when no override events", () => {
+    const analysis = analyzeRunMetrics(
+      overrideStream.filter(
+        (e) => !(e.type === "ai_review.run_event" && e.data?.event === "run.override"),
+      ),
+    );
+    expect(analysis.runEvents?.overrideCount).toBe(0);
+    expect(analysis.runEvents?.overrideRate).toBeCloseTo(0, 5);
+    expect(analysis.runEvents?.overrideCountByTier).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #100b cacheWriteTokensPerRun in TierSegment
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics cacheWriteTokensPerRun (#100b)", () => {
+  const cacheWriteStream: TelemetryEvent[] = [
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-12T20:00:00.000Z",
+      runId: "cw-run-1",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 3000,
+        findingCount: 0,
+        findingsByReviewer: {},
+        tokens: {
+          agentCount: 3,
+          inputTokens: 1000,
+          outputTokens: 500,
+          cacheWriteTokens: 800,
+          estimatedCostUsd: 0.3,
+        },
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-12T20:01:00.000Z",
+      runId: "cw-run-2",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 2000,
+        findingCount: 0,
+        findingsByReviewer: {},
+        tokens: {
+          agentCount: 2,
+          inputTokens: 800,
+          outputTokens: 400,
+          cacheWriteTokens: 200,
+          estimatedCostUsd: 0.2,
+        },
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-12T20:02:00.000Z",
+      runId: "cw-run-3",
+      data: {
+        runtime: "pi",
+        riskTier: "lite",
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 1000,
+        findingCount: 0,
+        findingsByReviewer: {},
+        tokens: {
+          agentCount: 1,
+          inputTokens: 400,
+          outputTokens: 200,
+          // no cacheWriteTokens field → treated as 0
+          estimatedCostUsd: 0.1,
+        },
+      },
+    },
+  ];
+
+  test("cacheWriteTokensPerRun averages cacheWriteTokens across runs in tier", () => {
+    const analysis = analyzeRunMetrics(cacheWriteStream);
+    // full tier: (800 + 200) / 2 = 500
+    expect(analysis.byTier.full?.cacheWriteTokensPerRun).toBeCloseTo(500, 5);
+  });
+
+  test("cacheWriteTokensPerRun is 0 when no cacheWriteTokens field present", () => {
+    const analysis = analyzeRunMetrics(cacheWriteStream);
+    // lite tier: only run-3 with no cacheWriteTokens → 0/1 = 0
+    expect(analysis.byTier.lite?.cacheWriteTokensPerRun).toBe(0);
+  });
+
+  test("cacheWriteTokensPerRun is 0 when run has no tokens at all", () => {
+    const noTokensStream: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-12T21:00:00.000Z",
+        runId: "no-tokens",
+        data: {
+          runtime: "pi",
+          riskTier: "trivial",
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 100,
+          findingCount: 0,
+          findingsByReviewer: {},
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(noTokensStream);
+    expect(analysis.byTier.trivial?.cacheWriteTokensPerRun).toBe(0);
+  });
+});

@@ -34,7 +34,17 @@ The system is designed for many projects, not one repository. Project teams shou
 
 The supported override today is a repo admin overriding the required CI check — the standard merge-gate bypass available in GitHub (branch protection → "Require status checks → allow administrator override") and GitLab (protected branch maintainer override). This is intentionally **admin-only** and is **not yet recorded as a review-level telemetry event** (accepted tradeoff at the small-team stage); the summary comment's "Break glass" footer links here. The footer is rendered on **every** summary comment, including approved reviews (collapsed inside `<details>` so it adds no noise), and its link is currently a fixed canonical URL to this repository's copy of this document — self-managed deployments inherit that link (not yet configurable).
 
-Planned phase 2 (issue #22): a per-developer `break glass` comment trigger on the PR/MR that emits the reserved `run.override` telemetry event (vocabulary already reserved in [docs/telemetry-export.md](telemetry-export.md) / #50), so override rate becomes a measurable quality signal. This is now unblocked by #20 (run events) but is not yet implemented.
+Phase 2 (issue #22) — **implemented**: a per-developer `break glass` comment trigger on the PR/MR causes the run to emit the reserved `run.override` telemetry event and produce a **non-blocking CI status** for that run, so the merge can proceed without an admin check bypass. ("Non-blocking" here means the review job exits 0, so the required check **passes** — it renders as a green success, not a distinct grey "neutral" state.) Override rate (overall and per risk tier) is surfaced by `bun run telemetry:analyze`. The admin-required-check override remains the enforcement primitive for organization-level governance; the per-developer trigger is an auditable, measured escape hatch.
+
+**How to trigger.** Post a **regular PR/MR conversation comment** (the "Leave a comment" box — not a code-review/inline comment, which the runner does not scan) whose **first line** is exactly:
+
+```
+break glass <head-sha>
+```
+
+(`break-glass <head-sha>` is also accepted). `<head-sha>` must be a **≥12-char** prefix of the commit being reviewed — **pasting the full 40-char commit SHA is recommended** (a short prefix is grindable; 12 hex chars / 48 bits is the enforced minimum). The override is **bound to that commit**, so it does NOT carry over to a later push (which would contain code the override author never saw); a new head needs a fresh comment. The comment author must be **trusted**: GitHub `author_association` ∈ {OWNER, MEMBER, COLLABORATOR}, or GitLab project access ≥ Developer (30). Comments from untrusted authors, a bare `break glass` without a matching SHA, a prefix under 12 chars, or the marker buried below the first line are all silently ignored. After posting, **re-run the review job** (e.g. re-push or re-trigger the workflow) so the runner re-reads comments and applies the override.
+
+**Troubleshooting / limitations.** Detection is best-effort: any API error (e.g. insufficient token scope, transient failure) degrades silently to "no override" rather than failing the review. If a break-glass is unexpectedly ignored, check (1) the first line is exactly `break glass <sha>` with a ≥12-char prefix of the *current* head, (2) the author's association/access level, and (3) the token scope. On **GitLab**, the runner reads a single page of MR notes, so on a very busy MR (many notes) a break-glass comment may not be seen — post it recently and re-trigger, or use the admin override.
 
 ## System overview
 

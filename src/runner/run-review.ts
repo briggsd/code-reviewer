@@ -1,5 +1,6 @@
 import type {
   AgentRuntime,
+  BreakGlassOverride,
   ChangeMetadata,
   CoordinatorRunInput,
   CoordinatorRunResult,
@@ -46,6 +47,7 @@ import { classifyRisk } from "./risk-classifier.ts";
 import {
   createRunCompletedEvent,
   createRunCorrectionEvent,
+  createRunOverrideEvent,
   createRunStartEvent,
 } from "./run-events.ts";
 import { assignStableFindingIds, createStableFindingId } from "./stable-finding-id.ts";
@@ -62,6 +64,7 @@ export interface RunReviewOptions {
   telemetrySink?: TelemetrySink;
   runtime?: AgentRuntime;
   jobKind?: string;
+  breakGlassOverride?: BreakGlassOverride;
 }
 
 export interface RunReviewResult {
@@ -84,6 +87,7 @@ export interface RunReviewFromChangeOptions extends Omit<RunReviewOptions, "fixt
   runId?: string;
   priorState?: PriorReviewState;
   fakeFindings?: Finding[];
+  breakGlassOverride?: BreakGlassOverride;
 }
 
 export async function runReviewFromChange(
@@ -115,6 +119,9 @@ export async function runReviewFromChange(
     ...(options.telemetrySink !== undefined ? { telemetrySink: options.telemetrySink } : {}),
     ...(options.runtime !== undefined ? { runtime: options.runtime } : {}),
     ...(options.jobKind !== undefined ? { jobKind: options.jobKind } : {}),
+    ...(options.breakGlassOverride !== undefined
+      ? { breakGlassOverride: options.breakGlassOverride }
+      : {}),
   });
 }
 
@@ -236,6 +243,22 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       modelIds,
     }),
   });
+
+  if (options.breakGlassOverride !== undefined) {
+    await emitTelemetry({
+      telemetrySink: options.telemetrySink,
+      traceSink: options.traceSink,
+      event: createRunOverrideEvent({
+        runId,
+        timestamp,
+        repository: context.metadata.repository.slug,
+        changeId: context.metadata.changeId,
+        riskTier: context.risk.tier,
+        overrideCommentId: options.breakGlassOverride.commentId,
+        authorAssociation: options.breakGlassOverride.authorAssociation,
+      }),
+    });
+  }
 
   for (const unsupportedReviewer of findUnsupportedReviewerPolicyEntries({
     config: context.config,

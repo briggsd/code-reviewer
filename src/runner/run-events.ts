@@ -237,6 +237,51 @@ export function createRunCorrectionEvent(input: RunCorrectionInput): TelemetryEv
   };
 }
 
+// ---------------------------------------------------------------------------
+// run.override (#22 phase 2)
+// ---------------------------------------------------------------------------
+
+export interface RunOverrideInput {
+  runId: string;
+  timestamp: string;
+  repository: string;
+  changeId: string;
+  riskTier: string;
+  /** Stable identifier of the triggering break-glass comment (the audit pointer). */
+  overrideCommentId: string;
+  /** Coarse role category that authorized it (e.g. "OWNER"/"MEMBER"/"COLLABORATOR"). */
+  authorAssociation: string;
+}
+
+/**
+ * Build a run.override telemetry event — a human break-glass override of the
+ * canonical CI gate for this run (#22 phase 2).
+ *
+ * M008: counts, coarse categories, and stable identifiers only. `overrideCommentId`
+ * is a stable identifier (like `changeId`); `authorAssociation` is a coarse role
+ * category (like `riskTier`), NOT an author name. The full audit trail (who overrode,
+ * and why) lives in the PR/MR comment, never in telemetry. Override RATE — not identity —
+ * is the quality signal the analyzer surfaces.
+ */
+export function createRunOverrideEvent(input: RunOverrideInput): TelemetryEvent {
+  const data: Record<string, JsonValue> = {
+    schemaVersion: RUN_EVENT_SCHEMA_VERSION,
+    event: "run.override",
+    repository: input.repository,
+    changeId: input.changeId,
+    riskTier: input.riskTier,
+    overrideCommentId: input.overrideCommentId,
+    authorAssociation: input.authorAssociation,
+  };
+
+  return {
+    type: "ai_review.run_event",
+    runId: input.runId,
+    timestamp: input.timestamp,
+    data,
+  };
+}
+
 function acceptanceByReviewerToJson(
   acceptance: Record<string, ReviewerAcceptance>,
 ): Record<string, JsonValue> {

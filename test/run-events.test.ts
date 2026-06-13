@@ -14,6 +14,7 @@ import type { Finding, ReReviewFindingClassification, ReviewSummary } from "../s
 import {
   createRunCompletedEvent,
   createRunCorrectionEvent,
+  createRunOverrideEvent,
   createRunStartEvent,
   deriveAcceptanceByReviewer,
   RUN_EVENT_SCHEMA_VERSION,
@@ -558,5 +559,33 @@ describe("no free-text fields in emitted events", () => {
     expect(serialized).not.toContain(SENTINEL_BODY);
     expect(serialized).not.toContain(SENTINEL_REASON);
     expect(serialized).not.toContain(SENTINEL_BRANCH);
+  });
+
+  test("run.override event carries counts/identifiers only (no author name)", () => {
+    const event = createRunOverrideEvent({
+      runId: "run-ovr",
+      timestamp: "2026-06-12T00:00:03.000Z",
+      repository: "acme/api",
+      changeId: "42",
+      riskTier: "full",
+      overrideCommentId: "comment-99887766",
+      authorAssociation: "OWNER",
+    });
+
+    expect(event.type).toBe("ai_review.run_event");
+    expect(event.runId).toBe("run-ovr");
+    expect(event.timestamp).toBe("2026-06-12T00:00:03.000Z");
+    const data = event.data as Record<string, unknown>;
+    expect(data.schemaVersion).toBe(RUN_EVENT_SCHEMA_VERSION);
+    expect(data.event).toBe("run.override");
+    expect(data.repository).toBe("acme/api");
+    expect(data.changeId).toBe("42");
+    expect(data.riskTier).toBe("full");
+    expect(data.overrideCommentId).toBe("comment-99887766");
+    // authorAssociation is a coarse role category (like riskTier), not an author name.
+    expect(data.authorAssociation).toBe("OWNER");
+    // No author NAME / identity field leaks into telemetry (M008).
+    const serialized = JSON.stringify(event);
+    expect(serialized).not.toMatch(/login|username|displayName/i);
   });
 });

@@ -115,7 +115,12 @@ as of issue #20 (S04–S06). Each run_event carries `type: "ai_review.run_event"
 | `run.start` | Every run (before agents execute) | `event`, `schemaVersion`, `repository` (slug), `changeId`, `riskTier`, `selectedReviewerRoles` (string array), `modelIds` (unique sorted string array) |
 | `run.completed` | Completed runs only (not failed) | `event`, `schemaVersion`, `repository`, `riskTier`, `decision`, `outcome`, `durationMs`, `findingCount`, `findingsBySeverity` (counts), `findingsByReviewer` (counts), `tokens?` (`inputTokens`/`outputTokens`/`cacheReadTokens`/`cacheWriteTokens`/`estimatedCostUsd` numbers — present only when the run has token metrics) |
 | `run.correction` | Completed runs with a prior-state comparison or acknowledged findings | `event`, `schemaVersion`, `repository`, `riskTier`, `newFindingCount`, `recurringFindingCount`, `fixedFindingCount`, `withheldFindingCount`, `acceptanceByReviewer` (per-reviewer counts: accepted/notAccepted/rejected/withheldExcluded) |
-| `run.override` | Reserved (#22 phase 2) | break-glass override marker; stable identifiers and timestamps only |
+| `run.override` | A run for which a trusted commenter posted a `break glass <head-sha>` PR/MR comment (#22 phase 2) | `event`, `schemaVersion`, `repository`, `changeId`, `riskTier`, `overrideCommentId` (stable identifier of the triggering comment — the audit pointer; never an author name), `authorAssociation` (coarse role category that authorized it — one of `OWNER`/`MEMBER`/`COLLABORATOR`, the same three values for both GitHub and GitLab: GitLab Developer/Maintainer/Owner access maps to COLLABORATOR/MEMBER/OWNER. Like `riskTier`, not an author name) |
+
+The `run.override` event records that a human break-glass override occurred and points at the
+triggering comment by stable id. The **override rate** (override events / started runs, and per
+tier) is the quality signal — a rising rate means the bot is misfiring. The override identity and
+rationale stay in the PR/MR comment itself, not in telemetry (M008).
 
 ### Acceptance mapping (run.correction)
 

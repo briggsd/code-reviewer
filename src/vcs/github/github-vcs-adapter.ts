@@ -1,4 +1,5 @@
 import type {
+  BreakGlassOverride,
   ChangedFile,
   ChangedFileStatus,
   ChangeMetadata,
@@ -22,6 +23,7 @@ import {
   createPriorReviewStateFromMetadata,
   parseSummaryHiddenMetadata,
 } from "../../publisher/summary-metadata.ts";
+import { breakGlassMatchesHead, GITHUB_TRUSTED_ASSOCIATIONS } from "../break-glass-marker.ts";
 
 export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -82,6 +84,7 @@ interface GitHubIssueCommentResponse {
   body?: string;
   html_url?: string;
   user?: GitHubUserResponse | null;
+  author_association?: string;
 }
 
 interface GitHubPullReviewCommentResponse {
@@ -223,6 +226,39 @@ export class GitHubVcsAdapter implements VcsAdapter {
     const metadata = parseSummaryHiddenMetadata(existing?.body);
 
     return metadata === undefined ? undefined : createPriorReviewStateFromMetadata(metadata, ref);
+  }
+
+  async detectBreakGlassOverride(ref: ChangeRef): Promise<BreakGlassOverride | undefined> {
+    try {
+      const comments = await this.requestAllPages<GitHubIssueCommentResponse>(
+        this.issueCommentsPath(ref),
+      );
+      // Find the LAST qualifying break-glass comment (most recent wins).
+      // Skip: bot/summary comments (containing our marker), untrusted associations, and
+      // comments whose leading line is not `break glass <head-sha>` for THIS head commit.
+      // `author_association` is computed by GitHub server-side at response time (it reflects the
+      // author's CURRENT repo relationship and is not part of the user-controlled comment body),
+      // so trusting it needs no extra live membership call — unlike GitLab, whose note payload
+      // carries no association and forces the members/all lookup in the adapter below.
+      const qualifying = comments.filter(
+        (comment) =>
+          comment.body?.includes("<!-- ai-code-review-factory") !== true &&
+          breakGlassMatchesHead(comment.body, ref.headSha) &&
+          comment.author_association !== undefined &&
+          GITHUB_TRUSTED_ASSOCIATIONS.has(comment.author_association),
+      );
+      const last = qualifying[qualifying.length - 1];
+      if (last === undefined) {
+        return undefined;
+      }
+      return {
+        commentId: String(last.id),
+        authorAssociation: last.author_association as string,
+      };
+    } catch {
+      // Best-effort: a detection hiccup must never throw — the canonical CI gate is unaffected.
+      return undefined;
+    }
   }
 
   async publishSummary(input: PublishSummaryInput): Promise<PublishSummaryResult> {

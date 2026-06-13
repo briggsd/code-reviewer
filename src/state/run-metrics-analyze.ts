@@ -38,6 +38,7 @@ export interface TierSegment {
   findingsPerRun: number;
   outputTokensPerRun: number;
   inputTokensPerRun: number;
+  cacheWriteTokensPerRun: number;
   durationMsPerRun: number;
   costPerRunUsd: number;
   /** null when there are 0 findings across all runs in this tier */
@@ -61,6 +62,12 @@ export interface RunEventsAnalysis {
   correctionCount: number;
   /** completed / started; null when startCount is 0. */
   completionRate: number | null;
+  /** Total run.override events observed. */
+  overrideCount: number;
+  /** overrideCount / startCount; null when startCount is 0. */
+  overrideRate: number | null;
+  /** Per-tier override counts (stable-sorted keys). */
+  overrideCountByTier: Record<string, number>;
   /** Per-reviewer acceptance signal from correction events (directional). */
   acceptanceByReviewer: Record<string, ReviewerAcceptanceStat>;
   /** Per-tier acceptance signal from correction events (directional). */
@@ -109,6 +116,7 @@ interface TierAccumulator {
   totalFindings: number;
   totalOutputTokens: number;
   totalInputTokens: number;
+  totalCacheWriteTokens: number;
   totalDurationMs: number;
   totalCostUsd: number;
   thinReviewRunCount: number;
@@ -208,14 +216,17 @@ export function analyzeRunMetrics(
     const tokens = data.tokens;
     let outputTokens = 0;
     let inputTokens = 0;
+    let cacheWriteTokens = 0;
     let costUsd = 0;
     if (tokens !== undefined && isPlainObject(tokens)) {
       outputTokens = asNumber(tokens.outputTokens);
       inputTokens = asNumber(tokens.inputTokens);
+      cacheWriteTokens = asNumber(tokens.cacheWriteTokens);
       costUsd = asNumber(tokens.estimatedCostUsd);
     }
     tierAcc.totalOutputTokens += outputTokens;
     tierAcc.totalInputTokens += inputTokens;
+    tierAcc.totalCacheWriteTokens += cacheWriteTokens;
     tierAcc.totalCostUsd += costUsd;
 
     // Duration
@@ -286,6 +297,7 @@ export function analyzeRunMetrics(
       findingsPerRun: tierRunCount === 0 ? 0 : acc.totalFindings / tierRunCount,
       outputTokensPerRun: tierRunCount === 0 ? 0 : acc.totalOutputTokens / tierRunCount,
       inputTokensPerRun: tierRunCount === 0 ? 0 : acc.totalInputTokens / tierRunCount,
+      cacheWriteTokensPerRun: tierRunCount === 0 ? 0 : acc.totalCacheWriteTokens / tierRunCount,
       durationMsPerRun: tierRunCount === 0 ? 0 : acc.totalDurationMs / tierRunCount,
       costPerRunUsd: tierRunCount === 0 ? 0 : acc.totalCostUsd / tierRunCount,
       costPerFindingUsd: acc.totalFindings === 0 ? null : acc.totalCostUsd / acc.totalFindings,
@@ -357,10 +369,12 @@ function buildRunEventsAnalysis(
   let startCount = 0;
   let completedCount = 0;
   let correctionCount = 0;
+  let overrideCount = 0;
 
   // For acceptance: accumulate across correction events
   const acceptanceByReviewer = new Map<string, AccumulatedAcceptance>();
   const acceptanceByTier = new Map<string, AccumulatedAcceptance>();
+  const overrideCountByTierMap = new Map<string, number>();
   let correctionRunCount = 0;
 
   for (const event of matchedEvents) {
@@ -369,6 +383,13 @@ function buildRunEventsAnalysis(
       startCount += 1;
     } else if (eventSubtype === "run.completed") {
       completedCount += 1;
+    } else if (eventSubtype === "run.override") {
+      overrideCount += 1;
+      const tier =
+        typeof event.data.riskTier === "string" && event.data.riskTier.length > 0
+          ? event.data.riskTier
+          : "unknown";
+      incrementMap(overrideCountByTierMap, tier, 1);
     } else if (eventSubtype === "run.correction") {
       correctionCount += 1;
 
@@ -416,12 +437,22 @@ function buildRunEventsAnalysis(
   }
 
   const completionRate = startCount === 0 ? null : completedCount / startCount;
+  const overrideRate = startCount === 0 ? null : overrideCount / startCount;
+
+  // Build stable-key-sorted overrideCountByTier record
+  const overrideCountByTier: Record<string, number> = {};
+  for (const key of Array.from(overrideCountByTierMap.keys()).sort()) {
+    overrideCountByTier[key] = overrideCountByTierMap.get(key) ?? 0;
+  }
 
   return {
     startCount,
     completedCount,
     correctionCount,
     completionRate,
+    overrideCount,
+    overrideRate,
+    overrideCountByTier,
     acceptanceByReviewer: buildAcceptanceRecord(acceptanceByReviewer),
     acceptanceByTier: buildAcceptanceRecord(acceptanceByTier),
     correctionRunCount,
@@ -685,6 +716,7 @@ function getOrCreateTierAccumulator(
       totalFindings: 0,
       totalOutputTokens: 0,
       totalInputTokens: 0,
+      totalCacheWriteTokens: 0,
       totalDurationMs: 0,
       totalCostUsd: 0,
       thinReviewRunCount: 0,
