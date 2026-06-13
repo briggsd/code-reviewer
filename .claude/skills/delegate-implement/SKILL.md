@@ -31,6 +31,26 @@ mandatory — this repo's reviewer is non-deterministic and confabulation has ha
 - **`docs/extending.md`** is the test-infra index + integration recipes — **cite it in every
   spec** (it's the #1 lever for clean completion: which capture fake/fixture to use, where to assert).
 
+## Parallel work = one worktree per agent (don't share the main checkout)
+One repo = one HEAD = one index = one working tree. **Two agents in the same checkout
+collide** — agent B's `git checkout -b` makes agent A's next `git commit` land on B's branch
+and A's `git push` ship a stale base; untracked files bleed across `git status`. Whenever a
+second agent (another Claude Code/Codex session, or a backgrounded subagent) works concurrently,
+give it its own checkout. Leave whoever's already in the main tree there; spin new work into a
+worktree:
+```bash
+.claude/skills/delegate-implement/new-worktree.sh <backend>/<issue#>-<slug>   # e.g. sonnet/142-foo
+# → ../acrf-wt-<slug>, node_modules symlinked, prints the `export PATH …; cd …` line. Gate runs green.
+.claude/skills/delegate-implement/rm-worktree.sh <branch> [--force] [--delete-branch]   # teardown when merged
+```
+The script pre-solves the frictions that otherwise fail the gate in a fresh worktree: no
+`node_modules` (symlinks the main checkout's), bun not on the non-interactive PATH (prints the
+`export`), and teardown that refuses to nuke real uncommitted work. Worktrees share `.git`, so
+all branches/commits/PRs work normally. **Orchestrating in-harness subagents instead?** Use the
+Agent tool's `isolation: "worktree"` — but it won't symlink `node_modules`, so the subagent must
+`ln -s` it (or `bun install`) before the gate. **`continue.md` is per-worktree** (gitignored) —
+keep the canonical one in the main checkout; worktree agents hand back through their PR body.
+
 ## Trust & safety to put in every spec (load-bearing — see CLAUDE.md)
 - **Telemetry/rollups: counts/metadata/identifiers only** (M008) — never diff text, finding
   bodies, prompts, or secrets.
