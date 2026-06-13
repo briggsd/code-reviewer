@@ -141,6 +141,36 @@ The `blocked` field mirrors the gate decision: `true` means the release gate wou
 scenario failed, or the holdout was empty). The stamp is uploaded as a release artifact alongside
 the tarball so it serves as a cross-version stability signal.
 
+### Advisory PR signal (dummy runtime, free)
+
+`.github/workflows/reviewer-eval-signal.yml` runs automatically on pull requests that touch
+`src/runner/reviewer-definitions.ts`, `src/evals/**`, `evals/**`, or `scripts/evals.ts`
+(and self-triggers on changes to the workflow file itself).
+
+**What it catches:** harness/scenario/fixture/scorer/CLI regressions. The workflow runs
+`bun run evals --runtime dummy --scenarios <dir>` over both splits (that runner internally drives
+the `bun run src/cli.ts run --runtime dummy` path per scenario). If a change breaks scenario JSON
+loading, a fixture, the scorer (`src/evals/`), or that CLI path, the dummy eval crashes (nonzero
+exit) and the advisory step flags it. To reproduce an advisory failure locally, run that same
+`bun run evals --runtime dummy --scenarios evals/scenarios` (and `… evals/scenarios-dev`).
+
+**What it does NOT catch:** reviewer quality. The dummy runtime ignores reviewer prompts and emits
+no model findings — it cannot measure whether a reviewer catches a real bug. That is the live
+release holdout gate (M016 S02, `release-package.yml`).
+
+**Key properties:**
+- **Free** — dummy runtime only; no tokens, no network, no provider keys or secrets.
+- **Advisory / non-blocking** — the eval step uses `continue-on-error: true` so a harness crash
+  never blocks the PR.
+- **Deterministic result** — the dummy runtime produces "2/5 passed" over the holdout split
+  (`evals/scenarios`) and "1/1 passed" over the dev split (`evals/scenarios-dev`): recall scenarios
+  score 0 with no findings, precision scenarios pass. Both are expected and are NOT failures (these
+  baselines shift as scenarios are added/removed). Only a harness crash (nonzero exit) is the
+  negative signal. `--gate` is never used here because it would always "fail" under dummy.
+
+For the full improvement loop — hypothesis → dev scenario → reviewer-definition tuning → holdout
+release gate — see `docs/review-quality-loop.md`.
+
 ## How scoring works
 
 ### Satisfaction fraction
