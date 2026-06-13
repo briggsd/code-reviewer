@@ -44,6 +44,11 @@ export const reviewConfigSchema = {
       type: "array",
       items: { type: "string" },
     },
+    generatedFileMarkers: {
+      type: "array",
+      maxItems: 50,
+      items: { type: "string", maxLength: 500 },
+    },
     reviewerPolicy: {
       type: "object",
       additionalProperties: {

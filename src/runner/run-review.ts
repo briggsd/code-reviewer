@@ -38,7 +38,7 @@ import {
   selectComprehensionGateFindings,
 } from "./comprehension-gate.ts";
 import { writeReviewContextArtifacts } from "./context-artifacts.ts";
-import { filterDiff } from "./diff-filter.ts";
+import { filterDiff, type IgnoredFile } from "./diff-filter.ts";
 import { classifyReviewError } from "./error-classifier.ts";
 import { assessFindingGrounding } from "./evidence-grounding.ts";
 import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
@@ -220,6 +220,14 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       totalAdditions: context.diff.totalAdditions,
       totalDeletions: context.diff.totalDeletions,
       priorFindingCount: context.priorState?.findings.length ?? 0,
+      // Breakdown of dropped files by reason (#24) so generated/lockfile/etc. drops are inspectable,
+      // not just an aggregate. Named by PATH (capped) in the local trace so a content-marker review
+      // bypass is auditable, not silent — this is the trace sink (debugging), never telemetry, which
+      // stays counts-only (M008).
+      ignoredByReason: countIgnoredByReason(filtered.ignoredFiles),
+      ignoredFiles: filtered.ignoredFiles
+        .slice(0, 100)
+        .map((ignored) => ({ path: ignored.file.path, reason: ignored.reason })),
       contextArtifacts: {
         changeContextPath: context.contextArtifacts.changeContextPath,
         patchDirectory: context.contextArtifacts.patchDirectory,
@@ -841,6 +849,15 @@ function formatRoleForTraceMessage(role: string): string {
 
 function elapsedMs(startedAt: Date, completedAt: Date): number {
   return Math.max(0, completedAt.getTime() - startedAt.getTime());
+}
+
+// Counts-only breakdown of dropped files keyed by ignore reason (#24). No paths/content (M008).
+function countIgnoredByReason(ignoredFiles: readonly IgnoredFile[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const ignored of ignoredFiles) {
+    counts[ignored.reason] = (counts[ignored.reason] ?? 0) + 1;
+  }
+  return counts;
 }
 
 function createRunMetrics(input: {

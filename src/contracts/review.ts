@@ -106,6 +106,12 @@ export interface ReviewConfig {
   failOn: Severity[];
   sensitivePaths: string[];
   ignoredPaths: string[];
+  // Content markers (e.g. `// @generated`, `/* eslint-disable */`) that flag a generated file by
+  // its patch head, complementing path-glob detection (#24). Matched case-insensitively against the
+  // leading bytes of each file's patch, AFTER the sensitive-path short-circuit so sensitive files are
+  // never dropped. Project-overridable (REPLACES the default set — some projects hand-edit
+  // eslint-disabled files and want them reviewed). Default covers the two common markers.
+  generatedFileMarkers?: string[];
   reviewerPolicy: Record<string, "enabled" | "disabled" | "full_only">;
   timeouts: TimeoutPolicy;
   modelRouting: ModelRoutingConfig;

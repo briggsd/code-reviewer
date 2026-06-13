@@ -268,6 +268,30 @@ describe("compliancePolicy normalization (local / --git-diff path)", () => {
   });
 });
 
+describe("generatedFileMarkers normalization (#24)", () => {
+  test("defaults to the purpose-specific marker only (eslint-disable is opt-in)", () => {
+    expect(normalizeReviewConfig({}).generatedFileMarkers).toEqual(["// @generated"]);
+  });
+
+  test("an override replaces the default set wholesale (not appended)", () => {
+    const config = normalizeReviewConfig({ generatedFileMarkers: ["// @codegen"] });
+    expect(config.generatedFileMarkers).toEqual(["// @codegen"]);
+  });
+
+  test("trims, drops invalid, and caps like the other capped string lists", () => {
+    const config = normalizeReviewConfig({
+      generatedFileMarkers: ["  // @generated  ", "", 42, null, "x".repeat(600)],
+    });
+    expect(config.generatedFileMarkers?.[0]).toBe("// @generated");
+    expect(config.generatedFileMarkers?.[1]).toBe("x".repeat(500));
+    expect(config.generatedFileMarkers?.some((entry) => entry.trim().length === 0)).toBe(false);
+  });
+
+  test("an explicit empty list disables content-marker detection", () => {
+    expect(normalizeReviewConfig({ generatedFileMarkers: [] }).generatedFileMarkers).toEqual([]);
+  });
+});
+
 describe("fixture local runner", () => {
   test("runs a blocking review from a fixture", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");

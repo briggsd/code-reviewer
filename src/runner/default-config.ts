@@ -21,6 +21,13 @@ export function createDefaultReviewConfig(): ReviewConfig {
       "**/pnpm-lock.yaml",
       "**/yarn.lock",
     ],
+    // Content markers that flag a generated file by its patch head (#24), in addition to path globs.
+    // Applied after the sensitive-path short-circuit, so a marked migration/auth file is still reviewed.
+    // Default is only the purpose-specific, machine-inserted `// @generated`. `/* eslint-disable */` is
+    // deliberately NOT a default: it is routine atop hand-written/legacy files (low precision as a
+    // generated signal) and an innocuous-looking review-bypass lever — projects whose generators emit
+    // it can opt in explicitly via config (REPLACE-wholesale).
+    generatedFileMarkers: ["// @generated"],
     reviewerPolicy: {
       code_quality: "enabled",
       security: "enabled",

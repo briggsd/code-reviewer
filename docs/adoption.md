@@ -66,6 +66,10 @@ Use the full raw CLI template in `examples/ci/github-actions-ai-review.yml` or t
 - **Container image, GitHub Action wrapper, GitLab component wrapper:** deferred until the CLI/package interface and safety controls stabilize.
 - **Fork privileged write-back:** not enabled by default. Fork PRs/MRs should remain artifact/status-only unless a separate approved privileged reporter flow is designed.
 
+## Upgrade notes
+
+- **Content-marker generated-file detection (#24).** This version adds `generatedFileMarkers`: the diff filter now also skips a file when an **added** line in its patch head contains a configured marker (default just `// @generated`), in addition to the existing path globs. On upgrade, files that add a `// @generated` line start being excluded from review (counted as `generated` ignores; each dropped path is named in the `context.built` trace). To opt out, set `"generatedFileMarkers": []` in `.ai-review.json`; to change the set, list your own markers (it **replaces** the default wholesale). `sensitivePaths` still short-circuits before marker detection, so security-critical files are never dropped. See [configuration.md](configuration.md).
+
 ## Adoption checklist
 
 - [ ] Bun is installed before `bun add --global "$AI_REVIEW_PACKAGE"`.

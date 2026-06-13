@@ -74,6 +74,12 @@ export function normalizeReviewConfig(
     ignoredPaths: Array.isArray(override.ignoredPaths)
       ? (override.ignoredPaths as string[])
       : base.ignoredPaths,
+    // Capped/trimmed string list, REPLACE-wholesale on override (like sensitive/ignored paths) so a
+    // project can drop a default marker it hand-edits (#24). Shares normalizeStringList for hygiene.
+    generatedFileMarkers: normalizeStringList(
+      override.generatedFileMarkers,
+      base.generatedFileMarkers ?? [],
+    ),
     reviewerPolicy: isRecord(override.reviewerPolicy)
       ? { ...base.reviewerPolicy, ...(override.reviewerPolicy as ReviewConfig["reviewerPolicy"]) }
       : base.reviewerPolicy,
