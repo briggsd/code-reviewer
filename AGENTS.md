@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 Agent onboarding for the **AI Code Review Factory** — a reusable, CI-native AI code
 review system for GitHub and GitLab. This file is a map, not the manual: it points to
@@ -38,7 +38,7 @@ bun run boundaries     # architecture-boundary lint (dependency-cruiser; BLOCKIN
 bun run lint           # Biome lint+format check (BLOCKING in CI's check job since #96; not in `check`)
 bun run lint:fix       # auto-apply Biome fixes
 bun run docs:check     # docs dead-reference linter over tracked *.md (dead path/`bun run` script refs; BLOCKING in CI's check job + gate)
-bun run docs:stale     # docs staleness heuristics (env-var drift, oversized docs, src/ dirs missing from CLAUDE.md map, unclosed code fences; ADVISORY, CI quality job)
+bun run docs:stale     # docs staleness heuristics (env-var drift, oversized docs, src/ dirs missing from AGENTS.md map, unclosed code fences; ADVISORY, CI quality job)
 bun run knip           # unused files/exports/deps (advisory)
 bun run dup            # jscpd copy-paste detection over src/ (advisory)
 ```
@@ -169,5 +169,5 @@ Details + diagram: **docs/architecture.md**.
   delegate-implement Codex backend — the Codex CLI reads `AGENTS.md`, the `.claude`→`.agents` /
   `Claude`→`Codex` equivalents of this tree). They are tracked, but `AGENTS.md` is generated from
   this file **by hand with no live sync**: regenerate it with
-  `sed 's/CLAUDE\.md/AGENTS.md/g' CLAUDE.md > AGENTS.md` whenever you edit this file so the two
+  `sed 's/CLAUDE\.md/AGENTS.md/g' AGENTS.md > AGENTS.md` whenever you edit this file so the two
   don't drift.
