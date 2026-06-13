@@ -17,9 +17,11 @@
   },
   "scripts": {
     "check": "bunx tsc --noEmit && bun test",
-    "gate": "bun run check && bun run boundaries && bun run lint",
+    "gate": "bun run check && bun run boundaries && bun run lint && bun run docs:check",
     "test": "bun test",
     "start": "bun run src/cli.ts",
+    "docs:check": "bun run scripts/check-docs.ts",
+    "docs:stale": "bun run scripts/check-docs.ts --mode=advisory",
     "schema:config": "bun run scripts/write-config-schema.ts",
     "telemetry:rollup": "bun run scripts/telemetry-rollup.ts",
     "telemetry:analyze": "bun run scripts/telemetry-analyze.ts",

@@ -57,6 +57,12 @@ jobs:
       - name: Lint & format (Biome)
         run: bun run lint -- --reporter=github
 
+      # Docs dead-reference check (#92 + #29): BLOCKING. Fails on a dead path or
+      # `bun run` script reference in any tracked *.md. Staleness heuristics are
+      # advisory and run in the quality job below (docs:stale). Mirrored by `bun run gate`.
+      - name: Docs reference check
+        run: bun run docs:check
+
   quality:
     name: Advisory quality tools
     runs-on: ubuntu-latest
@@ -90,3 +96,10 @@ jobs:
       - name: Duplicate-code detection (jscpd)
         continue-on-error: true
         run: bun run dup
+
+      # Docs staleness heuristics (#92 + #29): ADVISORY. Env-var drift, oversized
+      # docs, and src/ modules missing from the CLAUDE.md repo map. Never blocks;
+      # the dead-reference half is blocking in the check job above (docs:check).
+      - name: Docs staleness (advisory)
+        continue-on-error: true
+        run: bun run docs:stale

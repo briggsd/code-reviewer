@@ -25,7 +25,7 @@ Full design: **docs/architecture.md**. Project purpose & status: **README.md**.
 - **Entry point:** `src/cli.ts` (installed as the `ai-code-review` bin).
 
 ```bash
-bun run gate           # check + boundaries + lint  ← THE pre-PR verification gate (mirrors CI's blocking check job)
+bun run gate           # check + boundaries + lint + docs:check  ← THE pre-PR verification gate (mirrors CI's blocking check job)
 bun run check          # bunx tsc --noEmit && bun test (the tsc+test core; CI blocks on gate, not just check)
 bun test               # bun:test suite (tests live in test/)
 bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --runtime dummy
@@ -37,6 +37,8 @@ bun run telemetry:analyze --runs 20 --output telemetry-analyze.json  # segmented
 bun run boundaries     # architecture-boundary lint (dependency-cruiser; BLOCKING in CI's check job)
 bun run lint           # Biome lint+format check (BLOCKING in CI's check job since #96; not in `check`)
 bun run lint:fix       # auto-apply Biome fixes
+bun run docs:check     # docs dead-reference linter over tracked *.md (dead path/`bun run` script refs; BLOCKING in CI's check job + gate)
+bun run docs:stale     # docs staleness heuristics (env-var drift, oversized docs, src/ dirs missing from CLAUDE.md map, unclosed code fences; ADVISORY, CI quality job)
 bun run knip           # unused files/exports/deps (advisory)
 bun run dup            # jscpd copy-paste detection over src/ (advisory)
 ```
@@ -70,6 +72,7 @@ src/
   ci/                          # CI env detection + decision-policy (fail-open/closed)
   state/                       # filesystem state, jsonl trace sink, non-blocking telemetry sink/transport
   schemas/                     # review-config + review-output JSON schemas
+  docs-check/                  # pure docs-freshness rules (dead-ref + staleness; CLI = scripts/check-docs.ts)
 test/                          # bun:test specs (~32)   examples/fixtures/ # PR/MR fixtures
 docs/                          # canonical design docs (see README "Documents" index)
   milestones/                  #   M0xx-ROADMAP/-SUMMARY: sequential milestone plans + completion notes
@@ -132,10 +135,12 @@ Details + diagram: **docs/architecture.md**.
 
 - TypeScript strict everywhere (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
   `verbatimModuleSyntax`). No `any`. `bun run check` stays exactly tsc + tests; CI's check job
-  additionally runs two BLOCKING steps: `bun run boundaries` (#27) and **Biome lint+format**
+  additionally runs three BLOCKING steps: `bun run boundaries` (#27), **Biome lint+format**
   (`bun run lint`, blocking since #96 — formatter adopted, debt cleared; bulk-reformat commits are
-  listed in `.git-blame-ignore-revs`). **knip** and **jscpd** (`bun run dup`) stay **advisory**
-  (CI `quality` job, continue-on-error). Actions in the project's own four workflows are SHA-pinned
+  listed in `.git-blame-ignore-revs`), and **`bun run docs:check`** (#92/#29 — dead path/`bun run`
+  script references in tracked `*.md`; milestone docs are historical and exempt from blocking).
+  **knip**, **jscpd** (`bun run dup`), and **`bun run docs:stale`** (docs staleness heuristics)
+  stay **advisory** (CI `quality` job, continue-on-error). Actions in the project's own four workflows are SHA-pinned
   (#96); adoption templates in `examples/ci/` keep readable mutable tags by design
   (`test/ci-templates.test.ts` locks that — don't "fix" them).
 - **Architecture boundaries are mechanized** (#27): `bun run boundaries` (dependency-cruiser,
