@@ -11,15 +11,36 @@ Unlike `test/` (which tests orchestration correctness, config, and deterministic
 harness asks: "Does the model actually catch this SQL injection? Does it correctly stay quiet on a
 cosmetic-only diff?" These questions cannot be answered by unit tests with a dummy runtime.
 
-## Holdout hygiene (critical — read before touching scenarios)
+## Holdout / dev split (M016 S01, #129 — read before touching scenarios)
 
-**Reviewer prompts in `src/runner/reviewer-definitions.ts` MUST NOT be tuned against these
-scenarios.** If you add a new scenario, do not look at it as a target and adjust prompts to make
-it pass — that invalidates the holdout and turns the eval into a memorization check.
+The scenarios are split into two directories with **opposite** disciplines. Read which one you
+are touching:
+
+| Directory | Role | May you read/tune against it? |
+|---|---|---|
+| `evals/scenarios/` | **Sealed holdout** — the quality gate (the release gate, M016 S02 #130, runs it) | **No.** Gate-only; treat as unseen. |
+| `evals/scenarios-dev/` | **Dev split** — the improvement loop's iteration material | **Yes.** Grow it, tune reviewer-defs against it. |
+
+**Reviewer prompts in `src/runner/reviewer-definitions.ts` MUST NOT be tuned against the
+holdout (`evals/scenarios/`).** If a holdout scenario underperforms, that is a signal to
+investigate — not a fixture to memorize. Tuning against the holdout turns the eval into a
+memorization check and destroys it. The dev split exists precisely so there is *legal* material
+to iterate against without contaminating the gate.
+
+**The one-way door (the hard rule).** A scenario in `evals/scenarios-dev/` that you have tuned
+reviewer-definitions against may **never** be promoted/copied into `evals/scenarios/` — it is no
+longer unseen, so promoting it silently re-contaminates the holdout. To strengthen the holdout,
+author a brand-new scenario from scratch (new fixture, never used as a tuning target) directly
+in `evals/scenarios/`. This is mechanically guarded against the obvious copy vector:
+`test/evals-scoring.test.ts` asserts the two splits are **disjoint by scenario name and fixture
+path** (a tuned dev scenario can't be copied in under the same name/fixture). The
+re-authored-from-scratch case is covered by this documented discipline — at the file level it is
+indistinguishable from a genuinely new scenario, which is why the human rule still matters. Each
+directory's `README.md` restates the rule at the point of use.
 
 The `evals/` directory is kept SEPARATE from `examples/fixtures/` for this reason. Examples
-fixtures may have `fakeFindings` for deterministic testing; holdout fixtures never do — a real
-runtime must actually review them.
+fixtures may have `fakeFindings` for deterministic testing; holdout and dev fixtures never do — a
+real runtime must actually review them.
 
 **Holdout discipline**: scenarios are chosen to reflect *diverse behavioral properties* (recall,
 precision, severity calibration, noise guard). They should be hard for the model to "memorize"
@@ -29,14 +50,15 @@ but easy for a human to validate.
 
 ```
 evals/
-  fixtures/   — holdout PR fixtures (real diffs, NO fakeFindings)
-  scenarios/  — scenario definitions (reference a fixture + behavioral criteria)
+  fixtures/        — PR fixtures (real diffs, NO fakeFindings) for both splits
+  scenarios/       — SEALED HOLDOUT scenarios (gate-only; see scenarios/README.md)
+  scenarios-dev/   — DEV split scenarios (iteration material; starts empty; see scenarios-dev/README.md)
 src/evals/
   types.ts    — EvalCriterion + EvalScenario TypeScript types
   score.ts    — pure scoring functions (no I/O, no network)
   index.ts    — barrel export
 scripts/evals.ts  — gated runner (I/O + subprocess; mirrors scripts/pi-live-smoke.ts)
-test/evals-scoring.test.ts  — unit tests for scorer (runs in bun run check)
+test/evals-scoring.test.ts  — unit tests for scorer + holdout/dev disjointness guard (runs in bun run check)
 ```
 
 ## How to run
@@ -63,7 +85,7 @@ Optional flags:
 | `--runtime dummy\|pi` | `pi` | Runtime to use |
 | `--runs K` | 3 (pi), 1 (dummy) | Runs per scenario |
 | `--threshold T` | 0.8 | Minimum satisfaction to pass (0.0–1.0) |
-| `--scenarios <dir>` | `evals/scenarios` | Directory of scenario JSON files |
+| `--scenarios <dir>` | `evals/scenarios` | Directory of scenario JSON files (the sealed holdout by default; pass `evals/scenarios-dev` for the dev split) |
 | `--gate` | off | Exit nonzero if any scenario fails threshold |
 
 Optional env vars (must be paired):
@@ -118,7 +140,10 @@ Severity rank: `critical` (3) > `warning` (2) > `suggestion` (1).
 The runner also reports, for each criterion, the fraction of runs where it was met.
 This is useful for diagnosing flaky criteria (high variance between runs).
 
-## The 5 seed scenarios
+## The 5 seed holdout scenarios
+
+> These five live in `evals/scenarios/` (the sealed holdout). The dev split
+> (`evals/scenarios-dev/`) starts empty and grows via the improvement playbook (M016 S05).
 
 | Scenario | What it tests | Key criteria |
 |---|---|---|
@@ -138,12 +163,21 @@ This is useful for diagnosing flaky criteria (high variance between runs).
 
 ## Adding a new scenario
 
+**First decide which split.** Iterating on review quality? Add it to the **dev split**
+(`evals/scenarios-dev/`) — that is the material you may tune against. Adding a fresh, never-tuned
+regression case to the gate? Add it to the **holdout** (`evals/scenarios/`) and never look at it
+as a tuning target. Never move a tuned dev scenario into the holdout (the one-way door above).
+
 1. Create a fixture in `evals/fixtures/<name>.json` — same shape as `examples/fixtures/auth-pr.json`
-   but WITHOUT `fakeFindings`.
-2. Validate it loads: `bun run src/cli.ts run --fixture evals/fixtures/<name>.json --runtime dummy --output-dir /tmp/eval-check`
-3. Create `evals/scenarios/<name>.json` with `name`, `description`, `fixture`, and `criteria`.
-4. Run `bun run evals --runtime dummy` to confirm the harness picks it up.
-5. **Do not** adjust `reviewer-definitions.ts` to make the new scenario pass — that breaks holdout discipline.
+   but WITHOUT `fakeFindings`. The fixture name **must be distinct** from every holdout fixture
+   (the disjointness guard rejects a shared fixture across the two splits).
+2. Validate it loads (applies to both splits): `bun run src/cli.ts run --fixture evals/fixtures/<name>.json --runtime dummy --output-dir /tmp/eval-check`
+3. Create `evals/scenarios/<name>.json` **or** `evals/scenarios-dev/<name>.json` with `name`,
+   `description`, `fixture`, and `criteria`.
+4. Confirm the harness picks it up: `bun run evals --runtime dummy` (holdout, default) or
+   `bun run evals --runtime dummy --scenarios evals/scenarios-dev` (dev split).
+5. **Holdout only:** do **not** adjust `reviewer-definitions.ts` to make a holdout scenario
+   pass — that breaks holdout discipline. (Tuning against a *dev* scenario is the intended loop.)
 
 ## Known limitations / coverage gaps
 
