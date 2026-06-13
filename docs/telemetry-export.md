@@ -172,3 +172,52 @@ fold into `__other__`. The current design avoids runId-keyed aggregates entirely
 
 Future `run_event` implementations must stay inside this boundary: counts, stable
 identifiers, shape-bounded keys only (M008). Do not add free-text fields.
+
+### Quality report (hypothesis queue)
+
+`buildQualityReport` (in `src/state/quality-report.ts`) converts a `RunMetricsAnalysis`
+into a **hypothesis queue**: the set of segments (overall / per-tier / per-reviewer) whose
+metrics breach a quality threshold. This is an advisory report — it does not gate CI or
+block any run.
+
+Run it with `bun run telemetry:quality` (writes `telemetry-quality-report.json` and prints
+the human-readable table). An optional `workflow_dispatch`-only GitHub Actions workflow
+(`.github/workflows/telemetry-quality-report.yml`) runs the same command and uploads the
+JSON as an artifact.
+
+#### Metrics and default thresholds
+
+| Metric | Source field | Threshold | Direction | Default |
+|---|---|---|---|---|
+| `groundingDropRate` | `analysis.rates.groundingDropRunRate` | `maxGroundingDropRate` | above → bad | 0.15 |
+| `thinReviewRate` (overall + per-tier) | `analysis.rates.thinReviewRate` (overall) / `analysis.byTier[tier].thinReviewRate` (per tier) | `maxThinReviewRate` | above → bad | 0.20 |
+| `overrideRate` | `analysis.runEvents?.overrideRate` | `maxOverrideRate` | above → bad | 0.10 |
+| `acceptanceRate` | `acceptanceByReviewer[r].acceptanceRate` or `acceptanceByTier[t].acceptanceRate` | `minAcceptanceRate` | below → bad | 0.50 |
+| `withholdRate` | computed from `withheldExcluded / total` per reviewer/tier | `maxWithholdRate` | above → bad | 0.30 |
+| `completionRate` | `analysis.runEvents?.completionRate` | `minCompletionRate` | below → bad | 0.90 |
+
+The `minSampleSize` threshold (default 5) marks any hypothesis whose denominator is below
+that value as `lowConfidence: true` — it is still surfaced, but flagged for low statistical
+confidence.
+
+`overrideRate`, `completionRate`, `acceptanceRate`, and `withholdRate` are only evaluated
+when `runEvents` is present in the analysis. `groundingDropRate` and `thinReviewRate` are
+always evaluated (they come from run_metrics events directly) — `thinReviewRate` at both the
+overall level (`rates.thinReviewRate`) and per tier (`byTier[tier].thinReviewRate`), so a
+single report can surface both an `overall` and a `tier:<name>` thin-review hypothesis.
+
+#### Counts-only constraint (M008)
+
+The quality report inherits the M008 boundary from its input (`RunMetricsAnalysis`): it
+carries only rates, counts, segment keys (tier names, reviewer role identifiers), and
+threshold numbers. It never includes finding bodies, diff text, prompt fragments, or any
+user-controlled content. No new content fields may be added to `QualityReport` or
+`QualityHypothesis`.
+
+#### Dogfood boundary
+
+Remote/fleet telemetry transport (#51 / S06 #136) is out of scope until that issue is
+unparked. The quality report operates on local artifacts only — the `telemetry:quality`
+command calls `collectTelemetryEvents` (the same `gh`-based artifact collector used by
+`telemetry:analyze`) and writes its output locally. Do not add network ingestion or remote
+export to this module.
