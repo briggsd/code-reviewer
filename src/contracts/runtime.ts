@@ -110,7 +110,7 @@ export interface CoordinatorRunResult {
   reviewerResults: ReviewerRunResult[];
   reviewerFailures?: ReviewerRunFailure[];
   partial?: {
-    reason: "overall_timeout";
+    reason: "overall_timeout" | "all_reviewers_failed";
   };
   coordinatorShortCircuited?: boolean;
   rawOutput?: string;

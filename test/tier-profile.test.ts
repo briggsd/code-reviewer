@@ -408,7 +408,7 @@ describe("Pi runtime short-circuit", () => {
     expect(result.coordinatorResult?.coordinatorShortCircuited).toBeUndefined();
   });
 
-  test("(c) flag=true + ALL reviewers fail → runtime throws before short-circuit; coordinator not spawned", async () => {
+  test("(c) flag=true + ALL reviewers fail → degrades to review_failed, NOT short-circuit-approved; coordinator not spawned (#120)", async () => {
     const runner = new FailingReviewerPiProcessRunner();
     const runtime = new PiAgentRuntime({
       processRunner: runner,
@@ -416,15 +416,19 @@ describe("Pi runtime short-circuit", () => {
     });
     const fixture = trivialFixture();
 
-    // Trivial tier dispatches only code_quality and the runner fails it, so the
-    // all-reviewers-failed guard throws before the short-circuit check is reached.
-    let threw = false;
-    try {
-      await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
-    } catch {
-      threw = true;
-    }
-    expect(threw).toBe(true);
+    // Trivial tier dispatches only code_quality and the runner fails it with a content (unknown)
+    // error, so all reviewers failed. The all-reviewers-failed guard returns a degraded
+    // review_failed result (#120) BEFORE the short-circuit check — it must never short-circuit to an
+    // approved summary on an all-fail, and the coordinator process is not spawned.
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    expect(result.summary.decision).toBe("review_failed");
+    expect(result.summary.outcome).toBe("fail");
+    expect(result.coordinatorResult?.coordinatorShortCircuited).toBeUndefined();
     expect(runner.calls.some((c) => c.role === "coordinator")).toBe(false);
   });
 

@@ -6,6 +6,7 @@ import type {
   CoordinatorRunResult,
   Finding,
   JsonValue,
+  ReviewErrorClassification,
   ReviewerRunFailure,
   ReviewerRunInput,
   ReviewerRunResult,
@@ -187,11 +188,26 @@ export class PiAgentRuntime implements AgentRuntime {
       snapshot.reviewerFailures = reviewerFailures;
 
       if (reviewerResults.length === 0 && input.selectedReviewers.length > 0) {
+        // Every dispatched reviewer failed. Only degrade to a published `review_failed` notice (#120)
+        // when EVERY failure is a CONTENT failure — an unparseable / truncated / oversized model
+        // response for this diff (the #119/#115 class), where the right outcome is a posted failure
+        // routed through the fail-open/closed CI policy. If ANY failure is OPERATIONAL (provider /
+        // auth / rate-limit / etc.), keep crashing loudly (exit 1, no summary) so an infrastructure
+        // outage alarms instead of being silently fail-opened. Default is to crash: an unrecognized
+        // category is treated as operational until it is explicitly deemed degradable.
+        const allContentFailures =
+          reviewerFailures.length > 0 &&
+          reviewerFailures.every((failure) =>
+            isDegradableReviewerFailureCategory(failure.errorClassification.category),
+          );
+        if (allContentFailures) {
+          return this.buildAllReviewersFailedResult(input, agentRunId, reviewerFailures);
+        }
+
         const firstFailure = reviewerSettled.find((settled) => settled.status === "rejected");
         if (firstFailure?.status === "rejected") {
           throw firstFailure.reason;
         }
-
         throw new Error("All selected reviewers failed before coordinator synthesis");
       }
 
@@ -289,6 +305,56 @@ export class PiAgentRuntime implements AgentRuntime {
         this.partialCoordinatorSnapshots.delete(input.runId);
       }
     }
+  }
+
+  // Builds the degraded result returned when every dispatched reviewer failed (#120). The summary
+  // is `review_failed`/`fail` with a body naming the failed roles and their error categories (no raw
+  // error messages — those can echo untrusted model output). reviewerResults is empty by definition;
+  // reviewerFailures carries the per-reviewer classifications for telemetry.
+  private buildAllReviewersFailedResult(
+    input: CoordinatorRunInput,
+    agentRunId: string,
+    reviewerFailures: ReviewerRunFailure[],
+  ): CoordinatorRunResult {
+    const base = summarizeReview(input.context, []);
+    const failureLines = reviewerFailures
+      .map(
+        (failure) =>
+          // role and errorName are sanitized into backtick code spans; category is a closed enum.
+          `- \`${sanitizeForBodyCodeSpan(failure.role)}\`: \`${sanitizeForBodyCodeSpan(failure.errorName)}\` (${failure.errorClassification.category})`,
+      )
+      .join("\n");
+    const body = `The code review could not be completed: all ${reviewerFailures.length} selected reviewer(s) failed before coordinator synthesis, so no findings were produced. This is a review failure, not an approval — your fail-open/fail-closed CI policy governs whether it blocks the merge.\n\nFailed reviewers:\n${failureLines}`;
+
+    this.emitAgentEvent("agent.output", input.runId, agentRunId, "coordinator", {
+      decision: "review_failed",
+      outcome: "fail",
+      findingCount: 0,
+      failedReviewerCount: reviewerFailures.length,
+      allReviewersFailed: true,
+    });
+    this.emitAgentEvent("agent.completed", input.runId, agentRunId, "coordinator", {
+      reviewerCount: 0,
+      failedReviewerCount: reviewerFailures.length,
+    });
+
+    return {
+      runId: input.runId,
+      agentRunId,
+      summary: {
+        ...base,
+        decision: "review_failed",
+        outcome: "fail",
+        title: "Review could not complete — all reviewers failed",
+        body,
+      },
+      reviewerResults: [],
+      ...(reviewerFailures.length > 0 ? { reviewerFailures } : {}),
+      partial: {
+        reason: "all_reviewers_failed",
+      },
+      rawOutput: '{"partial":true,"reason":"all_reviewers_failed"}',
+    };
   }
 
   getPartialCoordinatorResult(runId: string): CoordinatorRunResult | undefined {
@@ -1656,6 +1722,45 @@ function nextTokenIsObjectKey(candidate: string, from: number): boolean {
     index += 1;
   }
   return (candidate[index] ?? "") === ":";
+}
+
+// Reviewer-failure categories that represent an unusable model RESPONSE for this diff (the model
+// ran but its output could not be used) rather than an infrastructure/operational failure. When
+// EVERY reviewer fails with one of these, the all-reviewers-failed path degrades to a published
+// review_failed notice (#120). Any other category — provider_error, auth, rate_limited,
+// retryable_transient, timeout, unsafe_fork — keeps crashing loudly so an outage surfaces instead of
+// being silently routed through a fail-open policy. This is an explicit allowlist: an UNRECOGNIZED
+// category (one not in this set) defaults to "operational" (crash), the safe direction.
+//
+// `unknown` is INCLUDED deliberately, with eyes open to the fail-open tradeoff: the parse-crash that
+// motivated #120 (raw `JSON Parse error: …` from the model) classifies as `unknown`, not
+// `schema_invalid` (the classifier only matches explicit "…valid json…" phrasings). Excluding
+// `unknown` would leave the real motivating case crashing. The residual risk — a genuine code bug
+// that surfaces as `unknown` degrading to review_failed and passing under fail-OPEN — is bounded:
+// under fail-closed it still blocks, and the published body shows the category so it is not silent.
+const DEGRADABLE_REVIEWER_FAILURE_CATEGORIES = new Set<ReviewErrorClassification["category"]>([
+  "schema_invalid",
+  "truncated",
+  "context_overflow",
+  "unknown",
+]);
+
+function isDegradableReviewerFailureCategory(
+  category: ReviewErrorClassification["category"],
+): boolean {
+  return DEGRADABLE_REVIEWER_FAILURE_CATEGORIES.has(category);
+}
+
+// Sanitize a trusted-but-defensive value (reviewer role, error name) for inline rendering inside a
+// backtick code span in summary.body: collapse whitespace/control chars, strip backticks (code-span
+// breakout), and bound length. These come from trusted sources, but the renderer does not re-escape
+// summary.body, so we keep the assembled markdown safe at the source.
+function sanitizeForBodyCodeSpan(value: string): string {
+  return value
+    .replaceAll(/[\r\n\t`]/g, " ")
+    .replaceAll(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
 }
 
 function getRecord(value: unknown): Record<string, unknown> {

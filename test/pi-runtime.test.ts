@@ -314,6 +314,24 @@ class InvalidJsonPiProcessRunner implements PiProcessRunner {
   }
 }
 
+// All reviewers fail, but at least one fails with an OPERATIONAL (provider_error) error rather than
+// a content error. Per the #120 split policy, any operational failure keeps the run crashing loudly
+// instead of degrading to a published review_failed (so an outage is not silently fail-opened). The
+// operational error is on code_quality (the first dispatched reviewer) so the re-thrown
+// firstFailure.reason is deterministically the provider error, letting the test assert it precisely.
+class MixedFailurePiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "code_quality") {
+      throw new Error("Provider error (invalid_request_error): simulated provider outage");
+    }
+    return {
+      finalText: "not json",
+      events: [],
+      rawOutput: "not json",
+    };
+  }
+}
+
 class JsonWithUnescapedQuotePiProcessRunner implements PiProcessRunner {
   async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
     const quotedFinding = {
@@ -1867,19 +1885,30 @@ describe("PiAgentRuntime", () => {
     expect(documentationResult?.findings[0]?.title).toBe("Preamble finding");
   });
 
-  test("rejects output that would require excessive quote repair", async () => {
+  test("output that needs excessive quote repair fails every reviewer and degrades to review_failed (#120)", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
     const runtime = new PiAgentRuntime({
       processRunner: new ExcessiveQuoteRepairPiProcessRunner(),
     });
 
-    await expect(
-      runReview({
-        fixture,
-        runtime,
-        now: new Date("2026-06-09T00:00:00.000Z"),
-      }),
-    ).rejects.toThrow("Pi output did not contain valid JSON after bounded quote repair");
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    // Bounded quote repair still throws per reviewer (>20 repairs). Since every reviewer fails with
+    // a content (schema_invalid) error, the run degrades to a published review_failed instead of
+    // crashing (#120) — the specific bounded-repair message is preserved on the per-reviewer failure.
+    expect(result.summary.decision).toBe("review_failed");
+    expect(result.summary.outcome).toBe("fail");
+    expect(
+      result.coordinatorResult?.reviewerFailures?.some((failure) =>
+        failure.errorMessage.includes(
+          "Pi output did not contain valid JSON after bounded quote repair",
+        ),
+      ),
+    ).toBe(true);
   });
 
   test("repairs unescaped prose quotes in fenced reviewer and coordinator JSON", async () => {
@@ -1967,20 +1996,51 @@ describe("PiAgentRuntime", () => {
     ]);
   });
 
-  test("rejects invalid structured reviewer output without retrying non-retryable schema errors", async () => {
+  test("all reviewers failing yields a published review_failed summary, not a crash (#120); non-retryable schema errors are not retried", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
     const runner = new InvalidJsonPiProcessRunner();
     const runtime = new PiAgentRuntime({ processRunner: runner });
 
+    // Previously this threw ("Pi output did not contain valid JSON") and posted nothing. Now the
+    // run resolves with a degraded review_failed/fail summary so the failure is published and routed
+    // through the fail-open/closed CI policy (#120).
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    expect(result.summary.decision).toBe("review_failed");
+    expect(result.summary.outcome).toBe("fail");
+    expect(result.summary.findings).toEqual([]);
+    expect(result.summary.title).toBe("Review could not complete — all reviewers failed");
+    expect(result.summary.body).toContain("all 4 selected reviewer(s) failed");
+    expect(result.summary.body).toContain("`security`");
+    expect(result.coordinatorResult?.partial?.reason).toBe("all_reviewers_failed");
+    expect(result.coordinatorResult?.reviewerResults).toEqual([]);
+    expect(result.coordinatorResult?.reviewerFailures).toHaveLength(4);
+
+    // Non-retryable schema error → exactly one attempt per reviewer (no retry).
+    expect(runner.calls.filter((call) => call.role === "security")).toHaveLength(1);
+  });
+
+  test("all reviewers fail but one is an operational (provider) error → still crashes, not degraded (#120 split)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new PiAgentRuntime({
+      processRunner: new MixedFailurePiProcessRunner(),
+      reviewerRetryPolicy: { maxAttempts: 1 },
+    });
+
+    // One reviewer fails with a provider_error (operational) → the all-fail path must NOT degrade
+    // to a published review_failed; it re-throws so the infrastructure outage surfaces loudly. The
+    // operational error is on the first reviewer, so the re-thrown error is precisely that one.
     await expect(
       runReview({
         fixture,
         runtime,
         now: new Date("2026-06-09T00:00:00.000Z"),
       }),
-    ).rejects.toThrow("Pi output did not contain valid JSON");
-
-    expect(runner.calls.filter((call) => call.role === "security")).toHaveLength(1);
+    ).rejects.toThrow("Provider error (invalid_request_error): simulated provider outage");
   });
 
   test("#54 precision directives: coordinator prompt contains validation/skepticism anchors; reviewer prompt contains confidence-honesty anchor", async () => {
