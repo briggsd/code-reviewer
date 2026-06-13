@@ -2,6 +2,7 @@
 
 import { join } from "node:path";
 import { finalizeCiExit } from "./cli/ci-exit.ts";
+import { ReviewProgressReporter } from "./cli/review-progress-reporter.ts";
 import { parseRunPublishOptions } from "./cli/run-options.ts";
 import type {
   BreakGlassOverride,
@@ -15,6 +16,7 @@ import type {
   ResolvedBaseConfig,
   ReviewConfig,
   ReviewFixture,
+  RuntimeEventSubscription,
   VcsAdapter,
 } from "./index.ts";
 import {
@@ -101,6 +103,7 @@ async function runCommand(args: string[]): Promise<void> {
   const outputFormat = readFlag(args, "--format") ?? "json";
   const piProvider = readFlag(args, "--pi-provider");
   const piModel = readFlag(args, "--pi-model");
+  const piApiKeyArg = readFlag(args, "--pi-api-key");
   const ciExit = hasFlag(args, "--ci-exit");
   const redactTrace = hasFlag(args, "--redact-trace");
   const publishOptions = parseRunPublishOptions(args);
@@ -113,6 +116,12 @@ async function runCommand(args: string[]): Promise<void> {
   if ((piProvider === undefined) !== (piModel === undefined)) {
     throw new Error("--pi-provider and --pi-model must be provided together");
   }
+  if (piApiKeyArg !== undefined && runtimeName !== "pi") {
+    throw new Error("--pi-api-key requires --runtime pi");
+  }
+  // Resolve to the literal key. `env:NAME` indirection keeps the secret out of shell history;
+  // a bare value is accepted too. The resolved key is only forwarded into the spawned `pi` argv.
+  const piApiKey = piApiKeyArg === undefined ? undefined : resolvePiApiKey(piApiKeyArg);
 
   const now = new Date();
   const runId =
@@ -149,9 +158,18 @@ async function runCommand(args: string[]): Promise<void> {
             ...(piProvider !== undefined && piModel !== undefined
               ? { defaultModel: { provider: piProvider, model: piModel } }
               : {}),
+            ...(piApiKey !== undefined ? { piApiKey } : {}),
           })
         : undefined;
   let ciExitCode: number | undefined;
+
+  // Surface review liveness (#41) so a multi-minute Pi run does not look frozen. Progress
+  // lines go to stderr only, so the stdout summary (`--format json`) stays byte-for-byte clean.
+  let progressSubscription: RuntimeEventSubscription | undefined;
+  if (runtime !== undefined && decideProgressEnabled(args)) {
+    const reporter = new ReviewProgressReporter();
+    progressSubscription = runtime.streamEvents(runId, (event) => reporter.handle(event));
+  }
 
   // Emit a counts-only trace event for conventions resolution (M008 — no convention text).
   if (
@@ -252,6 +270,7 @@ async function runCommand(args: string[]): Promise<void> {
       ciExitCode = decision.exitCode;
     }
   } finally {
+    progressSubscription?.unsubscribe();
     await telemetrySink?.close();
     await traceSink?.close();
   }
@@ -416,6 +435,49 @@ function requiredFlag(args: string[], name: string): string {
   return value;
 }
 
+// Resolve a `--pi-api-key` argument to the literal key. `env:NAME` reads the named env var
+// (preferred — keeps the key out of the calling shell's history); any other value is the literal
+// key. Never logged. The resolved key is forwarded into the spawned `pi --api-key` argv, which is
+// inherent to pi's auth-override mechanism and IS visible in the child process's command line
+// (`ps` / `/proc/<pid>/cmdline`) — `env:NAME` does not change that, it only protects shell history.
+function resolvePiApiKey(raw: string): string {
+  if (raw.startsWith("env:")) {
+    const name = raw.slice("env:".length);
+    const value = process.env[name];
+    if (value === undefined || value.length === 0) {
+      throw new Error(`--pi-api-key env:${name} requested but ${name} is empty or unset`);
+    }
+    return value;
+  }
+
+  if (raw.length === 0) {
+    throw new Error("--pi-api-key value must not be empty");
+  }
+
+  return raw;
+}
+
+// Default progress on for an interactive terminal or a CI job (so the job log shows liveness),
+// off for a plain piped/non-TTY context to avoid noise. `--progress` / `--no-progress` override.
+function decideProgressEnabled(args: string[]): boolean {
+  if (hasFlag(args, "--no-progress")) {
+    return false;
+  }
+  if (hasFlag(args, "--progress")) {
+    return true;
+  }
+
+  return process.stderr.isTTY === true || isCiEnvironment();
+}
+
+function isCiEnvironment(): boolean {
+  return (
+    process.env.GITHUB_ACTIONS === "true" ||
+    process.env.GITLAB_CI === "true" ||
+    process.env.CI === "true"
+  );
+}
+
 function readFlag(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
   if (index === -1) {
@@ -439,12 +501,17 @@ function printHelp(): void {
     "      [--format json|markdown] [--ci-exit] [--job-kind <string>] [--redact-trace] [--pi-provider <name> --pi-model <id>]",
   );
   console.log(
+    "      [--pi-api-key <key|env:NAME>] [--progress|--no-progress]   (pi auth precedence: --pi-api-key > stored OAuth > env key)",
+  );
+  console.log(
     "  run --git-diff [--base <ref>] [--change-id <id>] [--config <path>] [--seed-fixture <path>]",
   );
   console.log(
     "      [--runtime dummy|pi] [--output-dir <path>] [--format json|markdown] [--ci-exit] [--redact-trace]",
   );
-  console.log("      [--job-kind <string>] [--pi-provider <name> --pi-model <id>]");
+  console.log(
+    "      [--job-kind <string>] [--pi-provider <name> --pi-model <id>] [--pi-api-key <key|env:NAME>] [--progress|--no-progress]",
+  );
   console.log("                                       Review local git changes; no publish.");
   console.log(
     "                                       --base default HEAD = uncommitted changes only; pass --base <branch>",
@@ -459,6 +526,8 @@ function printHelp(): void {
   console.log(
     "      [--output-dir <path>] [--format json|markdown] [--publish-summary] [--publish-inline] [--ci-exit] [--redact-trace]",
   );
-  console.log("      [--job-kind <string>] [--pi-provider <name> --pi-model <id>]");
+  console.log(
+    "      [--job-kind <string>] [--pi-provider <name> --pi-model <id>] [--pi-api-key <key|env:NAME>] [--progress|--no-progress]",
+  );
   console.log("                                       Run deterministic local review");
 }

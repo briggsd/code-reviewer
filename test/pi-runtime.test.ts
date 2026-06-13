@@ -935,6 +935,36 @@ describe("PiAgentRuntime", () => {
     expect(withoutThinking).not.toContain("--thinking");
   });
 
+  test("buildPiProcessArgs emits --api-key only when an explicit key is supplied (#42)", () => {
+    const base = ["--mode", "json"];
+    const toolPolicy = {
+      allowRead: true,
+      allowShell: false,
+      allowWrite: false,
+      allowedTools: [],
+      deniedTools: [],
+    };
+    const input = {
+      runId: "r",
+      agentRunId: "r:pi:security",
+      role: "security",
+      cwd: "/tmp",
+      timeoutMs: 1000,
+      toolPolicy,
+      prompt: "review",
+      model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    };
+
+    const withKey = buildPiProcessArgs(base, input, { apiKey: "sk-ant-secret" });
+    expect(withKey).toContain("--api-key");
+    expect(withKey[withKey.indexOf("--api-key") + 1]).toBe("sk-ant-secret");
+    // prompt stays the final positional arg, never displaced by the auth flag.
+    expect(withKey[withKey.length - 1]).toBe("review");
+
+    expect(buildPiProcessArgs(base, input)).not.toContain("--api-key");
+    expect(buildPiProcessArgs(base, input, {})).not.toContain("--api-key");
+  });
+
   test("clamps reviewer findings to trusted allowed severities", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-severity-clamp-"));
 

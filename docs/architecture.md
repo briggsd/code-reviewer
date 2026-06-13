@@ -235,6 +235,10 @@ Required capabilities:
 
 OpenCode is a strong first runtime because it supports programmatic sessions and JSONL output. The architecture should still allow later adapters for direct model APIs, Claude CLI, Codex CLI, or another harness.
 
+**Pi runtime auth precedence (#42).** `pi` resolves credentials in the order `--api-key` flag > stored OAuth (`~/.pi/agent/auth.json`, e.g. an interactive Claude login) > provider env var (`ANTHROPIC_API_KEY`). Because a stored OAuth credential outranks a forwarded env key, simply exporting `ANTHROPIC_API_KEY` can silently run a review against an interactive login instead of the intended (funded) key. To pin auth explicitly, pass `--pi-api-key <key|env:NAME>` (requires `--runtime pi`; the flag is rejected otherwise); it forces `pi --api-key …`, overriding any stored OAuth. The `env:NAME` form (read from the named environment variable) is preferred so the secret stays out of the calling shell's history. The resolved key never enters trace or telemetry output, which carry events and counts, not the command line. It is, however, forwarded into the spawned `pi` argv — that is inherent to pi's `--api-key` override mechanism, and the value IS visible in the child process's command line (`ps` / `/proc/<pid>/cmdline`) for the lifetime of the run. `env:NAME` does not change that; on shared or multi-tenant runners, rely on host-level isolation rather than assuming the flag hides the secret from process introspection.
+
+**Review liveness (#41).** A long-running review otherwise prints nothing between start and the final summary, which reads as a frozen terminal. The runtime emits periodic `heartbeat` events (alongside `agent.started`/`agent.completed`); the CLI consumes them — for any runtime that streams events, not just Pi — via a progress reporter that writes a periodic liveness line to **stderr**, never stdout, so a `--format json` payload stays clean. Progress is on by default for an interactive terminal or a CI job (so the job log shows liveness) and off for plain non-TTY pipes; `--progress` / `--no-progress` override.
+
 ### Model router
 
 The model router maps each agent role to a provider/model tier.

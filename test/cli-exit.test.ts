@@ -57,6 +57,72 @@ describe("CLI CI exit behavior", () => {
   });
 });
 
+describe("CLI Pi auth + progress flags", () => {
+  test("rejects --pi-api-key unless the Pi runtime is selected (#42)", async () => {
+    const result = await runCli([
+      "run",
+      "--fixture",
+      "examples/fixtures/auth-pr.json",
+      "--runtime",
+      "dummy",
+      "--pi-api-key",
+      "sk-ant-should-not-be-used",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("--pi-api-key requires --runtime pi");
+    // The rejected key value must never be echoed back.
+    expect(result.stderr).not.toContain("sk-ant-should-not-be-used");
+    expect(result.stdout).toBe("");
+  });
+
+  test("errors when --pi-api-key env:NAME points at an unset variable (#42)", async () => {
+    const result = await runCli([
+      "run",
+      "--fixture",
+      "examples/fixtures/auth-pr.json",
+      "--runtime",
+      "pi",
+      "--pi-api-key",
+      "env:AI_REVIEW_TEST_MISSING_KEY",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("AI_REVIEW_TEST_MISSING_KEY is empty or unset");
+  });
+
+  test("rejects an empty bare --pi-api-key value (#42)", async () => {
+    const result = await runCli([
+      "run",
+      "--fixture",
+      "examples/fixtures/auth-pr.json",
+      "--runtime",
+      "pi",
+      "--pi-api-key",
+      "",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("--pi-api-key value must not be empty");
+  });
+
+  test("--progress keeps the stdout JSON summary byte-for-byte clean (#41)", async () => {
+    const result = await runCli([
+      "run",
+      "--fixture",
+      "examples/fixtures/auth-pr.json",
+      "--runtime",
+      "dummy",
+      "--progress",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    // stdout must remain parseable JSON — progress lines go to stderr only.
+    const parsed = JSON.parse(result.stdout) as { decision?: unknown };
+    expect(parsed.decision).toBeDefined();
+  });
+});
+
 async function runCli(
   args: string[],
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {

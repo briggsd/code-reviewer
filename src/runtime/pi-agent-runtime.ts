@@ -84,6 +84,15 @@ export interface PiAgentRuntimeOptions {
     provider: string;
     model: string;
   };
+  /**
+   * Force `pi` to authenticate with this API key via the explicit `--api-key` flag (#42).
+   * Without it, `pi` prefers a stored OAuth credential (`~/.pi/agent/auth.json`) over the
+   * forwarded `ANTHROPIC_API_KEY` env var, so a funded key can be silently ignored in favor
+   * of an interactive login. The flag takes precedence over any stored OAuth. The value goes
+   * into the spawned process argv only — never into trace/telemetry (which carry events, not
+   * the command line). Ignored when a custom `processRunner` is supplied.
+   */
+  piApiKey?: string;
   timestamp?: string;
   reviewerRetryPolicy?: PiReviewerRetryPolicy;
 }
@@ -112,6 +121,7 @@ export class PiAgentRuntime implements AgentRuntime {
       new BunPiProcessRunner({
         ...(options.command !== undefined ? { command: options.command } : {}),
         ...(options.baseArgs !== undefined ? { baseArgs: options.baseArgs } : {}),
+        ...(options.piApiKey !== undefined ? { apiKey: options.piApiKey } : {}),
       });
     this.defaultModel = options.defaultModel;
     this.timestamp = options.timestamp;
@@ -632,15 +642,19 @@ export class PiAgentRuntime implements AgentRuntime {
 export interface BunPiProcessRunnerOptions {
   command?: string;
   baseArgs?: string[];
+  /** Explicit `pi --api-key` value (#42). Kept off `PiProcessRunInput` so it never reaches traced events. */
+  apiKey?: string;
 }
 
 export class BunPiProcessRunner implements PiProcessRunner {
   private readonly command: string;
   private readonly baseArgs: string[];
+  private readonly apiKey: string | undefined;
   private readonly processesByRunId = new Map<string, { kill: () => void }>();
 
   constructor(options: BunPiProcessRunnerOptions = {}) {
     this.command = options.command ?? "pi";
+    this.apiKey = options.apiKey;
     this.baseArgs = options.baseArgs ?? [
       "--mode",
       "json",
@@ -654,7 +668,11 @@ export class BunPiProcessRunner implements PiProcessRunner {
   }
 
   async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
-    const args = buildPiProcessArgs(this.baseArgs, input);
+    const args = buildPiProcessArgs(
+      this.baseArgs,
+      input,
+      this.apiKey !== undefined ? { apiKey: this.apiKey } : {},
+    );
     const process = Bun.spawn([this.command, ...args], {
       cwd: input.cwd,
       stdout: "pipe",
@@ -1950,10 +1968,17 @@ function toolPolicyArgs(policy: RuntimeToolPolicy): string[] {
 
 // Pure, testable construction of the `pi` argv. `--thinking` is emitted only when the
 // resolved model carries a reasoning bound (#45): omitting it leaves Pi at its default
-// level, which is the full-tier reviewer non-convergence we are bounding.
-export function buildPiProcessArgs(baseArgs: string[], input: PiProcessRunInput): string[] {
+// level, which is the full-tier reviewer non-convergence we are bounding. `--api-key`
+// (#42) is emitted before the positional prompt and forces key-auth over any stored
+// pi OAuth; its value is runner config, never part of the traced `PiProcessRunInput`.
+export function buildPiProcessArgs(
+  baseArgs: string[],
+  input: PiProcessRunInput,
+  options: { apiKey?: string } = {},
+): string[] {
   return [
     ...baseArgs,
+    ...(options.apiKey !== undefined ? ["--api-key", options.apiKey] : []),
     ...toolPolicyArgs(input.toolPolicy),
     ...(input.model !== undefined
       ? ["--provider", input.model.provider, "--model", input.model.model]
