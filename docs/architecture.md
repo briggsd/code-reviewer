@@ -388,6 +388,7 @@ Later reviewers:
 - performance,
 - release/change management — **shipped (#23)**, opt-in (`reviewerPolicy.release`), allows `critical` for production-safety/rollout risks,
 - compliance/policy — **shipped (#23)**, opt-in (`reviewerPolicy.compliance`); checks the diff against project-supplied `compliancePolicy` text read from the **base branch** and quoted as untrusted data (never trusted runtime config — see §"Trusted resource boundary"),
+- comprehension gate — **shipped (#26)**, opt-in (`reviewerPolicy.comprehension`); a pre-review readiness reviewer that works a fixed 6-question rubric and flags unresolved comprehension gaps ("dark code"). Runs as an in-fan-out specialist (excluded on `trivial` by the roster cap); its findings produce a deterministic `summary.gateDecision` verdict (`allow`/`warn`/`block`) for observability, while CI pass/fail stays governed by the existing `mode`/`failOn` policy over findings (no separate gate mechanism),
 - instruction freshness.
 
 ### 8. Coordinator consolidates

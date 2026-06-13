@@ -138,6 +138,28 @@ describe("selectTrustedReviewerDefinitions tier cap", () => {
     expect(findUnsupportedReviewerPolicyEntries({ config: opted })).toHaveLength(0);
   });
 
+  test("comprehension gate (#26) is opt-in and excluded on trivial by the roleCap", () => {
+    const opted = normalizeReviewConfig({ reviewerPolicy: { comprehension: "enabled" } });
+    // Trivial tier caps the roster to code_quality only — comprehension never runs there.
+    expect(
+      selectTrustedReviewerDefinitions({ config: opted, risk: makeRisk("trivial") }).map(
+        (d) => d.role,
+      ),
+    ).toEqual(["code_quality"]);
+    // Enabled + full tier (uncapped) → comprehension is selected.
+    expect(
+      selectTrustedReviewerDefinitions({ config: opted, risk: makeRisk("full") }).map(
+        (d) => d.role,
+      ),
+    ).toContain("comprehension");
+    // Absent from default config → not selected even at full tier (opt-in).
+    expect(
+      selectTrustedReviewerDefinitions({ config: defaultConfig, risk: makeRisk("full") }).map(
+        (d) => d.role,
+      ),
+    ).not.toContain("comprehension");
+  });
+
   test("trivial with code_quality disabled → empty array", () => {
     const config = normalizeReviewConfig({
       reviewerPolicy: {

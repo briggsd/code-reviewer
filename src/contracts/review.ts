@@ -5,6 +5,7 @@ import type {
   CiOutcome,
   Confidence,
   FindingSide,
+  GateDecision,
   JsonValue,
   ModelSelection,
   ProviderKind,
@@ -209,6 +210,11 @@ export interface ReviewSummary {
   findings: Finding[];
   risk: RiskAssessment;
   reReview?: ReReviewSummary;
+  /**
+   * Comprehension-gate verdict (#26): set only when the opt-in `comprehension` reviewer ran.
+   * Observability/rendering only — the CI gate stays driven by `decideCiOutcome` over findings.
+   */
+  gateDecision?: GateDecision;
 }
 
 export interface PriorFindingState {

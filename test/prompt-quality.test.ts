@@ -69,6 +69,30 @@ describe("M009 prompt quality sweep", () => {
     );
   });
 
+  test("comprehension gate reviewer (#26) carries the rubric and full field set", () => {
+    const comprehension = TRUSTED_REVIEWER_DEFINITIONS.find((d) => d.role === "comprehension");
+    expect(comprehension?.source).toBe("trusted_operator");
+    expect(comprehension?.version).toContain("m013-s01");
+    // The 6-question readiness rubric is the gate's prompt.
+    const flag = comprehension?.guidance.flag.join("\n") ?? "";
+    expect(comprehension?.guidance.flag.length).toBe(6);
+    for (const cue of [
+      "Dependency choices",
+      "Failure modes",
+      "Security implications",
+      "Separation of concerns",
+      "Downstream breakage",
+      "Comprehensibility",
+    ]) {
+      expect(flag).toContain(cue);
+    }
+    // Allows critical/warning (→ block verdict) down to suggestion (→ warn); zero findings → allow.
+    expect(comprehension?.guidance.allowedSeverities).toContain("critical");
+    expect(comprehension?.guidance.outputExpectations.join("\n")).toContain(
+      "do not manufacture gaps",
+    );
+  });
+
   test("compliance policy text (#23) is quoted as untrusted data, never trusted instructions", () => {
     expect(formatCompliancePolicyPrompt(undefined)).toBeUndefined();
     expect(formatCompliancePolicyPrompt([])).toBeUndefined();

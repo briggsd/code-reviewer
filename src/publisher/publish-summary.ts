@@ -81,5 +81,8 @@ export function createPublishHiddenMetadata(
     changeId: change.changeId,
     ...(findingIds !== undefined ? { findingIds } : {}),
     ...(hasFindingPaths ? { findingPaths } : {}),
+    // Comprehension-gate verdict (#26): additive, present only when the reviewer ran. v1 parsers
+    // ignore unknown keys, so this stays backward-compatible with the existing metadata reader.
+    ...(summary?.gateDecision !== undefined ? { gateDecision: summary.gateDecision } : {}),
   };
 }

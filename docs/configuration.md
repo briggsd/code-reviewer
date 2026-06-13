@@ -75,14 +75,17 @@ bun run schema:config
 
 ### Enabling the opt-in reviewers
 
-`release` and `compliance` are off by default. To turn them on, set their `reviewerPolicy`
-keys and (for compliance) supply the policy text the reviewer checks against:
+`release`, `compliance`, and `comprehension` are all off by default. To turn them on, set their
+`reviewerPolicy` keys and (for compliance) supply the policy text the reviewer checks against.
+`comprehension` is best set to `full_only` to bound cost (it then runs only on full-tier diffs;
+it is excluded on trivial diffs by the roster cap regardless):
 
 ```json
 {
   "reviewerPolicy": {
     "release": "enabled",
-    "compliance": "enabled"
+    "compliance": "enabled",
+    "comprehension": "full_only"
   },
   "compliancePolicy": [
     "All network egress must route through the telemetry transport boundary.",
@@ -100,7 +103,7 @@ Unlike `compliance`, `release` has **no inert period** — it runs and can emit 
 you enable it, including on the enabling PR itself. On a repo with rollout-risky diffs already in
 flight, that can fail the enabling PR's gate immediately in blocking mode. Enable it in advisory mode
 first (`mode: "advisory"`, or temporarily `failOn: []`) to audit existing findings, then switch to
-blocking. Review your `failOn` (default `["critical"]`) before enabling either role in blocking mode.
+blocking. Review your `failOn` (default `["critical"]`) before enabling any of these opt-in roles (`release`, `compliance`, `comprehension`) in blocking mode — each can emit `critical`.
 
 (The base-branch timing above is the **GitHub provider** path. On the local runner / `--git-diff`
 path there is no PR head and `resolveBaseConfig` is not called, so `compliancePolicy` is read straight
@@ -112,9 +115,10 @@ from your local config — which is exactly how you can test policy rules locall
 - `failOn`: finding severities that fail CI in blocking mode. Default: `["critical"]` (the built-in defaults are printed by `bun run src/cli.ts schemas` and live in `src/runner/default-config.ts`).
 - `sensitivePaths`: glob-like path patterns that escalate risk.
 - `ignoredPaths`: glob-like path patterns filtered out before review.
-- `reviewerPolicy`: role name to `enabled`, `disabled`, or `full_only`. Shipped role keys: `code_quality`, `security`, `documentation`, `performance`, and the two opt-in roles `release` and `compliance` (both default `disabled` — see below). A key that is not a shipped role is ignored (traced `no_trusted_reviewer_definition`), so a typo like `change_management` silently does nothing. The risk tier additionally caps the reviewer roster: trivial tier restricts to `code_quality` only, regardless of which roles are `enabled` in config. `reviewerPolicy` cannot re-enable a role excluded by the tier cap, and the cap cannot re-enable a role set to `disabled` in config. Lite and full tiers are uncapped. **Footgun:** disabling `code_quality` leaves trivial-tier runs with no reviewers at all — the run returns a deterministic `approved` summary without any model call (recorded as `coordinatorShortCircuited` with zero reviewer results).
+- `reviewerPolicy`: role name to `enabled`, `disabled`, or `full_only`. Shipped role keys: `code_quality`, `security`, `documentation`, `performance`, and the three opt-in roles `release`, `compliance`, and `comprehension` (all default `disabled` — see below). A key that is not a shipped role is ignored (traced `no_trusted_reviewer_definition`), so a typo like `change_management` silently does nothing. The risk tier additionally caps the reviewer roster: trivial tier restricts to `code_quality` only, regardless of which roles are `enabled` in config. `reviewerPolicy` cannot re-enable a role excluded by the tier cap, and the cap cannot re-enable a role set to `disabled` in config. Lite and full tiers are uncapped. **Footgun:** disabling `code_quality` leaves trivial-tier runs with no reviewers at all — the run returns a deterministic `approved` summary without any model call (recorded as `coordinatorShortCircuited` with zero reviewer results).
   - `release` (Release / change management, opt-in): flags deployment/rollout/migration and production-safety risks. Along with `security` and `compliance`, **it can emit `critical`** — operators running blocking mode with the default `failOn: ["critical"]` should expect rollout risks to fail the gate once they enable it.
   - `compliance` (Compliance / policy, opt-in): checks the diff against `compliancePolicy` (below). It **can also emit `critical`** (for high-confidence policy violations governing security/privacy/regulatory/production-safety obligations), so enabling it in blocking mode with the default `failOn: ["critical"]` will gate on those. It is **inert without `compliancePolicy` text** — enabling the role but supplying no policy produces no findings.
+  - `comprehension` (Comprehension gate, opt-in): a pre-review readiness check — a reviewer that works through a fixed 6-question rubric (dependency choices, failure modes, security implications, separation of concerns, downstream breakage, comprehensibility) and flags **unresolved comprehension gaps** ("dark code" a senior engineer couldn't explain without running it). It runs as a specialist in the normal fan-out, so it is excluded on `trivial` by the roster cap (`full_only` is the recommended setting to bound cost). Its findings produce a deterministic **gate verdict** `summary.gateDecision`: `allow` (no gaps), `warn` (suggestions only), `block` (any warning/critical) — rendered as a one-line `🚦 Comprehension gate` note and stored in the hidden metadata. The verdict reflects the findings that still count after acknowledgements, so it never contradicts a passing CI on an acknowledged gap. The verdict is observability only; **CI pass/fail stays governed by `mode`/`failOn` over the findings** (advisory by default, blocking opt-in — no separate gate switch). Like `release` and `compliance`, **it can emit `critical`** — running blocking mode with the default `failOn: ["critical"]` will fail the gate on a trust-boundary or production-safety comprehension gap once you enable it.
 - `conventions`: array of prose strings telling the reviewer about this repo's expected exceptions
   (e.g. "scripts/* are maintainer-run tools; don't apply an untrusted-input threat model"). Rendered
   as inert, sanitized untrusted data in the reviewer/coordinator prompts (never as instructions).

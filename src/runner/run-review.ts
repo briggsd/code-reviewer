@@ -32,6 +32,11 @@ import type {
 } from "../contracts/index.ts";
 import { resolveRuntimeKind, sanitizeJobKind } from "../runtime/runtime-kind.ts";
 import { applyAcknowledgements } from "./acknowledgements.ts";
+import {
+  comprehensionReviewerRan,
+  deriveGateDecision,
+  selectComprehensionGateFindings,
+} from "./comprehension-gate.ts";
 import { writeReviewContextArtifacts } from "./context-artifacts.ts";
 import { filterDiff } from "./diff-filter.ts";
 import { classifyReviewError } from "./error-classifier.ts";
@@ -413,12 +418,24 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     // `fixedFindingIds` (pre-#69 behavior — no regression). This is analytics/signal-accuracy only:
     // withheld/fixed never affect the CI gate, decision, or outcome (those were finalized above).
     const withheldStableIds = new Set(grounding.dropped.map((f) => createStableFindingId(f)));
-    const summary = classifyReReviewFindings(
+    const reReviewedSummary = classifyReReviewFindings(
       ackedSummary,
       context.priorState,
       withheldStableIds,
       reviewedPaths,
     );
+    // Comprehension-gate verdict (#26): shown only when the opt-in comprehension reviewer actually
+    // ran (trusted dispatched role). The verdict VALUE is computed from the FINAL gated findings —
+    // post-grounding, post-stable-id, post-acknowledgement — so it always matches what CI sees and
+    // what the comment displays; see selectComprehensionGateFindings for the attribution trade-off.
+    // Observability only; CI outcome stays driven by decideCiOutcome over findings.
+    const gateDecision: ReviewSummary["gateDecision"] =
+      runtimeResult.coordinatorResult !== undefined &&
+      comprehensionReviewerRan(runtimeResult.coordinatorResult.reviewerResults)
+        ? deriveGateDecision(selectComprehensionGateFindings(reReviewedSummary.findings))
+        : undefined;
+    const summary: ReviewSummary =
+      gateDecision !== undefined ? { ...reReviewedSummary, gateDecision } : reReviewedSummary;
 
     await emitTrace(options.traceSink, {
       type: "coordinator.completed",
@@ -430,6 +447,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         outcome: summary.outcome,
         findingCount: summary.findings.length,
         durationMs: coordinatorMs,
+        ...(summary.gateDecision !== undefined ? { gateDecision: summary.gateDecision } : {}),
         ...(runtimeResult.coordinatorResult?.coordinatorShortCircuited === true
           ? { coordinatorShortCircuited: true }
           : {}),

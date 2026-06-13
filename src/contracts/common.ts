@@ -36,7 +36,19 @@ export type AgentRole =
   | "documentation"
   | "performance"
   | "release"
+  | "compliance"
+  | "comprehension"
   | "custom";
+
+/**
+ * Comprehension-gate verdict (#26): the fresh-agent pre-PR readiness decision.
+ * `allow` = clear; `warn` = comprehension gaps noted, human review starts here;
+ * `block` = gaps serious enough to fix before review. Derived deterministically from
+ * the comprehension reviewer's own findings; surfaced for observability. The CI gate
+ * itself stays driven by `decideCiOutcome` over findings — the verdict adds no second
+ * blocking mechanism.
+ */
+export type GateDecision = "allow" | "warn" | "block";
 
 export type TraceEventType =
   | "review.started"

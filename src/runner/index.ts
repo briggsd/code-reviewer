@@ -1,4 +1,5 @@
 export * from "./base-conventions.ts";
+export * from "./comprehension-gate.ts";
 export * from "./config.ts";
 export * from "./context-artifacts.ts";
 export * from "./default-config.ts";

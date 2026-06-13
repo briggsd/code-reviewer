@@ -258,9 +258,14 @@ export function formatReviewSummaryMarkdown(
     "",
     `${decisionHeadline(summary.decision)} — Risk tier \`${summary.risk.tier}\` · CI \`${summary.outcome}\``,
     "",
-    summary.body,
-    "",
   ];
+  // Comprehension-gate verdict (#26): one line, present only when the opt-in reviewer ran.
+  // gateDecision is a closed enum populated by deterministic runner logic — render it in a code
+  // span unescaped, matching tier/outcome/decision (escaping inside a code span renders literally).
+  if (summary.gateDecision !== undefined) {
+    lines.push(`🚦 Comprehension gate: \`${summary.gateDecision}\``, "");
+  }
+  lines.push(summary.body, "");
 
   // Reviewer groups (or "No findings.")
   if (summary.findings.length === 0) {
