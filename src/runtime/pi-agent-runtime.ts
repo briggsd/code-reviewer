@@ -12,6 +12,8 @@ import type {
   ReviewerRunFailure,
   ReviewerRunInput,
   ReviewerRunResult,
+  ReviewSummary,
+  RiskAssessment,
   RuntimeEvent,
   RuntimeEventSubscription,
   RuntimeToolPolicy,
@@ -32,6 +34,7 @@ import {
   parseReviewerToolArgs,
   readToolCallArgs,
   SUBMIT_FINDINGS_TOOL_NAME,
+  SUBMIT_REVIEW_TOOL_NAME,
   validateFinding,
 } from "./structured-tool-output.ts";
 
@@ -321,6 +324,9 @@ export class PiAgentRuntime implements AgentRuntime {
         timeoutMs: input.timeoutMs,
         heartbeatIntervalMs: defaultHeartbeatIntervalMs(input.timeoutMs),
         toolPolicy: input.toolPolicy,
+        // The coordinator delivers its fused summary via the factory-owned submit_review tool;
+        // allowlist it so it stays callable even when the read/shell/write policy emits --no-tools.
+        requiredTools: [SUBMIT_REVIEW_TOOL_NAME],
         onEvent: (event) => {
           streamedEventCount += 1;
           this.forwardPiEvent(input.runId, agentRunId, "coordinator", event);
@@ -332,10 +338,19 @@ export class PiAgentRuntime implements AgentRuntime {
       }
 
       assertNotTruncatedOutput(processResult.events, agentRunId);
-      const parsed = parseCoordinatorOutput(processResult.finalText, [
+      const allowedReviewerRoles = [
         "coordinator",
         ...input.selectedReviewers.map((reviewer) => reviewer.role),
-      ]);
+      ];
+      // Structured submit_review tool is the PRIMARY coordinator path (M015 S04, #127); prose +
+      // repair is the instruct-only fallback. structuredOutput records which path ran (the
+      // production hit-rate the S05 retire-repair decision uses). Invalid tool args THROW (no
+      // silent prose re-parse), exactly like the reviewer path.
+      const toolArgs = readToolCallArgs(processResult.events, SUBMIT_REVIEW_TOOL_NAME);
+      const structuredOutput = toolArgs.status === "found";
+      const parsed = structuredOutput
+        ? parseCoordinatorToolArgs(toolArgs.args, allowedReviewerRoles, input.context.risk)
+        : parseCoordinatorOutput(processResult.finalText, allowedReviewerRoles);
       const summary =
         parsed?.summary ??
         summarizeReview(
@@ -347,7 +362,7 @@ export class PiAgentRuntime implements AgentRuntime {
         decision: summary.decision,
         outcome: summary.outcome,
         findingCount: summary.findings.length,
-        structuredOutput: parsed !== undefined,
+        structuredOutput,
         failedReviewerCount: reviewerFailures.length,
         ...(parsed !== undefined && parsed.reviewerRoleAdjustments.length > 0
           ? {
@@ -1189,7 +1204,10 @@ function buildCoordinatorPrompt(
 ): string {
   const parts = [
     "You are the coordinator for an AI code review factory.",
-    "Consolidate reviewer findings, remove duplicates and speculative items, and return ONLY valid JSON matching ReviewSummary.",
+    "Consolidate reviewer findings, removing duplicates and speculative items.",
+    "Deliver your fused review by calling the submit_review tool exactly once, as your final action — the tool call IS the review; do not answer in prose.",
+    "submit_review fields: decision, outcome, title, body, findings (do NOT include risk — it is set by the system).",
+    "Fallback ONLY if you cannot call the tool: return ONLY valid JSON matching ReviewSummary ({decision, outcome, title, body, findings, risk}), with no surrounding prose.",
     "Deduplicate by root cause and changed location; keep the clearest highest-severity finding when reviewers report the same issue.",
     "Keep only findings with specific evidence from changed files, metadata, or prior state; discard generic advice and unsupported speculation.",
     "Validate each finding before including it: confirm its stated evidence and location correspond to the actual changed code in your context; drop or demote any finding whose evidence you cannot substantiate from the diff, metadata, or prior state.",
@@ -1479,6 +1497,50 @@ function parseCoordinatorOutput(text: string, allowedReviewerRoles: readonly str
       body: parsed.body,
       findings: roleEnforcement.findings,
       risk: parsed.risk as ReturnType<typeof summarizeReview>["risk"],
+    },
+    reviewerRoleAdjustments: roleEnforcement.adjustments,
+  };
+}
+
+// Structured analogue of parseCoordinatorOutput (M015 S04, #127): validate the coordinator's
+// submit_review tool args into a ReviewSummary. NO JSON.parse / repair on this path. risk is
+// sourced from the TRUSTED context (contextRisk), not the model — the submit_review schema
+// deliberately omits it (mirrors coordinatorOutputSchema), unlike the prose path which keeps the
+// model-authored risk. A tool call with INVALID args THROWS (re-validated via validateFinding /
+// the decision+outcome guards) rather than silently falling back to prose — schema drift surfaces
+// as a classified failure, exactly like parseReviewerToolArgs in the reviewer path.
+function parseCoordinatorToolArgs(
+  args: unknown,
+  allowedReviewerRoles: readonly string[],
+  contextRisk: RiskAssessment,
+): {
+  summary: ReviewSummary;
+  reviewerRoleAdjustments: CoordinatorRoleAdjustment[];
+} {
+  const record = getRecord(args);
+  if (
+    !isReviewDecision(record.decision) ||
+    !isCiOutcome(record.outcome) ||
+    typeof record.title !== "string" ||
+    typeof record.body !== "string" ||
+    !Array.isArray(record.findings)
+  ) {
+    throw new Error("submit_review tool arguments did not match the coordinator output schema");
+  }
+
+  const roleEnforcement = enforceCoordinatorReviewerRoles(
+    record.findings.map((finding) => validateFinding(finding)),
+    allowedReviewerRoles,
+  );
+
+  return {
+    summary: {
+      decision: record.decision,
+      outcome: record.outcome,
+      title: record.title,
+      body: record.body,
+      findings: roleEnforcement.findings,
+      risk: contextRisk,
     },
     reviewerRoleAdjustments: roleEnforcement.adjustments,
   };

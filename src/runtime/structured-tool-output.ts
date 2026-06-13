@@ -30,6 +30,9 @@ import type { Finding } from "../contracts/index.ts";
 /** Name of the factory-owned terminal tool the reviewer calls to deliver findings (S01, #124). */
 export const SUBMIT_FINDINGS_TOOL_NAME = "submit_findings";
 
+/** Name of the factory-owned terminal tool the coordinator calls to deliver its fused summary (S04, #127). */
+export const SUBMIT_REVIEW_TOOL_NAME = "submit_review";
+
 /** Result of scanning an event stream for a tool call's validated arguments. */
 export type StructuredToolArgs =
   | { readonly status: "found"; readonly args: unknown }

@@ -2574,6 +2574,347 @@ describe("PiAgentRuntime structured submit_findings wiring (M015 S03, #126)", ()
   });
 });
 
+// ── M015 S04 (#127): structured `submit_review` tool wired as the PRIMARY coordinator path. ──────
+
+// Reviewers deliver via submit_findings (S03). Coordinator returns non-JSON prose but emits a
+// submit_review tool_execution_start event with valid args. Proves: tool path wins over prose.
+class StructuredCoordinatorPiProcessRunner implements PiProcessRunner {
+  readonly calls: PiProcessRunInput[] = [];
+
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    this.calls.push(input);
+
+    if (input.role === "coordinator") {
+      // finalText is deliberately NON-JSON prose: a structured-path regression that fell back to
+      // parseCoordinatorOutput would throw here, so a green test proves summary came from the tool.
+      // Note: NO `risk` field in the tool args — risk must come from context.
+      const toolArgs = {
+        decision: "significant_concerns",
+        outcome: "fail",
+        title: "Coordinator via submit_review",
+        body: "Consolidated via structured tool.",
+        findings: [securityFinding()],
+      };
+      return {
+        finalText: "Review delivered via submit_review.",
+        events: [
+          { type: "agent_start" },
+          {
+            type: "tool_execution_start",
+            toolCallId: "toolu_coord_structured",
+            toolName: "submit_review",
+            args: toolArgs,
+          },
+          { type: "tool_execution_end", toolCallId: "toolu_coord_structured", isError: false },
+          { type: "agent_end", messages: [] },
+        ],
+        rawOutput: "",
+      };
+    }
+
+    // Reviewers use the submit_findings structured path (reuse S03 pattern).
+    const findings = input.role === "security" ? [securityFinding()] : [];
+    return {
+      finalText: "Findings delivered via the submit_findings tool.",
+      events: [
+        { type: "agent_start" },
+        {
+          type: "tool_execution_start",
+          toolCallId: "toolu_reviewer_structured",
+          toolName: "submit_findings",
+          args: { findings },
+        },
+        { type: "tool_execution_end", toolCallId: "toolu_reviewer_structured", isError: false },
+        { type: "agent_end", messages: [] },
+      ],
+      rawOutput: "",
+    };
+  }
+}
+
+// Coordinator returns NO submit_review event; valid prose-JSON finalText for fallback path.
+class ProseCoordinatorPiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "coordinator") {
+      const finalText = JSON.stringify({
+        decision: "significant_concerns",
+        outcome: "fail",
+        title: "AI review found significant concerns",
+        body: "Coordinator consolidated one critical finding.",
+        findings: [securityFinding()],
+        risk: {
+          tier: "full",
+          reason: "Security or production-sensitive paths changed.",
+          matchedRules: ["sensitive_paths"],
+          sensitivePaths: ["auth/accounts.ts"],
+          reviewedFileCount: 1,
+          ignoredFileCount: 0,
+        },
+      });
+      return { finalText, events: [], rawOutput: finalText };
+    }
+
+    // Reviewers use structured path.
+    const findings = input.role === "security" ? [securityFinding()] : [];
+    return {
+      finalText: "Findings delivered via the submit_findings tool.",
+      events: [
+        {
+          type: "tool_execution_start",
+          toolCallId: "toolu_reviewer_prose_coord",
+          toolName: "submit_findings",
+          args: { findings },
+        },
+      ],
+      rawOutput: "",
+    };
+  }
+}
+
+// Coordinator calls submit_review with INVALID args (bogus decision) AND valid prose finalText.
+// The invalid tool args must THROW rather than falling back to the prose path.
+class InvalidCoordinatorToolArgsPiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "coordinator") {
+      const validProseFallback = JSON.stringify({
+        decision: "approved",
+        outcome: "pass",
+        title: "Should never surface — invalid tool args must throw",
+        body: "This prose summary must not surface.",
+        findings: [],
+        risk: {
+          tier: "lite",
+          reason: "Fake.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      });
+      return {
+        finalText: validProseFallback,
+        events: [
+          {
+            type: "tool_execution_start",
+            toolCallId: "toolu_coord_invalid",
+            toolName: "submit_review",
+            // decision value is bogus → isReviewDecision returns false → throws
+            args: {
+              decision: "totally_bogus",
+              outcome: "fail",
+              title: "Invalid",
+              body: "Invalid.",
+              findings: [],
+            },
+          },
+        ],
+        rawOutput: "",
+      };
+    }
+
+    const findings = input.role === "security" ? [securityFinding()] : [];
+    return {
+      finalText: JSON.stringify({ findings }),
+      events: [],
+      rawOutput: "",
+    };
+  }
+}
+
+// Coordinator calls submit_review with a VALID top-level shape (decision/outcome/title/body) but a
+// structurally INVALID finding inside the findings array (missing the required `recommendation`).
+// This exercises the SECOND throw branch in parseCoordinatorToolArgs — the per-finding
+// validateFinding(finding) — distinct from the top-level isReviewDecision guard above. The throw
+// must propagate (no partial/silent result).
+class InvalidCoordinatorFindingPiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "coordinator") {
+      const invalidFinding: Record<string, unknown> = { ...securityFinding() };
+      delete invalidFinding.recommendation; // validateFinding rejects a finding without it
+      return {
+        finalText: "Should never surface — per-finding validation must throw.",
+        events: [
+          {
+            type: "tool_execution_start",
+            toolCallId: "toolu_coord_invalid_finding",
+            toolName: "submit_review",
+            args: {
+              decision: "significant_concerns",
+              outcome: "fail",
+              title: "Valid top-level shape",
+              body: "But one finding is structurally invalid.",
+              findings: [invalidFinding],
+            },
+          },
+        ],
+        rawOutput: "",
+      };
+    }
+
+    const findings = input.role === "security" ? [securityFinding()] : [];
+    return {
+      finalText: JSON.stringify({ findings }),
+      events: [],
+      rawOutput: "",
+    };
+  }
+}
+
+describe("PiAgentRuntime structured submit_review wiring (M015 S04, #127)", () => {
+  test("coordinator reads summary from submit_review tool and flags structuredOutput true", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-coord-structured-"));
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runner = new StructuredCoordinatorPiProcessRunner();
+      const runtime = new PiAgentRuntime({
+        processRunner: runner,
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      // Summary came from the tool, not from the non-JSON finalText.
+      expect(result.summary.decision).toBe("significant_concerns");
+      expect(result.summary.title).toBe("Coordinator via submit_review");
+      expect(result.summary.body).toBe("Consolidated via structured tool.");
+      expect(result.summary.findings).toHaveLength(1);
+
+      // risk comes from the context (the fixture's computed tier), NOT from the tool args
+      // (which carried no `risk` field). The tier must be a non-empty string.
+      expect(typeof result.summary.risk.tier).toBe("string");
+      expect(result.summary.risk.tier.length).toBeGreaterThan(0);
+      // The coordinator tool call carries no risk — so summary.risk must equal context.risk.
+      // The coordinatorResult.summary carries the same context risk; confirm tiers match.
+      const coordinatorResult = result.coordinatorResult;
+      if (coordinatorResult === undefined) {
+        throw new Error("Expected coordinatorResult to be defined");
+      }
+      expect(result.summary.risk.tier).toBe(coordinatorResult.summary.risk.tier);
+
+      // submit_review is allowlisted for the coordinator run.
+      expect(runner.calls.find((call) => call.role === "coordinator")?.requiredTools).toEqual([
+        "submit_review",
+      ]);
+
+      // Coordinator prompt instructs calling submit_review.
+      expect(runner.calls.find((call) => call.role === "coordinator")?.prompt).toContain(
+        "calling the submit_review tool",
+      );
+
+      // Trace: coordinator agent.output has structuredOutput === true.
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const coordinatorOutput = events.find(
+        (event) => event.type === "agent.output" && event.role === "coordinator",
+      );
+      expect(coordinatorOutput?.data?.structuredOutput).toBe(true);
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back to prose path when no submit_review tool call and flags structuredOutput false", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-coord-prose-"));
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runtime = new PiAgentRuntime({
+        processRunner: new ProseCoordinatorPiProcessRunner(),
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      // Prose parse still yields a valid summary.
+      expect(result.summary.decision).toBe("significant_concerns");
+
+      // Trace: coordinator agent.output has structuredOutput === false (prose path).
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const coordinatorOutput = events.find(
+        (event) => event.type === "agent.output" && event.role === "coordinator",
+      );
+      expect(coordinatorOutput?.data?.structuredOutput).toBe(false);
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("invalid submit_review tool args THROW without falling back to prose", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-coord-invalid-"));
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runtime = new PiAgentRuntime({
+        processRunner: new InvalidCoordinatorToolArgsPiProcessRunner(),
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      // runReview must reject — invalid tool args propagate out of runCoordinator.
+      await expect(
+        runReview({
+          fixture,
+          runtime,
+          traceSink,
+          tracePath,
+          now: new Date("2026-06-09T00:00:00.000Z"),
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("a structurally invalid finding in submit_review args THROWS (per-finding validation)", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-coord-invalid-finding-"));
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runtime = new PiAgentRuntime({
+        processRunner: new InvalidCoordinatorFindingPiProcessRunner(),
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      // The per-finding validateFinding throw must propagate out of parseCoordinatorToolArgs /
+      // runCoordinator — never a silent partial summary.
+      await expect(
+        runReview({
+          fixture,
+          runtime,
+          traceSink,
+          tracePath,
+          now: new Date("2026-06-09T00:00:00.000Z"),
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+});
+
 class QuotedCodeReviewerPiProcessRunner implements PiProcessRunner {
   async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
     const findingWithQuotedCode = {

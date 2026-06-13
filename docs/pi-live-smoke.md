@@ -47,8 +47,8 @@ When enabled, the script packs the current trusted checkout with `npm pack`, ins
 - default CI-hardening flags: `--no-session --no-approve --no-extensions --no-skills --no-prompt-templates --no-context-files`, plus an explicit `--extension <factory submit-findings path>` (the one trusted extension, loaded under `--no-extensions`)
 - untrusted read-only runtime tool policy
 - reviewer `submit_findings` tool-call delivery (the structured **primary** path, M015 S03 #126): the happy-path signal is `structuredOutput: true` on the reviewer `agent.output` event, with findings read straight from the tool args (no `JSON.parse`/repair)
-- the prose-parse fallback (`structuredOutput: false`), exercised only when the instruct-only tool call is absent — including a narrow repair for model-emitted invalid JSON escape sequences inside fenced JSON strings (the two-character sequence backslash-backtick: `` \` ``)
-- coordinator summary parsing/fallback
+- coordinator `submit_review` tool-call delivery (the structured **primary** path, M015 S04 #127): the happy-path signal is `structuredOutput: true` on the coordinator `agent.output` event; `risk` is sourced from context, not the model
+- the prose-parse fallback (`structuredOutput: false`) for both reviewer and coordinator, exercised only when the instruct-only tool call is absent — including a narrow repair for model-emitted invalid JSON escape sequences inside fenced JSON strings (the two-character sequence backslash-backtick: `` \` ``)
 - streaming JSONL event forwarding into the trace sink
 - JSONL trace and filesystem state artifacts
 

@@ -1,16 +1,18 @@
 /**
- * Factory-owned Pi extension — `submit_findings` structured-output terminal tool (M015 S01, #124).
+ * Factory-owned Pi extension — `submit_findings` (reviewer, M015 S01, #124) and `submit_review`
+ * (coordinator, M015 S04, #127) structured-output terminal tools.
  *
- * Purpose: let a reviewer agent HAND BACK its findings through a schema-validated tool call
- * instead of emitting JSON-shaped prose that the adapter has to parse + repair. The validated
- * tool args surface in Pi's `--mode json` event stream as
+ * Purpose: let reviewer and coordinator agents HAND BACK their output through schema-validated
+ * tool calls instead of emitting JSON-shaped prose that the adapter has to parse + repair. The
+ * validated tool args surface in Pi's `--mode json` event stream as
  *   {"type":"tool_execution_start","toolName":"submit_findings","args":{...}}
+ *   {"type":"tool_execution_start","toolName":"submit_review","args":{...}}
  * which `readToolCallArgs` (`src/runtime/structured-tool-output.ts`) reads directly — no
  * `repairUnescapedStringQuotes`, no `JSON.parse` of model prose on the happy path.
  *
  * Loaded in PRODUCTION (M015 S03, #126): `BunPiProcessRunner` resolves this file's path and
- * passes it to every `pi` reviewer run as `--extension <path>`, making the structured tool the
- * primary delivery path and prose-repair the rarely-hit fallback. The spike harness
+ * passes it to every `pi` run as `--extension <path>`, making structured tools the primary
+ * delivery path and prose-repair the rarely-hit fallback. The spike harness
  * (`scripts/structured-output-spike.ts`) loads the same file for the live hit-rate measurement.
  *
  * Trust / fork-safety: this file is TRUSTED, factory-owned code. It is loaded ONLY via an
@@ -23,11 +25,11 @@
  * `@earendil-works/pi-coding-agent` + `typebox` to Pi's bundled copies regardless of where this
  * file lives — so it does NOT need either as a dependency of this repo.
  *
- * The schema below MIRRORS `reviewerOutputSchema` in `src/schemas/review-output.ts`. It is a
- * hand-written TypeBox copy (Pi requires a TypeBox `TSchema` for `parameters`). The schema is a
- * NUDGE, not the trust boundary: `parseReviewerToolArgs` re-runs `validateFinding` on every
- * captured arg in production, so a drift here cannot smuggle an unvalidated finding through (the
- * spike additionally re-validates against the canonical JSON Schema).
+ * The schemas below MIRROR the canonical output schemas in `src/schemas/review-output.ts`. They
+ * are hand-written TypeBox copies (Pi requires a TypeBox `TSchema` for `parameters`). The schemas
+ * are NUDGES, not the trust boundary: `parseReviewerToolArgs` / `parseCoordinatorToolArgs`
+ * re-validate every captured arg in production, so schema drift here cannot smuggle unvalidated
+ * output through.
  */
 
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -115,6 +117,71 @@ const submitFindingsTool = defineTool({
   },
 });
 
+const submitReviewParameters = Type.Object(
+  {
+    decision: Type.Union(
+      [
+        Type.Literal("approved"),
+        Type.Literal("approved_with_comments"),
+        Type.Literal("minor_issues"),
+        Type.Literal("significant_concerns"),
+        Type.Literal("review_failed"),
+      ],
+      { description: "Overall review decision." },
+    ),
+    outcome: Type.Union(
+      [
+        Type.Literal("pass"),
+        Type.Literal("fail"),
+        Type.Literal("neutral"),
+        Type.Literal("skipped"),
+      ],
+      { description: "CI outcome derived from the decision." },
+    ),
+    title: Type.String({ description: "One-line review summary title." }),
+    body: Type.String({ description: "Full review summary body in markdown." }),
+    findings: Type.Array(findingSchema, {
+      description:
+        "Consolidated final findings from all reviewers. Use an empty array when the diff is clean.",
+    }),
+  },
+  { additionalProperties: false },
+);
+
+const submitReviewTool = defineTool({
+  name: "submit_review",
+  label: "Submit Review",
+  description:
+    "Deliver your consolidated review summary as validated structured data. Call this exactly once, as your LAST action, to deliver the fused review. Do NOT include a risk field — the system sets risk from trusted context.",
+  promptSnippet:
+    "Deliver your fused review by calling submit_review exactly once as your final action.",
+  promptGuidelines: [
+    "When you have finished consolidating findings, call submit_review exactly once to deliver your fused review summary — this is how the review is delivered.",
+    "submit_review must be your FINAL action. Do not emit any assistant prose or JSON instead of, or in addition to, calling it.",
+    "Do NOT include a risk field in the submit_review call — risk is set by the system from trusted context, not the model.",
+    "If the diff is clean, still call submit_review with an empty findings array — do not answer in prose.",
+  ],
+  parameters: submitReviewParameters,
+
+  // `terminate: true` ends the agent turn on this tool call, so there is no extra LLM round-trip
+  // and no trailing prose for the adapter to mis-parse. The returned `details` echo the validated
+  // args; the runtime reads them off the `tool_execution_start` event.
+  async execute(_toolCallId, params) {
+    const count = params.findings.length;
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Recorded review (${count} finding${count === 1 ? "" : "s"}).`,
+        },
+      ],
+      details: params,
+      terminate: true,
+    };
+  },
+});
+
 export default function (pi: ExtensionAPI): void {
   pi.registerTool(submitFindingsTool);
+  pi.registerTool(submitReviewTool);
 }
