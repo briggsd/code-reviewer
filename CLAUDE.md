@@ -26,6 +26,11 @@ Full design: **docs/architecture.md**. Project purpose & status: **README.md**.
 - use the delegate-implement skill when working on selected issues
 - open PR and work through findings from the ai-review
 - merge in
+- **Running agents in parallel? One git worktree per agent — never share this checkout.**
+  One repo = one HEAD/index/working tree, so two agents here corrupt each other's branch
+  work. Spin each concurrent agent into its own checkout:
+  `.claude/skills/delegate-implement/new-worktree.sh <branch>` (node_modules pre-symlinked,
+  gate-ready); tear down with the sibling `rm-worktree.sh`. Details in that skill's overlay.
 
 ## Stack & how to run
 
