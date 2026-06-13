@@ -10,6 +10,7 @@ import type {
   DiffSummary,
   Finding,
   GitRunner,
+  IncrementalReviewPlan,
   PriorReviewState,
   ResolvedBaseConfig,
   ReviewConfig,
@@ -22,6 +23,7 @@ import {
   createTelemetryFailureTraceLogger,
   DummyAgentRuntime,
   decideCiOutcome,
+  decideIncrementalReview,
   FileSystemReviewStateStore,
   formatReviewSummaryMarkdown,
   GitHubVcsAdapter,
@@ -88,6 +90,7 @@ type ReviewSource =
       adapter?: VcsAdapter;
       conventionsResolution?: ResolvedBaseConfig;
       breakGlassOverride?: BreakGlassOverride;
+      incremental?: IncrementalReviewPlan;
     };
 
 async function runCommand(args: string[]): Promise<void> {
@@ -199,6 +202,7 @@ async function runCommand(args: string[]): Promise<void> {
             ...(source.breakGlassOverride !== undefined
               ? { breakGlassOverride: source.breakGlassOverride }
               : {}),
+            ...(source.incremental !== undefined ? { incremental: source.incremental } : {}),
           });
 
     if (publishOptions.publishInline) {
@@ -351,6 +355,22 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
     acknowledgements: resolved.acknowledgements,
   };
 
+  // Incremental re-review (#46): when a prior review exists, ask the adapter for the
+  // file delta since previousHeadSha (best-effort) and let the deterministic policy
+  // decide whether to narrow. Any failure / unsupported adapter / force-push degrades
+  // to a full review inside decideIncrementalReview. Uses the authoritative head SHA
+  // from the fetched metadata (the --head-sha flag may be a placeholder).
+  let incremental: IncrementalReviewPlan | undefined;
+  if (priorState?.previousHeadSha !== undefined) {
+    const vcs: VcsAdapter = adapter;
+    const delta = vcs.getChangedPathsSince
+      ? await vcs
+          .getChangedPathsSince({ ...ref, headSha: metadata.headSha }, priorState.previousHeadSha)
+          .catch(() => undefined)
+      : undefined;
+    incremental = decideIncrementalReview({ priorState, headSha: metadata.headSha, delta });
+  }
+
   return {
     kind: "change",
     metadata,
@@ -361,6 +381,7 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
     adapter,
     conventionsResolution: resolved,
     ...(breakGlassOverride !== undefined ? { breakGlassOverride } : {}),
+    ...(incremental !== undefined ? { incremental } : {}),
   };
 }
 

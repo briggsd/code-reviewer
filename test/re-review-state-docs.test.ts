@@ -9,7 +9,7 @@ describe("re-review state documentation", () => {
     expect(guide).toContain("Stable finding IDs");
     expect(guide).toContain("assignStableFindingIds()");
     expect(guide).toContain("createStableFindingId()");
-    expect(guide).toContain("schemaVersion: 1");
+    expect(guide).toContain("schemaVersion: 2");
     expect(guide).toContain("findingIds");
     expect(guide).toContain("parseSummaryHiddenMetadata()");
     expect(guide).toContain("createPriorReviewStateFromMetadata()");

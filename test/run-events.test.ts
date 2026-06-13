@@ -267,6 +267,7 @@ describe("deriveAcceptanceByReviewer", () => {
         recurringFindingIds: [],
         fixedFindingIds: ["fnd_fixed"],
         withheldFindingIds: [],
+        carriedForwardFindingIds: [],
         classifications: [makeClassification("fixed", { priorReviewer: "security" })],
       },
     });
@@ -283,6 +284,7 @@ describe("deriveAcceptanceByReviewer", () => {
         recurringFindingIds: ["fnd_recurring"],
         fixedFindingIds: [],
         withheldFindingIds: [],
+        carriedForwardFindingIds: [],
         classifications: [makeClassification("recurring", { reviewer: "performance" })],
       },
     });
@@ -299,6 +301,7 @@ describe("deriveAcceptanceByReviewer", () => {
         recurringFindingIds: [],
         fixedFindingIds: [],
         withheldFindingIds: ["fnd_withheld"],
+        carriedForwardFindingIds: [],
         classifications: [makeClassification("withheld", { priorReviewer: "code_quality" })],
       },
     });
@@ -331,6 +334,7 @@ describe("deriveAcceptanceByReviewer", () => {
         recurringFindingIds: [],
         fixedFindingIds: ["fnd_orphan_fixed"],
         withheldFindingIds: [],
+        carriedForwardFindingIds: [],
         classifications: [classification],
       },
     });
@@ -352,6 +356,7 @@ describe("deriveAcceptanceByReviewer", () => {
         recurringFindingIds: [],
         fixedFindingIds: [],
         withheldFindingIds: [],
+        carriedForwardFindingIds: [],
         classifications: [makeClassification("new", { reviewer: "security" })],
       },
     });
@@ -375,6 +380,7 @@ describe("deriveAcceptanceByReviewer", () => {
         recurringFindingIds: ["fnd_recurring"],
         fixedFindingIds: ["fnd_fixed"],
         withheldFindingIds: [],
+        carriedForwardFindingIds: [],
         classifications: [
           makeClassification("new", { reviewer: "security" }),
           makeClassification("recurring", { reviewer: "security" }),
@@ -416,6 +422,7 @@ describe("createRunCorrectionEvent", () => {
         recurringFindingIds: [],
         fixedFindingIds: [],
         withheldFindingIds: [],
+        carriedForwardFindingIds: [],
         classifications: [makeClassification("new")],
       },
     });
@@ -462,6 +469,7 @@ describe("createRunCorrectionEvent", () => {
         recurringFindingIds: [],
         fixedFindingIds: ["fnd_fixed"],
         withheldFindingIds: [],
+        carriedForwardFindingIds: [],
         classifications: [makeClassification("fixed")],
       },
     });
@@ -503,6 +511,7 @@ describe("no free-text fields in emitted events", () => {
       recurringFindingIds: [],
       fixedFindingIds: ["fnd_fixed"],
       withheldFindingIds: [],
+      carriedForwardFindingIds: [],
       classifications: [makeClassification("fixed", { priorReviewer: "security" })],
     },
   });

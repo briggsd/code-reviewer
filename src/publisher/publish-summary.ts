@@ -51,19 +51,35 @@ export function createPublishHiddenMetadata(
   change: ChangeMetadata,
   summary?: ReviewSummary,
 ): Record<string, JsonValue> {
+  const findingIds =
+    summary !== undefined
+      ? summary.findings.map((finding) => finding.id ?? "").filter((id) => id.length > 0)
+      : undefined;
+
+  // findingPaths: id → location.path for findings that have both a non-empty id and a path.
+  // Only included at schemaVersion 2; omitted entirely when empty.
+  const findingPaths: Record<string, string> = {};
+  if (summary !== undefined) {
+    for (const finding of summary.findings) {
+      if (
+        finding.id !== undefined &&
+        finding.id.length > 0 &&
+        finding.location?.path !== undefined
+      ) {
+        findingPaths[finding.id] = finding.location.path;
+      }
+    }
+  }
+  const hasFindingPaths = Object.keys(findingPaths).length > 0;
+
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     runId,
     headSha: change.headSha,
     provider: change.provider,
     repository: change.repository.slug,
     changeId: change.changeId,
-    ...(summary !== undefined
-      ? {
-          findingIds: summary.findings
-            .map((finding) => finding.id ?? "")
-            .filter((id) => id.length > 0),
-        }
-      : {}),
+    ...(findingIds !== undefined ? { findingIds } : {}),
+    ...(hasFindingPaths ? { findingPaths } : {}),
   };
 }

@@ -1042,6 +1042,234 @@ describe("GitHubVcsAdapter", () => {
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // getChangedPathsSince tests
+  // ---------------------------------------------------------------------------
+
+  test("getChangedPathsSince: a non-SHA-shaped sinceSha is rejected without an API call", async () => {
+    let called = false;
+    const adapter = new GitHubVcsAdapter({
+      fetch: async () => {
+        called = true;
+        return jsonResponse({ status: "ahead", files: [], total_commits: 0 });
+      },
+    });
+    // "oldsha" contains non-hex chars → rejected by the SHA-shape guard (untrusted input).
+    const result = await adapter.getChangedPathsSince(changeRef, "oldsha");
+    expect(result).toBeUndefined();
+    expect(called).toBe(false);
+  });
+
+  test("getChangedPathsSince: status 'ahead' with 2 files → isAncestor true, changedPaths populated", async () => {
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (
+          url ===
+          "https://api.github.com/repos/example/payments-api/compare/0123456789abcdef0123456789abcdef01234567...headsha123"
+        ) {
+          return jsonResponse({
+            status: "ahead",
+            files: [{ filename: "src/auth/accounts.ts" }, { filename: "src/billing/invoice.ts" }],
+            total_commits: 2,
+          });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(
+      changeRef,
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+
+    expect(result).toBeDefined();
+    expect(result?.isAncestor).toBe(true);
+    expect(result?.changedPaths).toEqual(["src/auth/accounts.ts", "src/billing/invoice.ts"]);
+  });
+
+  test("getChangedPathsSince: status 'identical' → isAncestor true, empty changedPaths", async () => {
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.includes("/compare/")) {
+          return jsonResponse({ status: "identical", files: [], total_commits: 0 });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(
+      changeRef,
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+
+    expect(result?.isAncestor).toBe(true);
+    expect(result?.changedPaths).toEqual([]);
+  });
+
+  test("getChangedPathsSince: status 'diverged' → isAncestor false (force-push/rebase)", async () => {
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.includes("/compare/")) {
+          return jsonResponse({
+            status: "diverged",
+            files: [{ filename: "src/auth/accounts.ts" }],
+            total_commits: 1,
+          });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(
+      changeRef,
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+
+    expect(result?.isAncestor).toBe(false);
+    // Not an ancestor → changedPaths is emptied (the delta is meaningless on a force-push/rebase).
+    expect(result?.changedPaths).toEqual([]);
+  });
+
+  test("getChangedPathsSince: 'behind' status → isAncestor false", async () => {
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.includes("/compare/")) {
+          return jsonResponse({ status: "behind", files: [], total_commits: 0 });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(
+      changeRef,
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+
+    expect(result?.isAncestor).toBe(false);
+    expect(result?.changedPaths).toEqual([]);
+  });
+
+  test("getChangedPathsSince: fetch throws → returns undefined (best-effort, never throws)", async () => {
+    const adapter = new GitHubVcsAdapter({
+      fetch: async () => {
+        throw new Error("network error");
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(
+      changeRef,
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+
+    expect(result).toBeUndefined();
+  });
+
+  test("getChangedPathsSince: non-2xx response → returns undefined", async () => {
+    const adapter = new GitHubVcsAdapter({
+      fetch: async () =>
+        new Response(JSON.stringify({ message: "Not Found" }), {
+          status: 404,
+          statusText: "Not Found",
+        }),
+    });
+
+    const result = await adapter.getChangedPathsSince(
+      changeRef,
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+
+    expect(result).toBeUndefined();
+  });
+
+  test("getChangedPathsSince: 300 files → returns undefined (truncation safety)", async () => {
+    const files = Array.from({ length: 300 }, (_, i) => ({ filename: `src/file${i}.ts` }));
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.includes("/compare/")) {
+          return jsonResponse({ status: "ahead", files, total_commits: 50 });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(
+      changeRef,
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+
+    // 300 files at the cap → truncation risk → must return undefined
+    expect(result).toBeUndefined();
+  });
+
+  test("getChangedPathsSince: 299 files → returns them (not truncated)", async () => {
+    const files = Array.from({ length: 299 }, (_, i) => ({ filename: `src/file${i}.ts` }));
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.includes("/compare/")) {
+          return jsonResponse({ status: "ahead", files, total_commits: 10 });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(
+      changeRef,
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+
+    expect(result).toBeDefined();
+    expect(result?.changedPaths).toHaveLength(299);
+    expect(result?.isAncestor).toBe(true);
+  });
+
+  test("getChangedPathsSince: missing files field → empty changedPaths", async () => {
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.includes("/compare/")) {
+          // files field absent from response
+          return jsonResponse({ status: "ahead", total_commits: 0 });
+        }
+        return new Response(JSON.stringify({ message: `unexpected url: ${url}` }), {
+          status: 404,
+          statusText: "Not Found",
+        });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(
+      changeRef,
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+
+    expect(result?.isAncestor).toBe(true);
+    expect(result?.changedPaths).toEqual([]);
+  });
+
   test("bot-identity resolution failure → no suppression (safe-on-failure)", async () => {
     // GET /user returns non-2xx → botId = undefined → dedup map is empty → finding is posted
     // even if an existing comment has matching metadata. This is the safe direction: a duplicate

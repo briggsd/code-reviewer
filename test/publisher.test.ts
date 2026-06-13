@@ -59,13 +59,14 @@ describe("summary publishing orchestration", () => {
       expect(result.summaryCommentId).toBe("123");
       expect(publisher.inputs).toHaveLength(1);
       expect(publisher.inputs[0]?.hiddenMetadata).toEqual({
-        schemaVersion: 1,
+        schemaVersion: 2,
         runId: "fixture-auth-pr",
         headSha: "abc123",
         provider: "github",
         repository: "example/payments-api",
         changeId: "17",
         findingIds: [findingId as string],
+        findingPaths: { [findingId as string]: "auth/accounts.ts" },
       });
       expect(events).toEqual([
         {
@@ -128,7 +129,7 @@ describe("summary publishing orchestration", () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
 
     expect(createPublishHiddenMetadata("run-123", fixture.metadata)).toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       runId: "run-123",
       headSha: "abc123",
       provider: "github",

@@ -1,5 +1,6 @@
 import type { CiOutcome, JsonValue, ProviderKind, SafetyMode } from "./common.ts";
 import type {
+  ChangedPathsSince,
   ChangeMetadata,
   ChangeRef,
   DiffSummary,
@@ -101,6 +102,13 @@ export interface VcsAdapter {
   // canonical CI gate is unaffected by a detection hiccup. All comment content is untrusted; only
   // a leading break-glass marker from an OWNER/MEMBER/COLLABORATOR-equivalent author qualifies.
   detectBreakGlassOverride?(ref: ChangeRef): Promise<BreakGlassOverride | undefined>;
+
+  // Compute the files changed between `sinceSha` and the change head, for incremental re-review
+  // (#46): narrow a re-push to only the delta since the last reviewed head. Best-effort — returns
+  // undefined when the delta cannot be computed (unsupported provider, API error, or too many
+  // files); the runner then falls back to a full review. `isAncestor` MUST be false on a
+  // rebase/force-push (sinceSha no longer an ancestor of head), which also forces a full review.
+  getChangedPathsSince?(ref: ChangeRef, sinceSha: string): Promise<ChangedPathsSince | undefined>;
 }
 
 // A recognized human break-glass override (#22 phase 2). Counts/identifiers only — the human

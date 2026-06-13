@@ -440,7 +440,7 @@ The runner stores:
 - cost metrics,
 - model/fallback decisions.
 
-This enables incremental re-review.
+This enables incremental re-review (implemented for GitHub in #46; GitLab pending).
 
 ## Agent contracts
 
@@ -750,7 +750,7 @@ Add:
 - inline comments/discussions,
 - stable finding IDs,
 - prior bot state parsing,
-- incremental re-review,
+- incremental re-review (**implemented for GitHub** — delta since `previousHeadSha`, carry-forward correctness for off-delta prior findings, safe fallback on unavailable delta / force-push / rebase; **GitLab falls back to full review — parity is a follow-up**),
 - docs reviewer,
 - warning/suggestion policy tuning,
 - summary-only fallback.

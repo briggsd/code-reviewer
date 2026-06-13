@@ -37,6 +37,8 @@ import { filterDiff } from "./diff-filter.ts";
 import { classifyReviewError } from "./error-classifier.ts";
 import { assessFindingGrounding } from "./evidence-grounding.ts";
 import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
+import type { IncrementalReviewPlan } from "./incremental-review.ts";
+import { narrowDiffToPaths } from "./incremental-review.ts";
 import { backfillFindingLocations } from "./location-backfill.ts";
 import { classifyReReviewFindings } from "./re-review.ts";
 import {
@@ -65,6 +67,13 @@ export interface RunReviewOptions {
   runtime?: AgentRuntime;
   jobKind?: string;
   breakGlassOverride?: BreakGlassOverride;
+  /**
+   * Incremental re-review plan (#46). When mode is "incremental", the diff is
+   * narrowed to plan.reviewedPaths before filtering/classification, and prior
+   * findings off the delta are carried forward instead of marked fixed. The CLI
+   * computes this from the adapter's getChangedPathsSince + decideIncrementalReview.
+   */
+  incremental?: IncrementalReviewPlan;
 }
 
 export interface RunReviewResult {
@@ -88,6 +97,7 @@ export interface RunReviewFromChangeOptions extends Omit<RunReviewOptions, "fixt
   priorState?: PriorReviewState;
   fakeFindings?: Finding[];
   breakGlassOverride?: BreakGlassOverride;
+  incremental?: IncrementalReviewPlan;
 }
 
 export async function runReviewFromChange(
@@ -122,6 +132,7 @@ export async function runReviewFromChange(
     ...(options.breakGlassOverride !== undefined
       ? { breakGlassOverride: options.breakGlassOverride }
       : {}),
+    ...(options.incremental !== undefined ? { incremental: options.incremental } : {}),
   });
 }
 
@@ -147,8 +158,20 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     },
   });
 
+  // Incremental re-review (#46): when the plan says so, narrow the diff to the
+  // delta since previousHeadSha BEFORE filtering/risk-classification, so a small
+  // re-push lands in a cheaper tier and reviewers see only the changed files.
+  // reviewedPaths drives carry-forward classification below (off-delta prior
+  // findings are carried forward, never marked fixed). A "full" plan leaves the
+  // diff untouched and reviewedPaths undefined (current behavior).
+  const incremental = options.incremental;
+  const reviewedPaths =
+    incremental?.mode === "incremental" ? new Set(incremental.reviewedPaths ?? []) : undefined;
+  const reviewDiff =
+    reviewedPaths === undefined ? fixture.diff : narrowDiffToPaths(fixture.diff, reviewedPaths);
+
   const contextBuildStartedAt = clock();
-  const filtered = filterDiff(fixture.diff, fixture.config);
+  const filtered = filterDiff(reviewDiff, fixture.config);
   const riskAssessmentStartedAt = clock();
   const risk =
     fixture.risk ??
@@ -390,7 +413,12 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     // `fixedFindingIds` (pre-#69 behavior — no regression). This is analytics/signal-accuracy only:
     // withheld/fixed never affect the CI gate, decision, or outcome (those were finalized above).
     const withheldStableIds = new Set(grounding.dropped.map((f) => createStableFindingId(f)));
-    const summary = classifyReReviewFindings(ackedSummary, context.priorState, withheldStableIds);
+    const summary = classifyReReviewFindings(
+      ackedSummary,
+      context.priorState,
+      withheldStableIds,
+      reviewedPaths,
+    );
 
     await emitTrace(options.traceSink, {
       type: "coordinator.completed",
@@ -411,6 +439,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
               recurringFindingCount: summary.reReview.recurringFindingIds.length,
               fixedFindingCount: summary.reReview.fixedFindingIds.length,
               withheldFindingCount: summary.reReview.withheldFindingIds.length,
+              carriedForwardFindingCount: summary.reReview.carriedForwardFindingIds.length,
             }
           : {}),
       },
@@ -481,6 +510,15 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         ...(runtimeResult.coordinatorResult?.coordinatorShortCircuited === true
           ? { coordinatorShortCircuited: true }
           : {}),
+        ...(incremental !== undefined
+          ? {
+              incremental: {
+                mode: incremental.mode,
+                reason: incremental.reason,
+                reviewedFileCount: context.risk.reviewedFileCount,
+              },
+            }
+          : {}),
       }),
     });
 
@@ -532,6 +570,22 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
           reviewedFileCount: context.risk.reviewedFileCount,
           outputTokens: thinReview.outputTokens,
           expectedFloor: thinReview.expectedFloor,
+        },
+      });
+    }
+
+    // Incremental re-review marker (#46): emitted whenever a re-review attempted an
+    // incremental decision (prior head present), recording whether it narrowed and why.
+    if (incremental !== undefined) {
+      await emitTrace(options.traceSink, {
+        type: "review.incremental",
+        runId,
+        timestamp: clock().toISOString(),
+        data: {
+          mode: incremental.mode,
+          reason: incremental.reason,
+          reviewedFileCount: context.risk.reviewedFileCount,
+          carriedForwardFindingCount: summary.reReview?.carriedForwardFindingIds.length ?? 0,
         },
       });
     }
@@ -852,6 +906,7 @@ function createRunMetricsTelemetryEvent(input: {
   suppressedCount?: number;
   thinReview?: { outputTokens: number; expectedFloor: number };
   coordinatorShortCircuited?: boolean;
+  incremental?: { mode: string; reason: string; reviewedFileCount: number };
   summary?: ReviewSummary;
   errorClassification?: ReviewErrorClassification;
 }): TelemetryEvent {
@@ -923,6 +978,15 @@ function createRunMetricsTelemetryEvent(input: {
       recurringFindingCount: input.summary.reReview.recurringFindingIds.length,
       fixedFindingCount: input.summary.reReview.fixedFindingIds.length,
       withheldFindingCount: input.summary.reReview.withheldFindingIds.length,
+      carriedForwardFindingCount: input.summary.reReview.carriedForwardFindingIds.length,
+    };
+  }
+
+  if (input.incremental !== undefined) {
+    data.incremental = {
+      mode: input.incremental.mode,
+      reason: input.incremental.reason,
+      reviewedFileCount: input.incremental.reviewedFileCount,
     };
   }
   if (input.groundingDroppedCount !== undefined && input.groundingDroppedCount > 0) {

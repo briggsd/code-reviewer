@@ -294,6 +294,21 @@ export function formatReviewSummaryMarkdown(
         `- Withheld IDs: ${summary.reReview.withheldFindingIds.map((id) => `\`${id}\``).join(", ")}`,
       );
     }
+    if (summary.reReview.carriedForwardFindingIds.length > 0) {
+      lines.push(
+        `- Carried forward (not re-reviewed this push): ${summary.reReview.carriedForwardFindingIds.length}`,
+      );
+      // Collect known paths from classifications with status "carried_forward".
+      const carriedPaths = summary.reReview.classifications
+        .filter(
+          (c) => c.status === "carried_forward" && c.priorFinding?.location?.path !== undefined,
+        )
+        .map((c) => c.priorFinding?.location?.path as string);
+      const uniqueSortedPaths = [...new Set(carriedPaths)].sort();
+      for (const path of uniqueSortedPaths) {
+        lines.push(`  - ${escapeMarkdown(path)}`);
+      }
+    }
     lines.push("");
   }
 

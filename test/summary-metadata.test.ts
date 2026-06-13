@@ -89,4 +89,37 @@ describe("summary hidden metadata parsing", () => {
       },
     });
   });
+
+  test("findingPaths: a safe path is restored onto the placeholder; unsafe paths are dropped (#46)", () => {
+    const metadata = parseSummaryHiddenMetadata(
+      [
+        "<!-- ai-code-review-factory",
+        JSON.stringify({
+          schemaVersion: 2,
+          runId: "run-2",
+          headSha: "old-head",
+          findingIds: ["fnd_safe", "fnd_traversal", "fnd_absolute"],
+          findingPaths: {
+            fnd_safe: "src/auth/accounts.ts",
+            fnd_traversal: "../../etc/passwd",
+            fnd_absolute: "/etc/shadow",
+          },
+        }),
+        "-->",
+      ].join("\n"),
+    );
+    if (metadata === undefined) {
+      throw new Error("expected metadata to parse");
+    }
+    // Only the safe repo-relative path survives the guard.
+    expect(metadata.findingPaths).toEqual({ fnd_safe: "src/auth/accounts.ts" });
+
+    const state = createPriorReviewStateFromMetadata(metadata, ref);
+    const byId = new Map(state.findings.map((f) => [f.stableId, f]));
+    expect(byId.get("fnd_safe")?.finding.location?.path).toBe("src/auth/accounts.ts");
+    // Rejected (unsafe) paths leave the placeholder path-less → carry-forward treats it as
+    // carried_forward, never auto-fixed (the safe direction).
+    expect(byId.get("fnd_traversal")?.finding.location).toBeUndefined();
+    expect(byId.get("fnd_absolute")?.finding.location).toBeUndefined();
+  });
 });

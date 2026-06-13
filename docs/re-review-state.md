@@ -33,19 +33,133 @@ Because identity is keyed only on reviewer+category+location, two *distinct* fin
 > current one `new`) — same shape and audience as the #31 reset above. Treat that first run as a clean-slate
 > baseline for those findings.
 
-## Hidden summary metadata
+## Incremental re-review (#46)
 
-Published summary comments/notes include hidden metadata with `schemaVersion: 1` and `findingIds`:
+On a re-push, the runner can narrow the reviewed diff to only the files changed since the last reviewed head (`previousHeadSha`), instead of spending the full reviewer budget on the entire PR diff again.
+
+### Eligibility
+
+A re-review runs incrementally when all of the following hold:
+
+1. A `PriorReviewState` is available with a `previousHeadSha`.
+2. The current `headSha` differs from `previousHeadSha` (same head → full review, `same_head`).
+3. `VcsAdapter.getChangedPathsSince(ref, previousHeadSha)` returns a `ChangedPathsSince` object (adapter supports it and no error occurred; otherwise → full review, `delta_unavailable`).
+4. `isAncestor` is `true` — the prior head is still a clean ancestor of the current head (i.e., a fast-forward push; `false` means a rebase or force-push → full review, `base_changed`).
+
+### Fallback rules (HARD — correctness over savings)
+
+Any of these conditions forces a full review:
+
+- No `PriorReviewState`, or `previousHeadSha` absent (`no_prior_state`). Note this reason is
+  reachable in `decideIncrementalReview` but is NOT surfaced via the `review.incremental` trace
+  event: the CLI only computes a plan (and emits the event) when prior state with a
+  `previousHeadSha` exists, so the emitted reasons are `incremental`/`same_head`/`delta_unavailable`/`base_changed`.
+- Same head SHA (`same_head`).
+- Adapter returns `undefined` — unsupported provider, network error, or ≥300 files (300 or more) in the delta (truncation risk) (`delta_unavailable`).
+- `isAncestor === false` — rebase / force-push detected (`base_changed`).
+
+### Carry-forward correctness
+
+A prior finding absent from the current run is called **fixed** only when its file was **actually re-reviewed this push**. Under an incremental plan:
+
+- If the prior finding's `location.path` is in the delta (`reviewedPaths`) and the finding is absent → classified `fixed`.
+- If the prior finding's `location.path` is NOT in the delta, or its path is unknown → classified `carried_forward` (still-open; not re-evaluated).
+
+Carried-forward findings are never silently dropped: they appear in `carriedForwardFindingIds` in `ReReviewSummary` and the **Re-review status** section of the summary markdown lists their count and known file paths.
+
+A full review (`reviewedPaths` undefined) treats every absent prior finding as `fixed`, matching the pre-#46 behavior — no regression.
+
+> **Note:** carried-forward findings are not persisted into the new hidden metadata — on the
+> following push they are no longer in prior state (see **Trust boundary & limitations** below).
+> Teams relying on `carriedForwardFindingCount` across multiple incremental pushes should be aware
+> of this single-hop gap until multi-hop persistence is implemented.
+
+### Trust boundary & limitations
+
+- **`findingPaths` is untrusted input.** Prior state loaded from a PR/MR summary comment is
+  reviewed-repo content that a comment editor could tamper with (the same trust model the
+  `findingIds` array has always had — see [Fork safety](fork-safety.md)). It influences only
+  re-review **classification** (new/recurring/fixed/carried_forward), which is analytics —
+  it never affects the CI gate, decision, or outcome. `parseSummaryHiddenMetadata` accepts a
+  `findingPaths` value only when it has a safe repo-relative shape (no absolute path, no `..`
+  traversal, no control characters, bounded length); a rejected entry leaves that prior finding
+  path-less, which carry-forward classifies as `carried_forward` (the safe direction — a prior
+  finding is never auto-marked `fixed` from tampered metadata). `getChangedPathsSince` likewise
+  rejects a `sinceSha` that is not commit-SHA-shaped before calling the compare API.
+- **Cross-push persistence is single-hop.** A run publishes hidden metadata for the findings of
+  *that run* only. In incremental mode a carried-forward finding (on a file outside the delta) is
+  reported in the current run's **Re-review status**, but because it is not among the current
+  run's findings it is not re-written into the new metadata — so on the *next* push it is no
+  longer in prior state. The CI gate is unaffected (it is computed from the current run's
+  findings), and a later full review re-reviews every file. Multi-hop carry-forward persistence
+  (unioning carried-forward IDs/paths into the published metadata) is a possible follow-up.
+
+### `findingPaths` metadata (schemaVersion 2)
+
+To enable carry-forward classification across runs that rely only on summary metadata (no full artifact), the hidden metadata block now includes `findingPaths` at schemaVersion 2:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "runId": "run-123",
   "headSha": "abc123",
   "provider": "github",
   "repository": "example/repo",
   "changeId": "17",
-  "findingIds": ["fnd_0123456789abcdef"]
+  "findingIds": ["fnd_0123456789abcdef"],
+  "findingPaths": {
+    "fnd_0123456789abcdef": "src/auth/accounts.ts"
+  }
+}
+```
+
+`findingPaths` maps each finding's stable ID to its `location.path`. Only findings with both a non-empty ID and a path appear. The field is omitted entirely when there are no such findings. On parsing, non-string values are filtered out defensively. Placeholder prior findings (`createPlaceholderFinding`) now set `location: { path }` from `findingPaths`, enabling correct carry-forward classification even when the full prior summary is unavailable.
+
+### `review.incremental` trace event
+
+Whenever `runReview` has an `incremental` plan (regardless of mode), it emits a `review.incremental` trace event at run completion:
+
+```json
+{
+  "type": "review.incremental",
+  "runId": "run-123",
+  "timestamp": "2026-06-13T00:00:00.000Z",
+  "data": {
+    "mode": "incremental",
+    "reason": "incremental",
+    "reviewedFileCount": 1,
+    "carriedForwardFindingCount": 0
+  }
+}
+```
+
+`mode` is `incremental` or `full`; `reason` is one of `incremental` / `same_head` /
+`delta_unavailable` / `base_changed` (the `no_prior_state` reason exists in
+`decideIncrementalReview` but is never emitted via this event — see the fallback rules above).
+
+The `run_metrics` telemetry event also includes an `incremental` block when the plan is present.
+
+### GitHub vs GitLab
+
+- **GitHub**: `getChangedPathsSince` is implemented using `GET /repos/{owner}/{repo}/compare/{sinceSha}...{headSha}`. Returns `undefined` on any error or when ≥300 files are returned (truncation safety). This is the supported incremental path.
+- **GitLab**: `getChangedPathsSince` is NOT implemented (the optional method is undefined on the GitLab adapter). The runner falls back to a full review on every re-push. GitLab parity is a follow-up.
+
+## Hidden summary metadata
+
+Published summary comments/notes include hidden metadata with `schemaVersion: 2` and `findingIds` (and optionally `findingPaths`). At schemaVersion 1 (legacy), `findingPaths` is absent and placeholder findings have no `location`; incremental re-review falls back to full review or carries forward all prior findings conservatively.
+
+```json
+{
+  "schemaVersion": 2,
+  "runId": "run-123",
+  "headSha": "abc123",
+  "provider": "github",
+  "repository": "example/repo",
+  "changeId": "17",
+  "findingIds": ["fnd_0123456789abcdef"],
+  "findingPaths": {
+    "fnd_0123456789abcdef": "src/auth/accounts.ts"
+  }
 }
 ```
 

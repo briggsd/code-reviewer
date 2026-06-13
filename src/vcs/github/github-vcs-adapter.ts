@@ -2,6 +2,7 @@ import type {
   BreakGlassOverride,
   ChangedFile,
   ChangedFileStatus,
+  ChangedPathsSince,
   ChangeMetadata,
   ChangeRef,
   DiffSummary,
@@ -92,6 +93,12 @@ interface GitHubPullReviewCommentResponse {
   body?: string;
   html_url?: string;
   user?: GitHubUserResponse | null;
+}
+
+interface GitHubCompareResponse {
+  status: "ahead" | "behind" | "diverged" | "identical";
+  files?: Array<{ filename: string }>;
+  total_commits?: number;
 }
 
 // The fixed user id GitHub assigns to comments authored via an Actions installation token
@@ -257,6 +264,50 @@ export class GitHubVcsAdapter implements VcsAdapter {
       };
     } catch {
       // Best-effort: a detection hiccup must never throw — the canonical CI gate is unaffected.
+      return undefined;
+    }
+  }
+
+  async getChangedPathsSince(
+    ref: ChangeRef,
+    sinceSha: string,
+  ): Promise<ChangedPathsSince | undefined> {
+    try {
+      // sinceSha originates from prior-review metadata (untrusted reviewed-repo content).
+      // Require a commit-SHA shape before interpolating it into the API path — a malformed
+      // value would only 404 anyway; rejecting it avoids a wasted call (→ full-review fallback).
+      if (!/^[0-9a-f]{7,64}$/i.test(sinceSha)) {
+        return undefined;
+      }
+      const owner = ref.repository.owner ?? ownerFromSlug(ref.repository.slug);
+      const repo = repoNameFromSlug(ref.repository.slug, ref.repository.name);
+      // Three-dot diff: sinceSha...headSha (changes reachable from head but not from sinceSha)
+      const basehead = `${sinceSha}...${ref.headSha}`;
+      const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/compare/${encodeURIComponent(basehead)}`;
+      const response = await this.request<GitHubCompareResponse>(path);
+
+      // isAncestor: sinceSha is a clean ancestor of head only when status is "ahead" or "identical".
+      // "behind" or "diverged" indicates a force-push/rebase — not safe to narrow.
+      const isAncestor = response.status === "ahead" || response.status === "identical";
+
+      const files = response.files ?? [];
+      // The compare endpoint caps at 300 files. If we hit the cap the list is truncated and
+      // we cannot guarantee complete coverage → fall back to full review (correctness over savings).
+      if (files.length >= 300) {
+        return undefined;
+      }
+
+      // When sinceSha is NOT an ancestor (force-push/rebase) the delta is meaningless, so
+      // return an empty changedPaths — a caller that narrows on it without checking isAncestor
+      // then reviews nothing (the safe direction) rather than a misleading partial set. The
+      // isAncestor flag is still returned so the runner records the `base_changed` reason
+      // (distinct from `delta_unavailable`).
+      return {
+        changedPaths: isAncestor ? files.map((file) => file.filename) : [],
+        isAncestor,
+      };
+    } catch {
+      // Best-effort: any error (network, 404, auth) degrades to full review, never throws.
       return undefined;
     }
   }

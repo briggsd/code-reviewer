@@ -6,6 +6,7 @@ export * from "./diff-filter.ts";
 export * from "./error-classifier.ts";
 export * from "./fixture.ts";
 export * from "./git-diff-source.ts";
+export * from "./incremental-review.ts";
 export * from "./path-match.ts";
 export * from "./re-review.ts";
 export * from "./reviewer-definitions.ts";

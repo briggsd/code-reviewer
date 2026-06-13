@@ -56,7 +56,8 @@ export type TraceEventType =
   | "review.timeout"
   | "review.failed"
   | "review.completed"
-  | "review.thin_detected";
+  | "review.thin_detected"
+  | "review.incremental";
 
 export interface RepositoryRef {
   provider: ProviderKind;

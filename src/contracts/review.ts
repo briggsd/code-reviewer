@@ -69,6 +69,14 @@ export interface DiffSummary {
   truncationReason?: string;
 }
 
+/** Files changed between two SHAs, for incremental re-review (#46). */
+export interface ChangedPathsSince {
+  /** Repo-relative paths changed between sinceSha and the change head. */
+  changedPaths: string[];
+  /** True only when sinceSha is a strict ancestor of head (clean fast-forward; not a force-push/rebase). */
+  isAncestor: boolean;
+}
+
 export interface RiskAssessment {
   tier: RiskTier;
   reason: string;
@@ -158,7 +166,15 @@ export interface Finding {
   recommendation: string;
 }
 
-export type ReReviewFindingStatus = "new" | "recurring" | "fixed" | "withheld";
+export type ReReviewFindingStatus =
+  | "new"
+  | "recurring"
+  | "fixed"
+  | "withheld"
+  // Incremental re-review only: a prior finding on a file NOT in this push's delta
+  // (or whose path is unknown). It was not re-evaluated, so it cannot be called
+  // "fixed" — it is carried forward as still-open. See docs/re-review-state.md.
+  | "carried_forward";
 
 export interface ReReviewFindingClassification {
   stableId: string;
@@ -173,6 +189,11 @@ export interface ReReviewSummary {
   recurringFindingIds: string[];
   fixedFindingIds: string[];
   withheldFindingIds: string[];
+  /**
+   * Prior findings carried forward unverified in an incremental re-review (their
+   * file was not in the delta since previousHeadSha). Empty in a full review.
+   */
+  carriedForwardFindingIds: string[];
   classifications: ReReviewFindingClassification[];
 }
 

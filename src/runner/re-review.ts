@@ -1,20 +1,27 @@
-import type { PriorReviewState, ReReviewSummary, ReviewSummary } from "../contracts/index.ts";
+import type {
+  PriorFindingState,
+  PriorReviewState,
+  ReReviewSummary,
+  ReviewSummary,
+} from "../contracts/index.ts";
 
 export function classifyReReviewFindings(
   summary: ReviewSummary,
   priorState: PriorReviewState | undefined,
   withheldStableIds?: ReadonlySet<string>,
+  reviewedPaths?: ReadonlySet<string>,
 ): ReviewSummary {
   if (priorState === undefined) {
     return summary;
   }
 
-  const reReview = createReReviewSummary(summary, priorState, withheldStableIds);
+  const reReview = createReReviewSummary(summary, priorState, withheldStableIds, reviewedPaths);
   const hasVisibleReReviewState =
     reReview.newFindingIds.length > 0 ||
     reReview.recurringFindingIds.length > 0 ||
     reReview.fixedFindingIds.length > 0 ||
-    reReview.withheldFindingIds.length > 0;
+    reReview.withheldFindingIds.length > 0 ||
+    reReview.carriedForwardFindingIds.length > 0;
 
   if (!hasVisibleReReviewState) {
     return summary;
@@ -26,10 +33,30 @@ export function classifyReReviewFindings(
   };
 }
 
+/**
+ * A prior finding absent from the current run can be called "fixed" ONLY when it
+ * was actually re-reviewed this push. In an incremental re-review (`reviewedPaths`
+ * provided), a prior finding whose file is NOT in the delta — or whose path is
+ * unknown — was not re-evaluated, so it is carried forward as still-open instead
+ * of being misclassified as fixed (#46, AC #2). In a full review (`reviewedPaths`
+ * undefined) every file is re-reviewed, so absence means fixed, as before.
+ */
+function wasReReviewed(
+  prior: PriorFindingState,
+  reviewedPaths: ReadonlySet<string> | undefined,
+): boolean {
+  if (reviewedPaths === undefined) {
+    return true;
+  }
+  const path = prior.finding.location?.path;
+  return path !== undefined && reviewedPaths.has(path);
+}
+
 export function createReReviewSummary(
   summary: ReviewSummary,
   priorState: PriorReviewState,
   withheldStableIds?: ReadonlySet<string>,
+  reviewedPaths?: ReadonlySet<string>,
 ): ReReviewSummary {
   const withheld: ReadonlySet<string> = withheldStableIds ?? new Set<string>();
   const priorById = new Map(priorState.findings.map((finding) => [finding.stableId, finding]));
@@ -44,9 +71,17 @@ export function createReReviewSummary(
   const recurringFindingIds = currentFindings
     .map((finding) => finding.id as string)
     .filter((stableId) => priorById.has(stableId));
-  const fixedFindingIds = priorState.findings
-    .map((finding) => finding.stableId)
-    .filter((stableId) => !currentById.has(stableId) && !withheld.has(stableId));
+  // Prior findings absent from the current run, split by whether they were actually
+  // re-reviewed: re-reviewed → fixed; not re-reviewed (incremental, off-delta) → carried forward.
+  const absentPrior = priorState.findings.filter(
+    (finding) => !currentById.has(finding.stableId) && !withheld.has(finding.stableId),
+  );
+  const fixedFindingIds = absentPrior
+    .filter((finding) => wasReReviewed(finding, reviewedPaths))
+    .map((finding) => finding.stableId);
+  const carriedForwardFindingIds = absentPrior
+    .filter((finding) => !wasReReviewed(finding, reviewedPaths))
+    .map((finding) => finding.stableId);
   const withheldFindingIds = priorState.findings
     .map((finding) => finding.stableId)
     .filter((stableId) => withheld.has(stableId) && !currentById.has(stableId));
@@ -56,6 +91,7 @@ export function createReReviewSummary(
     recurringFindingIds,
     fixedFindingIds,
     withheldFindingIds,
+    carriedForwardFindingIds,
     classifications: [
       ...newFindingIds.map((stableId) => ({
         stableId,
@@ -91,6 +127,17 @@ export function createReReviewSummary(
         return {
           stableId,
           status: "withheld" as const,
+          ...(prior !== undefined
+            ? { priorFinding: prior.finding, lastSeenHeadSha: prior.lastSeenHeadSha }
+            : {}),
+        };
+      }),
+      ...carriedForwardFindingIds.map((stableId) => {
+        const prior = priorById.get(stableId);
+
+        return {
+          stableId,
+          status: "carried_forward" as const,
           ...(prior !== undefined
             ? { priorFinding: prior.finding, lastSeenHeadSha: prior.lastSeenHeadSha }
             : {}),

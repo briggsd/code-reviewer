@@ -713,6 +713,7 @@ describe("egress compatibility with real run_event events (#20)", () => {
         recurringFindingIds: [],
         fixedFindingIds: [],
         withheldFindingIds: [],
+        carriedForwardFindingIds: [],
         classifications: [
           {
             stableId: "fnd_new",
