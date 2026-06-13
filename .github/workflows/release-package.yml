@@ -8,6 +8,19 @@ on:
         required: true
         type: boolean
         default: true
+      eval_runs:
+        description: "Runs per holdout scenario for the release quality gate"
+        required: false
+        type: string
+        default: "3"
+      pi_provider:
+        description: "Optional Pi provider override, e.g. anthropic. Leave blank to use Pi defaults."
+        required: false
+        type: string
+      pi_model:
+        description: "Optional Pi model override, e.g. claude-sonnet-4-6. Must be set with pi_provider."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -33,12 +46,45 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install Pi CLI
+        run: npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
       - name: Run checks
         if: inputs.run_checks
         run: bun run check
 
       - name: Run package smoke
         run: bun run pack:smoke
+
+      - name: Holdout quality gate (live)
+        # Sequential fan-out (scenarios x eval_runs live model calls); bound the wall-clock so a
+        # stalled provider call can't hang the release job indefinitely (#130 review).
+        timeout-minutes: 30
+        env:
+          AI_REVIEW_LIVE_EVAL: "1"
+          AI_REVIEW_PI_PROVIDER: ${{ inputs.pi_provider }}
+          AI_REVIEW_PI_MODEL: ${{ inputs.pi_model }}
+          # All three provider keys are exposed so the dispatcher can pick any provider via
+          # pi_provider without editing the workflow; Pi reads only the key matching the selected
+          # provider. Mirrors pi-live-smoke.yml. This is a trusted workflow_dispatch on a trusted
+          # checkout, so the multi-key exposure is bounded to the maintainer who triggered it.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+          EVAL_RUNS: ${{ inputs.eval_runs }}
+        run: |
+          mkdir -p dist
+          bun run evals --gate --runs "$EVAL_RUNS" --stamp dist/quality-stamp.json
+
+      - name: Upload quality stamp (always)
+        # Runs even when the gate blocks (exit 1) so the stamp — the primary diagnostic for WHY
+        # the release was blocked — is preserved. The blocked exit still prevents the tarball.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: quality-stamp-${{ github.sha }}
+          path: dist/quality-stamp.json
+          if-no-files-found: warn
 
       - name: Create release tarball
         run: |
@@ -50,5 +96,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ai-code-review-package-${{ github.sha }}
-          path: dist/*.tgz
+          path: |
+            dist/*.tgz
+            dist/quality-stamp.json
           if-no-files-found: error

@@ -6,15 +6,28 @@ This project currently supports immutable tarball release artifacts, not registr
 
 `.github/workflows/release-package.yml` is manual-only (`workflow_dispatch`) and builds an npm tarball artifact from the trusted checkout.
 
+**Prerequisite:** the live holdout quality gate (step 7) performs real model calls, so at least one
+of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_GENERATIVE_AI_API_KEY` must be configured as a
+repository secret matching the selected provider. The gate is **mandatory** (no `continue-on-error`),
+so a dispatch with no usable provider credential fails to authenticate and blocks every release. The
+optional `pi_provider` / `pi_model` dispatch inputs pin the provider/model (leave blank for Pi
+defaults; they must be set together); `eval_runs` (default `3`, capped at 50) sets runs per scenario.
+
 The workflow:
 
 1. checks out trusted source with `persist-credentials: false`,
 2. installs Bun 1.3.0,
 3. installs dependencies with `bun install --frozen-lockfile`,
-4. optionally runs `bun run check`,
-5. always runs `bun run pack:smoke`,
-6. creates `dist/*.tgz` with `npm pack`,
-7. uploads the tarball as a GitHub Actions artifact named with the source commit SHA.
+4. installs the Pi CLI (`npm install -g --ignore-scripts @earendil-works/pi-coding-agent`),
+5. optionally runs `bun run check`,
+6. always runs `bun run pack:smoke`,
+7. runs the **live holdout quality gate** (`bun run evals --gate --runs "$EVAL_RUNS" --stamp dist/quality-stamp.json`) — this step is **required** (no `if:` or `continue-on-error`); if any holdout scenario regresses below threshold (or the holdout is empty), the gate exits nonzero and the pack step never runs,
+8. creates `dist/*.tgz` with `npm pack`,
+9. uploads the tarball **and** the `dist/quality-stamp.json` as a GitHub Actions artifact named with the source commit SHA.
+
+The quality stamp (`ai-review.quality_stamp.v1`) contains per-scenario satisfaction scores and a
+`blocked` boolean. It is uploaded alongside the tarball as a cross-version stability signal.
+See `docs/evals.md` for the stamp schema and the `--stamp` flag documentation.
 
 It does **not** publish to npm and does not require write permissions. Workflow permissions are `contents: read` only.
 

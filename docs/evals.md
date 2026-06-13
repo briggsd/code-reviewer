@@ -102,6 +102,45 @@ AI_REVIEW_LIVE_EVAL=1 bun run evals --runs 5 --gate
 `--gate` causes the process to exit nonzero if ANY scenario fails its threshold. Without `--gate`,
 the runner is always informational (exit 0), safe to run without blocking a release.
 
+The live holdout eval is wired as a **required step** in `.github/workflows/release-package.yml`
+before `npm pack`. A holdout regression (any scenario below threshold, or an empty holdout) blocks
+the gate and prevents the tarball from being created. This ensures no tarball ships if the holdout
+regresses.
+
+#### `--stamp <path>` flag
+
+Pass `--stamp dist/quality-stamp.json` to emit a machine-readable quality stamp alongside the gate
+result. The stamp uses the schema `ai-review.quality_stamp.v1` and contains **counts/scores only**
+— per-scenario satisfaction, threshold, pass/fail, and run count; plus aggregate passed/total/mean
+and a `blocked` boolean. No finding bodies, diffs, or prompts are included.
+
+`scenarios` lists **every** scenario that ran (not just the passing ones), so a `blocked: true`
+stamp shows exactly which scenario(s) regressed:
+
+```json
+{
+  "schemaVersion": "ai-review.quality_stamp.v1",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "commit": "abc123",
+  "runtime": "pi",
+  "model": null,
+  "runs": 3,
+  "threshold": 0.8,
+  "passed": 1,
+  "total": 2,
+  "meanSatisfaction": 0.65,
+  "blocked": true,
+  "scenarios": [
+    { "name": "auth-sqli", "satisfaction": 1.0, "threshold": 0.8, "passed": true, "runCount": 3 },
+    { "name": "logic-bug", "satisfaction": 0.3, "threshold": 0.8, "passed": false, "runCount": 3 }
+  ]
+}
+```
+
+The `blocked` field mirrors the gate decision: `true` means the release gate would block (any
+scenario failed, or the holdout was empty). The stamp is uploaded as a release artifact alongside
+the tarball so it serves as a cross-version stability signal.
+
 ## How scoring works
 
 ### Satisfaction fraction

@@ -13,10 +13,11 @@
  *   Optional: AI_REVIEW_PI_PROVIDER=<provider> AI_REVIEW_PI_MODEL=<model>
  */
 
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ReviewSummary, RiskAssessment } from "../src/contracts/index.ts";
+import { buildQualityStamp, summarizeEvalRun } from "../src/evals/quality-stamp.ts";
 import type { ScenarioScore } from "../src/evals/score.ts";
 import { scoreScenario } from "../src/evals/score.ts";
 import type { EvalScenario } from "../src/evals/types.ts";
@@ -47,13 +48,18 @@ const runs = parseInt(readFlag("--runs") ?? String(defaultRuns), 10);
 const threshold = parseFloat(readFlag("--threshold") ?? "0.8");
 const scenariosDir = resolve(readFlag("--scenarios") ?? "evals/scenarios");
 const gate = hasFlag("--gate");
+const stampPath = readFlag("--stamp");
 
 // Validate numeric flags up front: an unparsed/NaN/out-of-range value would otherwise silently
 // produce 0 runs (NaN > 0 is false) or always-fail thresholds (x >= NaN is false), reporting a
 // misleading "all scenarios failed" with no diagnostic (#85 review).
-if (!Number.isInteger(runs) || runs < 1) {
+// Upper bound (#130 review): the release gate spends live tokens (scenarios x runs model calls);
+// an unbounded --runs (e.g. a fat-fingered workflow_dispatch input) could burn arbitrary credit.
+// MAX_RUNS is a generous ceiling that never constrains legitimate use but caps accidental abuse.
+const MAX_RUNS = 50;
+if (!Number.isInteger(runs) || runs < 1 || runs > MAX_RUNS) {
   console.error(
-    `Invalid --runs value: must be a positive integer (got ${JSON.stringify(readFlag("--runs"))}).`,
+    `Invalid --runs value: must be an integer in [1, ${MAX_RUNS}] (got ${JSON.stringify(readFlag("--runs"))}).`,
   );
   process.exit(1);
 }
@@ -256,15 +262,36 @@ for (const file of scenarioFiles) {
 // Aggregate report
 // ---------------------------------------------------------------------------
 
-const passed = results.filter((r) => r.passed).length;
-const total = results.length;
-const meanSatisfaction = results.reduce((s, r) => s + r.satisfaction, 0) / total;
+const summary = summarizeEvalRun(results);
+const { passed, total, meanSatisfaction } = summary;
 
 console.log("=".repeat(60));
 console.log(`Aggregate: ${passed}/${total} scenarios passed`);
 console.log(`Mean satisfaction: ${(meanSatisfaction * 100).toFixed(1)}%`);
 console.log("=".repeat(60));
 
+if (stampPath !== undefined) {
+  const stamp = buildQualityStamp(results, {
+    generatedAt: new Date().toISOString(),
+    commit: process.env.GITHUB_SHA ?? null,
+    runtime,
+    model: model ?? null,
+    runs,
+    threshold,
+  });
+  // Exit 2 on a write failure so a filesystem error is distinguishable from the gate's
+  // pass/fail verdict (exit 0/1) — otherwise CI reads a disk/permission error as a quality
+  // regression (#130 review). The release workflow always passes both --gate and --stamp.
+  try {
+    await writeFile(resolve(stampPath), `${JSON.stringify(stamp, null, 2)}\n`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`Failed to write quality stamp to ${stampPath}: ${msg}`);
+    process.exit(2);
+  }
+  console.log(`Wrote quality stamp: ${stampPath}`);
+}
+
 if (gate) {
-  process.exit(passed === total ? 0 : 1);
+  process.exit(summary.blocked ? 1 : 0);
 }
