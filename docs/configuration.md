@@ -272,8 +272,9 @@ Rules to know when configuring:
 **Verify it's working.** Run any review with `--output-dir <dir>` and check the run's
 `<dir>/runs/<runId>/trace.jsonl` for `telemetry.remote_delivered` (or `telemetry.remote_failed`,
 status only) records — one per egressed event — then query your backend (for Loki:
-`{service="ai-code-review"}`). Full reference, label scheme, counts-only guarantees, and the
-per-exporter namespace convention: **[Telemetry export](telemetry-export.md)**.
+`{service="ai-code-review"}`; add `| json | runtime="pi"` to filter to real CI reviews vs
+`dummy`/local runs). Full reference, label scheme, counts-only guarantees, and the per-exporter
+namespace convention: **[Telemetry export](telemetry-export.md)**.
 
 ## Safety note
 
