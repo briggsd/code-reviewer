@@ -102,7 +102,11 @@ export interface RunMetricsAnalysis {
     acknowledgementRunRate: number;
     /** Fraction of non-trivial runs with output tokens below the thin-review floor. */
     thinReviewRate: number;
+    /** Fraction of Pi agent-runs that delivered via the structured tool (pooled across runs). 0 when no run carried structured-output counts. */
+    structuredOutputRate: number;
   };
+  /** Pooled structured-vs-prose agent-run counts (M015 S05, #128). Absent when no real-runtime run carried the block. */
+  structuredOutput?: { structuredCount: number; totalCount: number };
   /**
    * Run-event aggregates. Present only when run_event events exist in the
    * stream AND at least one run_event runId matches a real-runtime run_metrics
@@ -135,6 +139,7 @@ interface RunMetricsEventData extends Record<string, JsonValue> {
   grounding?: Record<string, JsonValue>;
   locationBackfill?: Record<string, JsonValue>;
   acknowledgements?: Record<string, JsonValue>;
+  structuredOutput?: Record<string, JsonValue>;
 }
 
 type RunMetricsEvent = TelemetryEvent & { data: RunMetricsEventData };
@@ -177,6 +182,8 @@ export function analyzeRunMetrics(
   let acknowledgementRunCount = 0;
   let thinReviewRunCount = 0;
   let totalFindings = 0;
+  let structuredOutputStructuredCount = 0;
+  let structuredOutputTotalCount = 0;
 
   for (const event of realEvents) {
     const data = event.data;
@@ -282,6 +289,12 @@ export function analyzeRunMetrics(
     ) {
       acknowledgementRunCount += 1;
     }
+
+    const structuredOutputBlock = data.structuredOutput;
+    if (structuredOutputBlock !== undefined && isPlainObject(structuredOutputBlock)) {
+      structuredOutputStructuredCount += asNumber(structuredOutputBlock.structuredCount) ?? 0;
+      structuredOutputTotalCount += asNumber(structuredOutputBlock.totalCount) ?? 0;
+    }
   }
 
   // Build byTier with stable key ordering
@@ -344,7 +357,19 @@ export function analyzeRunMetrics(
       locationBackfillRunRate: runCount === 0 ? 0 : locationBackfillRunCount / runCount,
       acknowledgementRunRate: runCount === 0 ? 0 : acknowledgementRunCount / runCount,
       thinReviewRate: nonTrivialRunCount === 0 ? 0 : thinReviewRunCount / nonTrivialRunCount,
+      structuredOutputRate:
+        structuredOutputTotalCount === 0
+          ? 0
+          : structuredOutputStructuredCount / structuredOutputTotalCount,
     },
+    ...(structuredOutputTotalCount > 0
+      ? {
+          structuredOutput: {
+            structuredCount: structuredOutputStructuredCount,
+            totalCount: structuredOutputTotalCount,
+          },
+        }
+      : {}),
     ...(runEventAnalysis !== undefined ? { runEvents: runEventAnalysis } : {}),
   };
 }
@@ -597,6 +622,7 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
   lines.push(`  locationBackfillRunRate   ${(r.locationBackfillRunRate * 100).toFixed(1)}%`);
   lines.push(`  acknowledgementRunRate    ${(r.acknowledgementRunRate * 100).toFixed(1)}%`);
   lines.push(`  thinReviewRate            ${(r.thinReviewRate * 100).toFixed(1)}%`);
+  lines.push(`  structuredOutputRate      ${(r.structuredOutputRate * 100).toFixed(1)}%`);
 
   // Run events section (present only when run_event data exists)
   if (analysis.runEvents !== undefined) {

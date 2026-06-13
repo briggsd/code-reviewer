@@ -11,8 +11,18 @@ import { analyzeRunMetrics } from "../src/state/run-metrics-analyze.ts";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
+type PartialRates = Partial<RunMetricsAnalysis["rates"]>;
+type AnalysisOverride = Omit<Partial<RunMetricsAnalysis>, "rates"> & { rates?: PartialRates };
+
 /** Minimal RunMetricsAnalysis with no runEvents and zero rates. */
-function makeAnalysis(overrides: Partial<RunMetricsAnalysis>): RunMetricsAnalysis {
+function makeAnalysis(overrides: AnalysisOverride): RunMetricsAnalysis {
+  const baseRates: RunMetricsAnalysis["rates"] = {
+    groundingDropRunRate: 0,
+    locationBackfillRunRate: 0,
+    acknowledgementRunRate: 0,
+    thinReviewRate: 0,
+    structuredOutputRate: 0,
+  };
   const base: RunMetricsAnalysis = {
     runCount: 10,
     byTier: {},
@@ -20,14 +30,12 @@ function makeAnalysis(overrides: Partial<RunMetricsAnalysis>): RunMetricsAnalysi
     reviewerShare: {},
     decisionCounts: {},
     outcomeCounts: {},
-    rates: {
-      groundingDropRunRate: 0,
-      locationBackfillRunRate: 0,
-      acknowledgementRunRate: 0,
-      thinReviewRate: 0,
-    },
+    rates: baseRates,
   };
-  return { ...base, ...overrides };
+  // Deep-merge rates so callers only need to specify the fields they care about.
+  const mergedRates =
+    overrides.rates !== undefined ? { ...baseRates, ...overrides.rates } : baseRates;
+  return { ...base, ...overrides, rates: mergedRates };
 }
 
 // ─── Basic breach logic ────────────────────────────────────────────────────────
@@ -730,5 +738,89 @@ describe("formatQualityReport", () => {
     });
     const report = buildQualityReport(analysis);
     expect(formatQualityReport(report)).toBe(formatQualityReport(report));
+  });
+});
+
+// ─── structuredOutputRate (M015 S05, #128) ───────────────────────────────────
+
+describe("buildQualityReport — structuredOutputRate (M015 S05, #128)", () => {
+  test("low structuredOutputRate (0.8 < 0.90) → hypothesis emitted, direction 'below'", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      structuredOutput: { structuredCount: 80, totalCount: 100 },
+      rates: { structuredOutputRate: 0.8 },
+    });
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "structuredOutputRate");
+    expect(h).toBeDefined();
+    expect(h?.direction).toBe("below");
+    expect(h?.value).toBeCloseTo(0.8, 5);
+    expect(h?.threshold).toBeCloseTo(0.9, 5);
+    expect(h?.sampleSize).toBe(100);
+    expect(h?.segmentType).toBe("overall");
+    expect(h?.segment).toBe("overall");
+  });
+
+  test("high structuredOutputRate (0.99 ≥ 0.90) → no hypothesis", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      structuredOutput: { structuredCount: 99, totalCount: 100 },
+      rates: { structuredOutputRate: 0.99 },
+    });
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "structuredOutputRate")).toBeUndefined();
+  });
+
+  test("structuredOutput absent (no-data) → no hypothesis even though rate is 0", () => {
+    // When no run carried a structuredOutput block, structuredOutput is undefined.
+    // Rate 0 in that case means "no data", not "all prose" — must NOT flag.
+    const analysis = makeAnalysis({
+      runCount: 10,
+      // structuredOutput intentionally absent
+      rates: { structuredOutputRate: 0 },
+    });
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "structuredOutputRate")).toBeUndefined();
+  });
+
+  test("structuredOutput.totalCount === 0 → no hypothesis", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      structuredOutput: { structuredCount: 0, totalCount: 0 },
+      rates: { structuredOutputRate: 0 },
+    });
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "structuredOutputRate")).toBeUndefined();
+  });
+
+  test("low structuredOutputRate with small sampleSize → lowConfidence = true", () => {
+    // totalCount=3 < minSampleSize=5 → lowConfidence
+    const analysis = makeAnalysis({
+      runCount: 10,
+      structuredOutput: { structuredCount: 0, totalCount: 3 },
+      rates: { structuredOutputRate: 0 },
+    });
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "structuredOutputRate");
+    expect(h).toBeDefined();
+    expect(h?.lowConfidence).toBe(true);
+    expect(h?.sampleSize).toBe(3);
+  });
+
+  test("minStructuredOutputRate threshold override works", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      structuredOutput: { structuredCount: 85, totalCount: 100 },
+      rates: { structuredOutputRate: 0.85 },
+    });
+    // Default 0.90: 0.85 < 0.90 → breach
+    const defaultReport = buildQualityReport(analysis);
+    expect(defaultReport.hypotheses.find((x) => x.metric === "structuredOutputRate")).toBeDefined();
+
+    // Override to 0.80: 0.85 ≥ 0.80 → no breach
+    const overrideReport = buildQualityReport(analysis, { minStructuredOutputRate: 0.8 });
+    expect(
+      overrideReport.hypotheses.find((x) => x.metric === "structuredOutputRate"),
+    ).toBeUndefined();
   });
 });

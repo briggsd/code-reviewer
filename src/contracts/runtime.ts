@@ -89,6 +89,8 @@ export interface ReviewerRunResult {
   attemptCount?: number;
   retryCount?: number;
   tracePath?: string;
+  /** Pi only: true when output came via the structured tool, false via the prose fallback (M015 S05, #128). */
+  structuredOutput?: boolean;
 }
 
 export interface ReviewerRunFailure {
@@ -116,6 +118,8 @@ export interface CoordinatorRunResult {
   rawOutput?: string;
   usage?: TokenUsage;
   tracePath?: string;
+  /** Pi only: true when output came via the structured tool, false via the prose fallback (M015 S05, #128). */
+  structuredOutput?: boolean;
 }
 
 export interface RuntimeEventSubscription {

@@ -261,6 +261,86 @@ test("analyzeRunMetrics rates are 0 when runCount is 0", () => {
   expect(analysis.rates.locationBackfillRunRate).toBe(0);
   expect(analysis.rates.acknowledgementRunRate).toBe(0);
   expect(analysis.rates.thinReviewRate).toBe(0);
+  expect(analysis.rates.structuredOutputRate).toBe(0);
+  expect(analysis.structuredOutput).toBeUndefined();
+});
+
+// ---------------------------------------------------------------------------
+// M015 S05 (#128): structuredOutputRate
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics structuredOutputRate (M015 S05, #128)", () => {
+  // run-A: 3 of 3 Pi agents used the structured tool
+  // run-B: 1 of 3 Pi agents used the structured tool
+  // pooled: 4/6 ≈ 0.6667
+  const structuredEvents: TelemetryEvent[] = [
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-13T00:00:00.000Z",
+      runId: "run-A",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 3000,
+        findingCount: 0,
+        findingsByReviewer: {},
+        structuredOutput: { structuredCount: 3, totalCount: 3 },
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-13T01:00:00.000Z",
+      runId: "run-B",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "minor_issues",
+        outcome: "pass",
+        durationMs: 4000,
+        findingCount: 1,
+        findingsByReviewer: { security: 1 },
+        structuredOutput: { structuredCount: 1, totalCount: 3 },
+      },
+    },
+    // dummy runtime: EXCLUDED from real events; structuredOutput block must not be counted
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-13T02:00:00.000Z",
+      runId: "run-dummy",
+      data: {
+        runtime: "dummy",
+        riskTier: "full",
+        decision: "approved",
+        outcome: "pass",
+        findingCount: 0,
+        findingsByReviewer: {},
+        structuredOutput: { structuredCount: 99, totalCount: 99 },
+      },
+    },
+  ];
+
+  test("pooled structuredOutputRate across two real-Pi runs", () => {
+    const analysis = analyzeRunMetrics(structuredEvents);
+    // run-A: 3/3, run-B: 1/3 → pooled 4/6
+    expect(analysis.rates.structuredOutputRate).toBeCloseTo(4 / 6, 5);
+    expect(analysis.structuredOutput).toEqual({ structuredCount: 4, totalCount: 6 });
+  });
+
+  test("dummy-runtime run is excluded from structuredOutput counts", () => {
+    const analysis = analyzeRunMetrics(structuredEvents);
+    // only run-A and run-B contribute (dummy excluded); totalCount should be 6, not 105
+    expect(analysis.structuredOutput?.totalCount).toBe(6);
+    expect(analysis.structuredOutput?.structuredCount).toBe(4);
+  });
+
+  test("events with no structuredOutput block → structuredOutputRate 0, structuredOutput absent", () => {
+    // Use the existing base events fixture (no structuredOutput block in any event)
+    const analysis = analyzeRunMetrics(events);
+    expect(analysis.rates.structuredOutputRate).toBe(0);
+    expect(analysis.structuredOutput).toBeUndefined();
+  });
 });
 
 test("formatRunMetricsAnalysis contains expected tier rows and labels", () => {

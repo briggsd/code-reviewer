@@ -16,7 +16,8 @@ export type HypothesisMetric =
   | "overrideRate"
   | "acceptanceRate"
   | "withholdRate"
-  | "completionRate";
+  | "completionRate"
+  | "structuredOutputRate";
 
 export type SegmentType = "overall" | "tier" | "reviewer";
 
@@ -46,6 +47,7 @@ export interface QualityReportThresholds {
   minAcceptanceRate: number; // default 0.50
   maxWithholdRate: number; // default 0.30
   minCompletionRate: number; // default 0.90
+  minStructuredOutputRate: number; // default 0.90
   /** Segments below this sample size are surfaced but marked lowConfidence. default 5 */
   minSampleSize: number;
 }
@@ -57,6 +59,7 @@ export const DEFAULT_QUALITY_THRESHOLDS: QualityReportThresholds = {
   minAcceptanceRate: 0.5,
   maxWithholdRate: 0.3,
   minCompletionRate: 0.9,
+  minStructuredOutputRate: 0.9,
   minSampleSize: 5,
 };
 
@@ -111,6 +114,22 @@ export function buildQualityReport(
       threshold: t.maxThinReviewRate,
       direction: "above",
       sampleSize: nonTrivialRunCount,
+    });
+  }
+
+  // structuredOutputRate ← rates.structuredOutputRate; sampleSize = total Pi agent-runs measured.
+  // Only checked when at least one run carried structured-output counts (else 0% is "no data",
+  // not a breach). Surfaces when the structured path underperforms — the signal that gates the
+  // eventual repair retirement (see docs/milestones/M015-ROADMAP.md S05). Direction "below".
+  if (analysis.structuredOutput !== undefined && analysis.structuredOutput.totalCount > 0) {
+    checkBreach(hypotheses, t, {
+      segmentType: "overall",
+      segment: "overall",
+      metric: "structuredOutputRate",
+      value: analysis.rates.structuredOutputRate,
+      threshold: t.minStructuredOutputRate,
+      direction: "below",
+      sampleSize: analysis.structuredOutput.totalCount,
     });
   }
 

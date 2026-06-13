@@ -910,6 +910,26 @@ function createRunMetrics(input: {
       ...(failure.retryCount !== undefined ? { retryCount: failure.retryCount } : {}),
     })) ?? [];
 
+  // Counts-only structured-output tally (M015 S05, #128): how many Pi agents delivered via the
+  // structured tool vs the prose fallback. Agents with no structuredOutput (e.g. dummy runtime,
+  // short-circuit / degraded paths) are excluded from totalCount so a non-Pi run reports nothing.
+  const structuredFlags: boolean[] = [];
+  if (input.coordinatorResult !== undefined) {
+    for (const reviewer of input.coordinatorResult.reviewerResults) {
+      if (reviewer.structuredOutput !== undefined) structuredFlags.push(reviewer.structuredOutput);
+    }
+    if (input.coordinatorResult.structuredOutput !== undefined) {
+      structuredFlags.push(input.coordinatorResult.structuredOutput);
+    }
+  }
+  const structuredOutput =
+    structuredFlags.length === 0
+      ? undefined
+      : {
+          structuredCount: structuredFlags.filter((flag) => flag).length,
+          totalCount: structuredFlags.length,
+        };
+
   return {
     durationsMs: input.durationsMs,
     ...(input.contextArtifacts !== undefined
@@ -924,6 +944,7 @@ function createRunMetrics(input: {
         }
       : {}),
     ...(failureMetrics.length > 0 ? { failures: failureMetrics } : {}),
+    ...(structuredOutput !== undefined ? { structuredOutput } : {}),
   };
 }
 
@@ -982,6 +1003,12 @@ function createRunMetricsTelemetryEvent(input: {
   }
   if (input.metrics.tokens !== undefined) {
     data.tokens = toJsonRecord(input.metrics.tokens);
+  }
+  if (input.metrics.structuredOutput !== undefined) {
+    data.structuredOutput = {
+      structuredCount: input.metrics.structuredOutput.structuredCount,
+      totalCount: input.metrics.structuredOutput.totalCount,
+    };
   }
   if (input.metrics.agents !== undefined) {
     data.agents = input.metrics.agents.map((agent) => ({

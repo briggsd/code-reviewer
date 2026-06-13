@@ -286,6 +286,8 @@ export interface ReviewRunMetrics {
   tokens?: ReviewRunTokenMetrics;
   agents?: ReviewRunAgentMetrics[];
   failures?: ReviewRunAgentFailureMetrics[];
+  /** Counts-only structured-vs-prose tally across this run's Pi agents (M015 S05, #128). totalCount excludes agents with no structured-tool concept. */
+  structuredOutput?: { structuredCount: number; totalCount: number };
 }
 
 export interface ReviewRunRecord {

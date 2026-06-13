@@ -3077,3 +3077,319 @@ function securityFinding(): Finding {
     recommendation: "Check account ownership before returning account data.",
   };
 }
+
+// ── M015 S05 (#128): harden prose fallback — line-independent parsing ─────────────────────────────
+//
+// These runners deliberately emit NO `submit_findings` tool_execution_start event, so the
+// reviewer takes the PROSE fallback path (parseReviewerOutput). The coordinator reuses the
+// FakePiProcessRunner shape (JSON in finalText, no events) since coordinator correctness
+// is not the subject of these tests.
+
+// Test 1 helper: A,B,C where B has an invalid severity ("blocker" is not a valid severity).
+class Tier1ToleranceProseRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "coordinator") {
+      // Minimal valid coordinator output; the coordinator result is not the focus here.
+      const finalText = JSON.stringify({
+        decision: "significant_concerns",
+        outcome: "fail",
+        title: "AI review: hardening test",
+        body: "Tier-1 tolerance coordinator.",
+        findings: [securityFinding()],
+        risk: {
+          tier: "lite",
+          reason: "Tier-1 test.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      });
+      return { finalText, events: [], rawOutput: finalText };
+    }
+
+    if (input.role === "security") {
+      // A and C are valid; B has an invalid severity ("blocker") that validateFinding rejects.
+      const findingA = { ...securityFinding(), title: "Valid finding A" };
+      const findingB = { ...securityFinding(), title: "Invalid finding B", severity: "blocker" };
+      const findingC = { ...securityFinding(), title: "Valid finding C" };
+      // Whole-object JSON is valid — only validateFinding will reject B (Tier-1 tolerance).
+      const finalText = JSON.stringify({ findings: [findingA, findingB, findingC] });
+      return { finalText, events: [], rawOutput: finalText };
+    }
+
+    // Other reviewers return empty findings.
+    const finalText = JSON.stringify({ findings: [] });
+    return { finalText, events: [], rawOutput: finalText };
+  }
+}
+
+// Test 2 helper: A, CORRUPT, C where CORRUPT contains `bogus` (unquoted, invalid JSON).
+class Tier2RecoveryProseRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "coordinator") {
+      const finalText = JSON.stringify({
+        decision: "significant_concerns",
+        outcome: "fail",
+        title: "AI review: hardening test",
+        body: "Tier-2 recovery coordinator.",
+        findings: [securityFinding()],
+        risk: {
+          tier: "lite",
+          reason: "Tier-2 test.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      });
+      return { finalText, events: [], rawOutput: finalText };
+    }
+
+    if (input.role === "security") {
+      const findingA = JSON.stringify({ ...securityFinding(), title: "Valid finding A" });
+      // CORRUPT: `bogus` is an unquoted token — whole-object JSON.parse fails on this,
+      // and quote repair won't touch it (it's not inside a string). Tier 2 drops it.
+      const findingCorrupt =
+        '{"reviewer":"security","severity":bogus,"category":"x","title":"corrupt","body":"b","confidence":"high","evidence":["e"],"recommendation":"r"}';
+      const findingC = JSON.stringify({ ...securityFinding(), title: "Valid finding C" });
+      // Build a finalText that makes the WHOLE-object parse fail (bogus is unquoted).
+      const finalText = `{"findings":[${findingA},${findingCorrupt},${findingC}]}`;
+      return { finalText, events: [], rawOutput: finalText };
+    }
+
+    const finalText = JSON.stringify({ findings: [] });
+    return { finalText, events: [], rawOutput: finalText };
+  }
+}
+
+// Test 3 helper: A single finding with an invalid severity — all findings fail validation.
+class AllInvalidFindingsProseRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "coordinator") {
+      const finalText = JSON.stringify({
+        decision: "approved",
+        outcome: "pass",
+        title: "AI review: hardening test",
+        body: "All-invalid coordinator.",
+        findings: [],
+        risk: {
+          tier: "lite",
+          reason: "All-invalid test.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      });
+      return { finalText, events: [], rawOutput: finalText };
+    }
+
+    if (input.role === "security") {
+      // X has an unknown severity — validateFinding rejects it.
+      const findingX = {
+        ...securityFinding(),
+        title: "Only finding, invalid",
+        severity: "blocker",
+      };
+      const finalText = JSON.stringify({ findings: [findingX] });
+      return { finalText, events: [], rawOutput: finalText };
+    }
+
+    const finalText = JSON.stringify({ findings: [] });
+    return { finalText, events: [], rawOutput: finalText };
+  }
+}
+
+// Test 4 helper: findings is a valid empty array — a legitimate clean review.
+class EmptyFindingsProseRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "coordinator") {
+      const finalText = JSON.stringify({
+        decision: "approved",
+        outcome: "pass",
+        title: "AI review: clean",
+        body: "No findings.",
+        findings: [],
+        risk: {
+          tier: "lite",
+          reason: "Empty test.",
+          matchedRules: [],
+          sensitivePaths: [],
+          reviewedFileCount: 0,
+          ignoredFileCount: 0,
+        },
+      });
+      return { finalText, events: [], rawOutput: finalText };
+    }
+
+    // All reviewers return an empty findings array via prose.
+    const finalText = JSON.stringify({ findings: [] });
+    return { finalText, events: [], rawOutput: finalText };
+  }
+}
+
+describe("PiAgentRuntime prose-fallback hardening (M015 S05, #128)", () => {
+  test("Tier-1 tolerant validation: one structurally-invalid finding drops ONE (A and C survive)", async () => {
+    // Reviewer emits {"findings":[A, B, C]}: valid JSON but B has severity:"blocker" which
+    // validateFinding rejects. The new tolerant flatMap path drops B and returns A and C.
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new PiAgentRuntime({
+      processRunner: new Tier1ToleranceProseRunner(),
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const securityResult = result.coordinatorResult?.reviewerResults.find(
+      (reviewer) => reviewer.role === "security",
+    );
+    expect(securityResult).toBeDefined();
+    // A and C survived; B was dropped.
+    expect(securityResult?.findings).toHaveLength(2);
+    const titles = securityResult?.findings.map((f) => f.title);
+    expect(titles).toContain("Valid finding A");
+    expect(titles).toContain("Valid finding C");
+    expect(titles).not.toContain("Invalid finding B");
+  });
+
+  test("a partial drop surfaces droppedFindingCount on the reviewer agent.output telemetry", async () => {
+    // Same {"findings":[A, B(invalid), C]} as the tier-1 case, but assert the drop is OBSERVABLE:
+    // the security reviewer's agent.output carries droppedFindingCount === 1 (the dropped B), so a
+    // silently-discarded finding is not hidden behind the survivor count (M015 S05, #128).
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-dropcount-"));
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runtime = new PiAgentRuntime({
+        processRunner: new Tier1ToleranceProseRunner(),
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const securityOutput = events.find(
+        (event) => event.type === "agent.output" && event.role === "security",
+      );
+      expect(securityOutput?.data?.findingCount).toBe(2);
+      expect(securityOutput?.data?.droppedFindingCount).toBe(1);
+
+      // A reviewer that dropped nothing must NOT carry the key (emitted only on a partial drop).
+      const cleanOutput = events.find(
+        (event) =>
+          event.type === "agent.output" &&
+          event.role !== "security" &&
+          event.role !== "coordinator" &&
+          typeof event.role === "string",
+      );
+      if (cleanOutput !== undefined) {
+        expect(cleanOutput.data?.droppedFindingCount).toBeUndefined();
+      }
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("Tier-2 line-independent recovery: one syntactically-corrupt finding drops ONE (A and C recovered)", async () => {
+    // Reviewer emits {"findings":[A, CORRUPT, C]}: bogus (unquoted) makes whole-object
+    // JSON.parse fail — Tier 2 splits the array and parses each element independently, dropping
+    // only CORRUPT. Confirms one corrupt finding does NOT zero the whole reviewer.
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new PiAgentRuntime({
+      processRunner: new Tier2RecoveryProseRunner(),
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const securityResult = result.coordinatorResult?.reviewerResults.find(
+      (reviewer) => reviewer.role === "security",
+    );
+    expect(securityResult).toBeDefined();
+    // A and C recovered; CORRUPT was dropped.
+    expect(securityResult?.findings).toHaveLength(2);
+    const titles = securityResult?.findings.map((f) => f.title);
+    expect(titles).toContain("Valid finding A");
+    expect(titles).toContain("Valid finding C");
+  });
+
+  test("all-invalid still fails (no false-approve): non-empty array with zero valid findings is a classified failure", async () => {
+    // Reviewer emits {"findings":[X]} where X has severity:"blocker". All findings fail
+    // validation — parseReviewerOutput throws. This must be a classified reviewer failure,
+    // NOT a silent clean approval with 0 findings.
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new PiAgentRuntime({
+      processRunner: new AllInvalidFindingsProseRunner(),
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    // The security reviewer threw — it must be in reviewerFailures, not reviewerResults.
+    // A silent clean approval (security silently returning 0 findings) would be a false-approve;
+    // a classified reviewer failure is the correct outcome.
+    const securityResult = result.coordinatorResult?.reviewerResults.find(
+      (reviewer) => reviewer.role === "security",
+    );
+    const securityFailure = result.coordinatorResult?.reviewerFailures?.find(
+      (failure) => failure.role === "security",
+    );
+    expect(securityResult).toBeUndefined(); // security must not appear as a success with 0 findings
+    expect(securityFailure).toBeDefined(); // security must be a classified failure
+    expect(securityFailure?.errorMessage).toContain("all findings failed validation");
+  });
+
+  test("empty findings array is a legitimate clean review (does not reject)", async () => {
+    // Reviewer emits {"findings":[]} — a valid empty array. This must NOT throw or be treated
+    // as a failure; an empty review is a legitimate clean outcome.
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runtime = new PiAgentRuntime({
+      processRunner: new EmptyFindingsProseRunner(),
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    // All reviewers succeeded with 0 findings each — reviewerFailures is undefined or empty.
+    expect(
+      result.coordinatorResult?.reviewerFailures === undefined ||
+        result.coordinatorResult.reviewerFailures.length === 0,
+    ).toBe(true);
+    const securityResult = result.coordinatorResult?.reviewerResults.find(
+      (reviewer) => reviewer.role === "security",
+    );
+    expect(securityResult).toBeDefined();
+    expect(securityResult?.findings).toHaveLength(0);
+    // The overall result is a clean pass, not a failure.
+    expect(result.summary.decision).toBe("approved");
+    expect(result.summary.outcome).toBe("pass");
+  });
+});
