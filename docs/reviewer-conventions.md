@@ -156,7 +156,7 @@ a required reason. What none of them defend against — and what this design mus
 (add property; `additionalProperties: false`) → `bun run schema:config` (regenerate
 `.ai-review.schema.json`; guarded by `test/schema-artifact.test.ts`) → `src/runner/config.ts`
 `normalizeReviewConfig` (normalize/bound the array) + `src/runner/default-config.ts` (default)
-→ `src/runtime/pi-agent-runtime.ts` `buildReviewerPrompt` / `buildCoordinatorPrompt` (render
+→ `src/runtime/reviewer-prompt.ts` `buildReviewerPrompt` / `buildCoordinatorPrompt` (render
 via `stringifyPromptData` under a fixed trusted label) → tests in `test/prompt-quality.test.ts`,
 `test/pi-runtime.test.ts`, `test/runner.test.ts`.
 

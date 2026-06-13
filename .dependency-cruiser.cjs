@@ -70,12 +70,13 @@ module.exports = {
       name: "pi-runtime-routes-prompt-boundary",
       severity: "error",
       comment:
-        "The Pi runtime assembles prompts from untrusted PR/MR content, so it must route that " +
-        "content through src/runtime/prompt-boundary.ts (stringifyPromptData / sanitization) " +
+        "reviewer-prompt.ts is the prompt-assembly module that embeds untrusted PR/MR content " +
+        "(diffs, metadata, conventions, compliance policy) into agent prompts. It must route all " +
+        "such content through src/runtime/prompt-boundary.ts (stringifyPromptData / sanitization) " +
         "before prompt assembly (design principle #6). If this import disappeared, prompt " +
         "assembly has likely bypassed the sanitization boundary — restore it, do not inline " +
         "ad-hoc escaping.",
-      module: { path: "^src/runtime/pi-agent-runtime\\.ts$" },
+      module: { path: "^src/runtime/reviewer-prompt\\.ts$" },
       to: { path: "^src/runtime/prompt-boundary\\.ts$" },
     },
   ],

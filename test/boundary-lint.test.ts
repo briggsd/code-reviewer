@@ -25,9 +25,9 @@ describe("architecture-boundary lint (#27)", () => {
     expect(required.map((rule) => rule.name)).toContain("pi-runtime-routes-prompt-boundary");
 
     // A dependency-cruiser `required` rule passes VACUOUSLY when no module matches its
-    // `module.path` — renaming/deleting pi-agent-runtime.ts would silently vacate the
+    // `module.path` — renaming/deleting reviewer-prompt.ts would silently vacate the
     // sanitization invariant. Pin the guarded module's existence so a rename fails here.
-    expect(existsSync("src/runtime/pi-agent-runtime.ts")).toBe(true);
+    expect(existsSync("src/runtime/reviewer-prompt.ts")).toBe(true);
     expect(existsSync("src/runtime/prompt-boundary.ts")).toBe(true);
 
     // Remediation-in-error-message is the point of #27 — every rule must explain the fix.

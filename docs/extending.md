@@ -19,9 +19,11 @@ fake/no-network. Gate: `bun run check` (`bunx tsc --noEmit && bun test`).
 | **A forced failure path** | a runtime that throws (see `FailingRuntime`) | `test/state.test.ts` |
 
 Gotchas:
-- `buildReviewerPrompt` / `buildCoordinatorPrompt` / `formatReviewerContextPrompt` are
-  **module-private** in `pi-agent-runtime.ts` — assert end-to-end via `FakePiProcessRunner`,
-  don't export them.
+- Prompt assembly lives in `src/runtime/reviewer-prompt.ts` (split out of `pi-agent-runtime.ts`,
+  #155). `buildReviewerPrompt` / `buildCoordinatorPrompt` are exported for the runtime to consume
+  and can be **unit-tested by importing that module directly** (the `structured-tool-output.ts`
+  pattern); they are deliberately NOT in the `src/runtime` public barrel. `formatReviewerContextPrompt`
+  stays module-private there — cover it end-to-end via `FakePiProcessRunner`.
 - The **dummy runtime builds no text prompts** — prompt-injection coverage needs the Pi path.
 - After any change to `src/schemas/review-config.ts`, run `bun run schema:config` to
   regenerate `.ai-review.schema.json` — `test/schema-artifact.test.ts` fails on drift.
@@ -30,7 +32,9 @@ Gotchas:
 
 - **Lifecycle:** `src/runner/run-review.ts` → `runReview()` (the spine; `runReviewFromChange` wraps it).
 - **Telemetry event:** `createRunMetricsTelemetryEvent(...)` in `src/runner/run-metrics.ts` builds the `data` record (called from `emitCompletedRunMetrics`/`emitFailedRunMetrics` in `run-review.ts`).
-- **Prompts:** `buildReviewerPrompt` / `buildCoordinatorPrompt` in `src/runtime/pi-agent-runtime.ts`.
+- **Prompts:** `buildReviewerPrompt` / `buildCoordinatorPrompt` in `src/runtime/reviewer-prompt.ts`;
+  reviewer/coordinator output parsing + role/severity enforcement in
+  `src/runtime/reviewer-output-validation.ts`; the JSON parse/repair leaf in `src/runtime/pi-json-repair.ts`.
 - **Untrusted-content sanitizer:** `stringifyPromptData` / `sanitizePromptData` in `src/runtime/prompt-boundary.ts`.
 - **Config:** type `ReviewConfig` (`src/contracts/review.ts`); load/merge `src/runner/config.ts`;
   defaults `src/runner/default-config.ts`; schema `src/schemas/review-config.ts` (+ `JsonSchema` type in `review-output.ts`).
