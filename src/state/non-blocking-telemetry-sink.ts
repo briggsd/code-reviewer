@@ -19,6 +19,30 @@ export interface NonBlockingTelemetrySinkOptions {
 const DEFAULT_CAPACITY = 100;
 const DEFAULT_DELIVERY_TIMEOUT_MS = 1_000;
 
+export function createRemoteDeliveryTraceLogger(options: {
+  traceSink: TraceSink;
+  runId: string;
+  now?: () => Date;
+}): (event: TelemetryEvent, result: { ok: boolean; error?: Error }) => void {
+  const now = options.now ?? (() => new Date());
+  return (event, result) => {
+    void options.traceSink
+      .write({
+        type: "runtime.event",
+        runId: options.runId,
+        timestamp: now().toISOString(),
+        message: `Remote telemetry ${result.ok ? "delivered" : "failed"}`,
+        data: {
+          event: result.ok ? "telemetry.remote_delivered" : "telemetry.remote_failed",
+          telemetryEventType: event.type,
+          errorName: result.error?.name ?? null,
+          errorMessage: result.error?.message ?? null,
+        },
+      })
+      .catch(() => undefined);
+  };
+}
+
 export function createTelemetryFailureTraceLogger(options: {
   traceSink: TraceSink;
   runId: string;

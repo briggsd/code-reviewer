@@ -18,12 +18,14 @@ import type {
   ReviewConfig,
   ReviewFixture,
   RuntimeEventSubscription,
+  TelemetryEvent,
   VcsAdapter,
 } from "./index.ts";
 import {
   CountsOnlyTelemetryTransport,
   createDefaultReviewConfig,
   createLokiTelemetryTransport,
+  createRemoteDeliveryTraceLogger,
   createRunId,
   createTelemetryFailureTraceLogger,
   DummyAgentRuntime,
@@ -66,13 +68,20 @@ import {
 // JSONL is the PRIMARY tee leg (durable artifact `telemetry:rollup`/`:analyze` read) and stays
 // local/unwrapped. The remote leg is wrapped in CountsOnlyTelemetryTransport so every egressed
 // payload passes the #50 counts-only boundary; a flaky remote can never fail the durable write.
-function buildTelemetryTransport(telemetryPath: string): TelemetryTransport {
+function buildTelemetryTransport(
+  telemetryPath: string,
+  onSecondaryOutcome?: (event: TelemetryEvent, result: { ok: boolean; error?: Error }) => void,
+): TelemetryTransport {
   const jsonl = new JsonlTelemetryTransport(telemetryPath);
   const remote = buildRemoteTelemetryTransport();
   if (remote === undefined) {
     return jsonl;
   }
-  return new TeeTelemetryTransport(jsonl, new CountsOnlyTelemetryTransport(remote));
+  return new TeeTelemetryTransport({
+    primary: jsonl,
+    secondaries: [new CountsOnlyTelemetryTransport(remote)],
+    ...(onSecondaryOutcome !== undefined ? { onSecondaryOutcome } : {}),
+  });
 }
 
 function buildRemoteTelemetryTransport(): TelemetryTransport | undefined {
@@ -198,7 +207,12 @@ async function runCommand(args: string[]): Promise<void> {
           // JSONL stays PRIMARY (durable artifact `telemetry:rollup`/`:analyze` read). When
           // AI_REVIEW_TELEMETRY_URL is set, mirror events to the remote endpoint via a tee; a
           // flaky remote can never block or fail the durable write (see TeeTelemetryTransport).
-          transport: buildTelemetryTransport(telemetryPath),
+          transport: buildTelemetryTransport(
+            telemetryPath,
+            traceSink !== undefined
+              ? createRemoteDeliveryTraceLogger({ traceSink, runId })
+              : undefined,
+          ),
           ...(traceSink !== undefined
             ? { onFailure: createTelemetryFailureTraceLogger({ traceSink, runId }) }
             : {}),

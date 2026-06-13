@@ -257,6 +257,16 @@ The POST does **not** follow redirects (`redirect: "error"`, a runtime SSRF guar
 `…_URL` at the final endpoint; a collector behind an HTTP→HTTPS redirect will record delivery
 failures.
 
+**Delivery flush + observability.** Telemetry is emitted at the end of a run, so on close the
+transport gives in-flight remote pushes a bounded grace period (~2s) to drain before aborting any
+stragglers — end-of-run events flush instead of being cut off, without ever blocking the run past
+that bound. Each remote delivery outcome is recorded to the run's local `trace.jsonl` as a
+`runtime.event` (`telemetry.remote_delivered` / `telemetry.remote_failed`, carrying the telemetry
+event type and — on failure — the status line only, never response bodies or secrets), so you can
+audit what reached the remote without guessing. These records live in `trace.jsonl` alongside the
+`telemetry.jsonl` artifact (both are written under `--output-dir`), so whenever the remote leg is
+active the delivery outcomes are captured.
+
 **Fail-open vs. startup validation.** "Fail-open" describes *runtime* delivery: once configured,
 a slow or failing endpoint never blocks or fails the review. It does **not** mean misconfiguration
 is ignored — for the configured exporter's namespace, the following are **hard startup errors

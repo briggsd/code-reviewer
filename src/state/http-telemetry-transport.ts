@@ -28,23 +28,30 @@ export interface HttpTelemetryTransportOptions {
   formatRequest?: (event: TelemetryEvent) => HttpTelemetryRequest;
   /** Per-request abort timeout (ms). Bounds a hung connection. Default 10s. */
   timeoutMs?: number;
+  /**
+   * Grace period (ms) for in-flight requests to drain on close() before stragglers are aborted.
+   * Default 2000.
+   */
+  closeGraceMs?: number;
   /** Injectable fetch for tests; defaults to the global fetch. */
   fetch?: typeof fetch;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_CLOSE_GRACE_MS = 2_000;
 
 export class HttpTelemetryTransport implements TelemetryTransport {
   private readonly url: string;
   private readonly authorization: string | undefined;
   private readonly formatRequest: (event: TelemetryEvent) => HttpTelemetryRequest;
   private readonly timeoutMs: number;
+  private readonly closeGraceMs: number;
   private readonly fetchImpl: typeof fetch;
-  // In-flight request controllers. The tee fires send() off without awaiting, so close() must
-  // be able to abort anything still running (and its abort timer) — otherwise a slow/unreachable
-  // endpoint keeps the event loop alive (up to timeoutMs) after the run finishes on an
-  // interactive (non-process.exit) path.
+  // In-flight request controllers — used to abort stragglers in close() after the grace period.
   private readonly inFlight = new Set<AbortController>();
+  // In-flight send promises — awaited (bounded by grace) during close() so end-of-run pushes
+  // can complete before we abort stragglers that exceeded the grace window.
+  private readonly inFlightPromises = new Set<Promise<unknown>>();
   private closed = false;
 
   constructor(options: HttpTelemetryTransportOptions) {
@@ -52,6 +59,7 @@ export class HttpTelemetryTransport implements TelemetryTransport {
     this.authorization = resolveAuthorization(options);
     this.formatRequest = options.formatRequest ?? defaultNdjsonFormat;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.closeGraceMs = options.closeGraceMs ?? DEFAULT_CLOSE_GRACE_MS;
     this.fetchImpl = options.fetch ?? fetch;
   }
 
@@ -62,6 +70,22 @@ export class HttpTelemetryTransport implements TelemetryTransport {
       return;
     }
 
+    const work = this.deliver(event);
+    // Register synchronously (no `await` between deliver() and this add) so close()'s snapshot
+    // of in-flight work is always complete — the grace-drain depends on this invariant.
+    this.inFlightPromises.add(work);
+    try {
+      await work;
+    } finally {
+      this.inFlightPromises.delete(work);
+    }
+  }
+
+  /**
+   * Perform the actual HTTP delivery. Extracted so send() can track the promise in
+   * inFlightPromises for the grace-drain in close(). The closed-check stays in send().
+   */
+  private async deliver(event: TelemetryEvent): Promise<void> {
     // Bound a hung connection — the tee fires this off without awaiting, so nothing else would
     // otherwise time it out. clearTimeout in finally so a settled request leaves no live timer.
     const controller = new AbortController();
@@ -108,12 +132,22 @@ export class HttpTelemetryTransport implements TelemetryTransport {
   }
 
   /**
-   * Abort any in-flight requests so a pending fire-and-forget send (and its abort timer) can
-   * never keep the event loop alive past run completion. Aborting rejects the send's `fetch`,
-   * which runs its `finally` (clearing the timer); the tee swallows that rejection.
+   * Grace-drain in-flight requests so an end-of-run push isn't dropped immediately, then abort
+   * any stragglers so a hung endpoint never keeps the event loop alive beyond closeGraceMs.
+   * Aborting rejects the send's `fetch`, which runs its `finally` (clearing the timer).
    */
   async close(): Promise<void> {
     this.closed = true;
+    // Grace period: let in-flight pushes drain so an end-of-run push isn't dropped, then abort
+    // stragglers so a hung endpoint never keeps the event loop alive beyond closeGraceMs.
+    if (this.inFlightPromises.size > 0) {
+      let graceTimer: ReturnType<typeof setTimeout> | undefined;
+      const grace = new Promise<void>((resolve) => {
+        graceTimer = setTimeout(resolve, this.closeGraceMs);
+      });
+      await Promise.race([Promise.allSettled([...this.inFlightPromises]), grace]);
+      if (graceTimer !== undefined) clearTimeout(graceTimer);
+    }
     for (const controller of this.inFlight) {
       controller.abort();
     }

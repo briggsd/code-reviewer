@@ -205,6 +205,40 @@ A `thinking` override goes under `modelRouting.default` (all roles) or `modelRou
 }
 ```
 
+## Remote telemetry export (optional)
+
+By default the runner writes counts-only telemetry to a local JSONL artifact only. To **also**
+mirror it to a remote collector (e.g. a fleet-wide Grafana/Loki backend), set the exporter's env
+vars in your CI — this is **environment configuration, not `.ai-review.json`** (the URL/credentials
+are secrets). It is **default-off**: with nothing set, behavior is byte-identical to today.
+
+Each exporter owns an `AI_REVIEW_<NAME>_{URL,AUTHORIZATION,BASIC_AUTH}` namespace. Two are built in:
+
+**Generic HTTP collector** (newline-delimited JSON):
+```bash
+AI_REVIEW_TELEMETRY_URL=https://collector.example.com/ingest
+AI_REVIEW_TELEMETRY_BASIC_AUTH=<user>:<token>          # or AI_REVIEW_TELEMETRY_AUTHORIZATION="Bearer <token>"
+```
+
+**Grafana Loki** (push-API; takes precedence if both are set):
+```bash
+AI_REVIEW_LOKI_URL=https://logs-prod-012.grafana.net   # BASE host; /loki/api/v1/push is appended
+AI_REVIEW_LOKI_BASIC_AUTH=<instance-id>:<api-token>     # or AI_REVIEW_LOKI_AUTHORIZATION="Bearer <token>"
+```
+
+Rules to know when configuring:
+- **HTTPS is required when credentials are set** (plain `http://` + auth is a hard startup error — no plaintext credentials). Plain `http://` is allowed only for a no-auth internal collector.
+- `…_AUTHORIZATION` wins over `…_BASIC_AUTH` if both are set (the latter is then ignored).
+- `…_BASIC_AUTH` is `user:token`; a malformed value (no colon / empty half) fails fast at startup.
+- The URL must not point at a cloud metadata endpoint, and the POST does not follow redirects — point it at the **final** ingest URL.
+- Delivery is **fail-open**: a slow or failing remote never blocks or fails the review; the local JSONL artifact is always the durable record.
+
+**Verify it's working.** Run any review with `--output-dir <dir>` and check the run's
+`<dir>/runs/<runId>/trace.jsonl` for `telemetry.remote_delivered` (or `telemetry.remote_failed`,
+status only) records — one per egressed event — then query your backend (for Loki:
+`{service="ai-code-review"}`). Full reference, label scheme, counts-only guarantees, and the
+per-exporter namespace convention: **[Telemetry export](telemetry-export.md)**.
+
 ## Safety note
 
 Project config is not a permission boundary. Runtime tool policy is derived from the runner's safety mode and then tightened by risk tier, not from untrusted PR/MR content. Lite and trivial reviews run from supplied diff/context artifacts and deny repo-crawling read tools (`read`, `grep`, `find`, `ls`) plus shell/write tools (`bash`, `write`, `edit`), including when `manual_privileged` would otherwise allow shell access. The `privileged_metadata_only` safety mode already denies all tools and is unaffected by tier. Full reviews may receive read/grep/find/ls access when the safety mode allows it. The Pi adapter still disables project-local Pi resources by default in CI-oriented invocation.

@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import type { TelemetryEvent, TelemetryTransport } from "../src/contracts/index.ts";
+import type { TelemetryEvent, TelemetryTransport, TraceSink } from "../src/contracts/index.ts";
 import { CountsOnlyTelemetryTransport } from "../src/state/counts-only-telemetry-transport.ts";
 import { HttpTelemetryTransport } from "../src/state/http-telemetry-transport.ts";
-import { NonBlockingTelemetrySink } from "../src/state/non-blocking-telemetry-sink.ts";
+import {
+  createRemoteDeliveryTraceLogger,
+  NonBlockingTelemetrySink,
+} from "../src/state/non-blocking-telemetry-sink.ts";
 import { projectEventForEgress } from "../src/state/rollup-export.ts";
 import { TeeTelemetryTransport } from "../src/state/tee-telemetry-transport.ts";
 
@@ -114,6 +117,53 @@ describe("HttpTelemetryTransport (generic, #51 spec)", () => {
     await expect(inFlight).rejects.toThrow("aborted");
   });
 
+  test("close() grace-drain: an in-flight push that resolves within the grace completes", async () => {
+    // A fetch that resolves with 204 after a short delay — models an end-of-run push that
+    // started just before close() was called. The grace window must let it finish.
+    const delayedFetch = ((_url: string | URL | Request, _init?: RequestInit) =>
+      new Promise<Response>((resolve) => {
+        setTimeout(() => resolve(new Response("", { status: 204 })), 20);
+      })) as unknown as typeof fetch;
+    const transport = new HttpTelemetryTransport({
+      url: "https://collector.example.com/ingest",
+      fetch: delayedFetch,
+    });
+
+    const p = transport.send(METRICS_EVENT); // start but do NOT await yet
+    await transport.close(); // grace period must let the 20ms request finish
+    // send() must resolve (was NOT aborted during the grace window)
+    await expect(p).resolves.toBeUndefined();
+  });
+
+  test("close() aborts a straggler after closeGraceMs; close() itself resolves promptly", async () => {
+    // A fetch that never resolves on its own — only settles when aborted. With a tiny
+    // closeGraceMs, close() must abort it quickly rather than hanging indefinitely.
+    let sendRejected = false;
+    const neverFetch = ((_url: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        // Never resolves otherwise.
+      })) as unknown as typeof fetch;
+    const transport = new HttpTelemetryTransport({
+      url: "https://stuck.example.com/ingest",
+      fetch: neverFetch,
+      closeGraceMs: 30,
+    });
+
+    const sendP = transport.send(METRICS_EVENT);
+    sendP.catch(() => {
+      sendRejected = true;
+    });
+
+    // close() must resolve within the grace bound, not hang
+    await transport.close();
+
+    // Give the rejection a microtask to propagate
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sendRejected).toBe(true);
+    await expect(sendP).rejects.toThrow("aborted");
+  });
+
   test("throws on non-2xx so the non-blocking sink records the failure", async () => {
     const transport = new HttpTelemetryTransport({
       url: "https://collector.example.com/ingest",
@@ -205,7 +255,7 @@ describe("TeeTelemetryTransport", () => {
       // Never resolves — must not delay tee.send() (fire-and-forget).
       send: () => new Promise<void>(() => {}),
     };
-    const tee = new TeeTelemetryTransport(primary, stuckSecondary);
+    const tee = new TeeTelemetryTransport({ primary, secondaries: [stuckSecondary] });
 
     await tee.send(METRICS_EVENT); // resolves promptly despite the stuck secondary
     expect(written).toHaveLength(1);
@@ -222,9 +272,56 @@ describe("TeeTelemetryTransport", () => {
         throw new Error("secondary boom"); // swallowed via .catch, never unhandled
       },
     };
-    const tee = new TeeTelemetryTransport(primary, rejectingSecondary);
+    const tee = new TeeTelemetryTransport({ primary, secondaries: [rejectingSecondary] });
 
     await expect(tee.send(METRICS_EVENT)).rejects.toThrow("primary boom");
+  });
+
+  test("tee reports secondary success AND failure via onSecondaryOutcome", async () => {
+    const primary: TelemetryTransport = { send: async () => {} };
+    const succeedingSecondary: TelemetryTransport = { send: async () => {} };
+    const failingSecondary: TelemetryTransport = {
+      send: async () => {
+        throw new Error("secondary boom");
+      },
+    };
+    const outcomes: Array<{ event: TelemetryEvent; result: { ok: boolean; error?: Error } }> = [];
+    const tee = new TeeTelemetryTransport({
+      primary,
+      secondaries: [succeedingSecondary, failingSecondary],
+      onSecondaryOutcome: (event, result) => outcomes.push({ event, result }),
+    });
+
+    await tee.send(METRICS_EVENT);
+    // Outcomes settle asynchronously (fire-and-forget), so flush the microtask queue.
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(outcomes).toHaveLength(2);
+    const success = outcomes.find((o) => o.result.ok);
+    const failure = outcomes.find((o) => !o.result.ok);
+    expect(success?.event).toEqual(METRICS_EVENT);
+    expect(failure?.event).toEqual(METRICS_EVENT);
+    expect(failure?.result.error?.message).toBe("secondary boom");
+  });
+
+  test("a throwing onSecondaryOutcome on success does not re-fire as failure or escape", async () => {
+    const primary: TelemetryTransport = { send: async () => {} };
+    const succeedingSecondary: TelemetryTransport = { send: async () => {} };
+    const calls: Array<{ ok: boolean }> = [];
+    const tee = new TeeTelemetryTransport({
+      primary,
+      secondaries: [succeedingSecondary],
+      onSecondaryOutcome: (_event, result) => {
+        calls.push({ ok: result.ok });
+        throw new Error("buggy callback"); // must be isolated, not routed to a failure outcome
+      },
+    });
+
+    await tee.send(METRICS_EVENT);
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Called exactly once, with ok:true — the throw must NOT re-invoke it as { ok:false }.
+    expect(calls).toEqual([{ ok: true }]);
   });
 });
 
@@ -292,5 +389,62 @@ describe("CountsOnlyTelemetryTransport (decorator)", () => {
     // Only the exportable event reached the inner transport.
     expect(sent).toHaveLength(1);
     expect(sent[0]?.type).toBe("ai_review.run_metrics");
+  });
+});
+
+describe("createRemoteDeliveryTraceLogger", () => {
+  test("writes a delivered trace on success and a failed trace on error", async () => {
+    const captured: unknown[] = [];
+    const fakeSink: TraceSink = {
+      write: async (event) => {
+        captured.push(event);
+      },
+      close: async () => {},
+    };
+    const fixedNow = new Date("2026-06-13T15:00:00.000Z");
+    const logger = createRemoteDeliveryTraceLogger({
+      traceSink: fakeSink,
+      runId: "run-test-123",
+      now: () => fixedNow,
+    });
+
+    // Call with a success outcome
+    logger(METRICS_EVENT, { ok: true });
+    // Call with a failure outcome
+    logger(METRICS_EVENT, {
+      ok: false,
+      error: new Error("HTTP telemetry push failed (503 Service Unavailable)"),
+    });
+
+    // Logger is best-effort async — flush the microtask queue
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(captured).toHaveLength(2);
+
+    const [deliveredTrace, failedTrace] = captured as Array<{
+      type: string;
+      runId: string;
+      timestamp: string;
+      message: string;
+      data: Record<string, unknown>;
+    }>;
+
+    // Delivered trace
+    expect(deliveredTrace?.type).toBe("runtime.event");
+    expect(deliveredTrace?.runId).toBe("run-test-123");
+    expect(deliveredTrace?.timestamp).toBe("2026-06-13T15:00:00.000Z");
+    expect(deliveredTrace?.data.event).toBe("telemetry.remote_delivered");
+    expect(deliveredTrace?.data.telemetryEventType).toBe("ai_review.run_metrics");
+    expect(deliveredTrace?.data.errorName).toBeNull();
+    expect(deliveredTrace?.data.errorMessage).toBeNull();
+
+    // Failed trace
+    expect(failedTrace?.type).toBe("runtime.event");
+    expect(failedTrace?.data.event).toBe("telemetry.remote_failed");
+    expect(failedTrace?.data.telemetryEventType).toBe("ai_review.run_metrics");
+    expect(failedTrace?.data.errorName).toBe("Error");
+    expect(failedTrace?.data.errorMessage).toBe(
+      "HTTP telemetry push failed (503 Service Unavailable)",
+    );
   });
 });
