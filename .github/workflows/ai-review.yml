@@ -128,6 +128,12 @@ jobs:
           AI_REVIEW_PI_PROVIDER: ${{ vars.AI_REVIEW_PI_PROVIDER }}
           AI_REVIEW_PI_MODEL: ${{ vars.AI_REVIEW_PI_MODEL }}
           AI_REVIEW_EXPOSE_TRACE_PROMPTS: ${{ vars.AI_REVIEW_EXPOSE_TRACE_PROMPTS }}
+          # Optional remote telemetry mirror (#51/#174). Default-off: unset ⇒ empty ⇒ no remote
+          # leg. Wired only on this real (runtime: pi) job so dummy dry-run events never pollute
+          # the fleet backend. URL works as a secret OR a var; the credential must be a secret.
+          # Same-repo-gated job (see `if:` above) ⇒ fork PRs never receive these.
+          AI_REVIEW_LOKI_URL: ${{ secrets.AI_REVIEW_LOKI_URL || vars.AI_REVIEW_LOKI_URL }}
+          AI_REVIEW_LOKI_BASIC_AUTH: ${{ secrets.AI_REVIEW_LOKI_BASIC_AUTH }}
         run: |
           # Redact operator prompts + model output from trace.jsonl by default;
           # set the AI_REVIEW_EXPOSE_TRACE_PROMPTS repo variable to "true" to

@@ -226,6 +226,42 @@ AI_REVIEW_LOKI_URL=https://logs-prod-012.grafana.net   # BASE host; /loki/api/v1
 AI_REVIEW_LOKI_BASIC_AUTH=<instance-id>:<api-token>     # or AI_REVIEW_LOKI_AUTHORIZATION="Bearer <token>"
 ```
 
+### Providing these in GitHub Actions — two steps
+
+Adding the values as repository **Secrets/Variables is not enough on its own**: GitHub does not
+expose a secret to a workflow step automatically. You must **also map it into the run step's
+`env:`** in your workflow YAML — otherwise the runner sees nothing and the remote leg silently
+stays off. Both steps are required:
+
+1. Add the repo **Secret** `AI_REVIEW_LOKI_BASIC_AUTH` (credentials → always a Secret) and the
+   **Secret or Variable** `AI_REVIEW_LOKI_URL`.
+2. Reference them in the `env:` of the step that runs `ai-code-review`:
+   ```yaml
+   - name: Run review
+     env:
+       # …existing token/provider env…
+       AI_REVIEW_LOKI_URL: ${{ secrets.AI_REVIEW_LOKI_URL || vars.AI_REVIEW_LOKI_URL }}
+       AI_REVIEW_LOKI_BASIC_AUTH: ${{ secrets.AI_REVIEW_LOKI_BASIC_AUTH }}
+     run: ai-code-review run …
+   ```
+   (For the **generic HTTP** exporter, map `AI_REVIEW_TELEMETRY_URL` / `AI_REVIEW_TELEMETRY_BASIC_AUTH`
+   the same way — the mechanism is identical per namespace.)
+
+Notes specific to GitHub Actions:
+- Map it onto a **same-repo-gated** job (one whose `if:` requires
+  `pull_request.head.repo.full_name == github.repository`) — that gate is the real protection,
+  since the gated job does not run for fork PRs at all. Note the asymmetry if you rely on
+  suppression instead: **Secrets** are not provided to `pull_request` runs from forks (the
+  credential resolves to empty there), but **Variables ARE visible** to fork PRs — so a URL
+  stored as a Variable is not suppressed. Keep the job gated. Prefer the real (`--runtime pi`)
+  job so dummy dry-run events don't pollute the backend.
+- For `pull_request` events GitHub uses the workflow file from the **base branch**, so a newly
+  added mapping only takes effect for PRs opened **after** it merges to your default branch — it
+  will not fire on the PR that adds it.
+
+(This repo wires exactly this on its own `trusted-real-review` job in
+`.github/workflows/ai-review.yml` — use it as the worked example.)
+
 Rules to know when configuring:
 - **HTTPS is required when credentials are set** (plain `http://` + auth is a hard startup error — no plaintext credentials). Plain `http://` is allowed only for a no-auth internal collector.
 - `…_AUTHORIZATION` wins over `…_BASIC_AUTH` if both are set (the latter is then ignored).
