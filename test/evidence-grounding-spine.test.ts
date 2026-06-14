@@ -126,10 +126,8 @@ describe("evidence grounding spine integration", () => {
     expect(summary.findings.map((f) => f.title)).not.toContain("Fabricated finding");
     expect(summary.findings.map((f) => f.title)).toContain("Grounded finding");
 
-    // (b) body contains the transparency note
-    expect(summary.body).toContain(
-      "withheld: the code they cited could not be found in the changed files",
-    );
+    // (b) body contains the transparency note (#207: down-weight framing)
+    expect(summary.body).toContain("finding(s) shown at low confidence (kept, non-blocking)");
 
     // (c) decision/outcome reflect survivors only
     // Only the grounded "warning" finding remains → decision is not "significant_concerns"
@@ -338,11 +336,11 @@ describe("evidence grounding spine integration", () => {
     expect(groundingTrace?.data?.droppedFindingCount).toBe(2);
 
     // (e) The rendered markdown must NOT have bare "No findings." on its own line —
-    //     it must have "No findings survived grounding." instead, and the withheld block.
+    //     it must have the low-confidence block heading and the blocking-findings note.
     const markdown = formatReviewSummaryMarkdown(summary);
     expect(markdown).not.toMatch(/^No findings\.$/m);
-    expect(markdown).toContain("No findings survived grounding.");
-    expect(markdown).toContain("### ⚠️ Withheld (ungrounded this run)");
+    expect(markdown).toContain("No blocking findings (see low-confidence block below).");
+    expect(markdown).toContain("### ⚠️ Low-confidence findings (kept, non-blocking)");
     expect(markdown).toContain("Fabricated critical");
     expect(markdown).toContain("Fabricated warning");
   });
@@ -456,13 +454,13 @@ describe("evidence grounding spine integration", () => {
     expect(summary.body).toContain("Risk tier:");
     expect(summary.body).toContain("Findings: 0");
 
-    // (4) Withheld transparency note is still appended
-    expect(summary.body).toContain("finding(s) withheld");
+    // (4) Transparency note is still appended (#207: down-weight framing)
+    expect(summary.body).toContain("finding(s) shown at low confidence (kept, non-blocking)");
 
-    // (5) #204 block is preserved in rendered markdown
+    // (5) #204 block is preserved in rendered markdown (#207: low-confidence heading)
     const markdown = formatReviewSummaryMarkdown(summary);
-    expect(markdown).toContain("### ⚠️ Withheld (ungrounded this run)");
-    expect(markdown).toContain("No findings survived grounding.");
+    expect(markdown).toContain("### ⚠️ Low-confidence findings (kept, non-blocking)");
+    expect(markdown).toContain("No blocking findings (see low-confidence block below).");
   });
 
   test("#206 partial-drop: surviving finding count correct, sentinel not in body, #204 block present", async () => {
@@ -523,12 +521,63 @@ describe("evidence grounding spine integration", () => {
     // (3) Body reflects grounded count (1), not pre-grounding count (2)
     expect(summary.body).toContain("Findings: 1");
 
-    // (4) Withheld transparency note is still appended
-    expect(summary.body).toContain("finding(s) withheld");
+    // (4) Transparency note is still appended (#207: down-weight framing)
+    expect(summary.body).toContain("finding(s) shown at low confidence (kept, non-blocking)");
 
-    // (5) Rendered markdown shows surviving finding and #204 withheld block
+    // (5) Rendered markdown shows surviving finding and #207 low-confidence block
     const markdown = formatReviewSummaryMarkdown(summary);
     expect(markdown).toContain("Grounded partial-drop finding");
-    expect(markdown).toContain("### ⚠️ Withheld (ungrounded this run)");
+    expect(markdown).toContain("### ⚠️ Low-confidence findings (kept, non-blocking)");
+  });
+
+  // -------------------------------------------------------------------------
+  // #207: demoted findings carry confidence:"low"; body uses down-weight framing
+  // -------------------------------------------------------------------------
+
+  test("#207: demoted finding in groundingWithheld has confidence:'low'; body uses down-weight framing", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const telemetrySink = new RecordingTelemetrySink();
+    const traceSink = new RecordingTraceSink();
+
+    const fabricated: Finding = {
+      reviewer: "security",
+      severity: "critical",
+      category: "auth",
+      title: "Demoted fabricated finding",
+      body: "body",
+      confidence: "high", // original confidence; should be down-weighted to "low"
+      evidence: ["fabricated evidence"],
+      recommendation: "fix it",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["return db.accounts.deleteEverything();"], // not in diff
+    };
+
+    const fixturePatches = fixture.diff.files.map((f) => f.patch ?? "").join("\n");
+    expect(fixturePatches).not.toContain("deleteEverything");
+
+    fixture.fakeFindings = [fabricated];
+
+    const result = await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-14T02:00:00.000Z"),
+      telemetrySink,
+      traceSink,
+    });
+
+    const { summary } = result;
+
+    // (a) demoted finding is in groundingWithheld (not in main findings)
+    expect(summary.findings).toHaveLength(0);
+    expect(summary.groundingWithheld).toHaveLength(1);
+
+    // (b) #207 core assertion: demoted finding carries confidence:"low"
+    expect(summary.groundingWithheld?.[0]?.confidence).toBe("low");
+    expect(summary.groundingWithheld?.[0]?.title).toBe("Demoted fabricated finding");
+
+    // (c) body uses the down-weight framing (#207), not the old "withheld" wording
+    expect(summary.body).toContain(
+      "finding(s) shown at low confidence (kept, non-blocking): cited code was not found in the changed hunks",
+    );
+    expect(summary.body).not.toContain("withheld: the code they cited could not be found");
   });
 });

@@ -235,10 +235,12 @@ export interface ReviewSummary {
    */
   gateDecision?: GateDecision;
   /**
-   * Findings the deterministic evidence-grounding step withheld this run (their cited code was not
-   * found in the diff) (#204). Surfaced in a separate "Withheld" render block so the coordinator's
-   * prose has a visible referent; deliberately EXCLUDED from `findings`, the CI gate, the title
-   * count, and metadata `findingIds` — nothing here survived grounding.
+   * Low-confidence findings kept and shown but excluded from the CI gate, title count, and
+   * `findingIds` (#204, #207). These are findings whose cited code was not found in the diff
+   * hunks — down-weighted to `confidence: "low"` and rendered in a separate labeled block
+   * (non-blocking). No finding is ever silently dropped; not-grounded-with-quote findings are
+   * demoted, not discarded. Full-file-corpus promotion (reinstating blocking eligibility) is
+   * tracked in #214.
    */
   groundingWithheld?: Finding[];
 }

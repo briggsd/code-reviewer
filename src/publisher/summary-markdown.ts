@@ -229,7 +229,7 @@ function formatReviewerGroup(reviewer: string, findings: Finding[]): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Withheld (grounding-dropped) block (#204)
+// Low-confidence (grounding-demoted) block (#204, #207)
 // ---------------------------------------------------------------------------
 
 function formatWithheldGroup(findings: Finding[]): string[] {
@@ -237,9 +237,9 @@ function formatWithheldGroup(findings: Finding[]): string[] {
   const lines: string[] = [
     "---",
     "",
-    "### ⚠️ Withheld (ungrounded this run)",
+    "### ⚠️ Low-confidence findings (kept, non-blocking)",
     "",
-    "_The reviewer cited code not found in this diff, so these were withheld from the result (not counted, no tracking ID this run)._",
+    "_Shown at low confidence: cited code was not found in the changed hunks. Excluded from the gate / not counted toward the result._",
     "",
   ];
   for (const finding of sorted) {
@@ -288,10 +288,12 @@ export function formatReviewSummaryMarkdown(
   }
   lines.push(summary.body, "");
 
-  // Reviewer groups (or "No findings." / "No findings survived grounding.")
+  // Reviewer groups (or "No findings." / "No blocking findings (see low-confidence block below).")
   if (summary.findings.length === 0) {
     const hasWithheld = (summary.groundingWithheld?.length ?? 0) > 0;
-    lines.push(hasWithheld ? "No findings survived grounding." : "No findings.");
+    lines.push(
+      hasWithheld ? "No blocking findings (see low-confidence block below)." : "No findings.",
+    );
     lines.push("");
   } else {
     const reviewerKeys = sortedReviewerKeys(summary.findings);

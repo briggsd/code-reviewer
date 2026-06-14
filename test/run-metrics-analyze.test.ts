@@ -1190,3 +1190,108 @@ describe("analyzeRunMetrics fanOutMsPerRun / fusionMsPerRun (#196)", () => {
     expect(formatted).toContain("Fusion ms/run");
   });
 });
+
+// ---------------------------------------------------------------------------
+// #207: groundingWithholdFindingRate (finding-level withhold rate)
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics groundingWithholdFindingRate (#207)", () => {
+  // Synthetic: 2 runs
+  //   run-A: grounding block with droppedFindingCount:2, findingCount surfaced:2
+  //   run-B: no grounding block, findingCount surfaced:6
+  // produced = (2 + 6) + 2 = 10, demoted = 2 → rate = 2/10 = 0.20
+  const twoRunEvents: TelemetryEvent[] = [
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-14T00:00:00.000Z",
+      runId: "rate-A",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "approved_with_comments",
+        outcome: "pass",
+        durationMs: 3000,
+        findingCount: 2,
+        grounding: { droppedFindingCount: 2 },
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-14T01:00:00.000Z",
+      runId: "rate-B",
+      data: {
+        runtime: "pi",
+        riskTier: "lite",
+        decision: "no_findings",
+        outcome: "pass",
+        durationMs: 1000,
+        findingCount: 6,
+      },
+    },
+  ];
+
+  test("groundingWithholdFindingRate = demoted / produced (pooled across runs)", () => {
+    const analysis = analyzeRunMetrics(twoRunEvents);
+    // produced = surfaced (2+6) + demoted (2) = 10; rate = 2/10 = 0.20
+    expect(analysis.rates.groundingWithholdFindingRate).toBeCloseTo(0.2, 5);
+    // produced count is exposed as the finding-level sample size (#207)
+    expect(analysis.rates.groundingProducedFindingCount).toBe(10);
+  });
+
+  test("non-numeric droppedFindingCount does not propagate NaN (asNumber guard, #207)", () => {
+    const dirty: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-14T03:00:00.000Z",
+        runId: "dirty",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 2000,
+          findingCount: 4,
+          // a stringified / malformed count must coerce to 0, not NaN
+          grounding: { droppedFindingCount: "oops" as unknown as number },
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(dirty);
+    expect(Number.isNaN(analysis.rates.groundingWithholdFindingRate)).toBe(false);
+    expect(analysis.rates.groundingWithholdFindingRate).toBe(0);
+    expect(analysis.rates.groundingProducedFindingCount).toBe(4);
+  });
+
+  test("groundingWithholdFindingRate = 0 when no grounding blocks present", () => {
+    const analysis = analyzeRunMetrics([twoRunEvents[1]!]);
+    expect(analysis.rates.groundingWithholdFindingRate).toBe(0);
+  });
+
+  test("groundingWithholdFindingRate = 0 when runCount is 0", () => {
+    const analysis = analyzeRunMetrics([]);
+    expect(analysis.rates.groundingWithholdFindingRate).toBe(0);
+  });
+
+  test("groundingWithholdFindingRate = 1 when all produced findings are demoted", () => {
+    // Only a grounding block present, zero surfaced findings
+    const allDemotedEvents: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-14T02:00:00.000Z",
+        runId: "all-demoted",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 2000,
+          findingCount: 0,
+          grounding: { droppedFindingCount: 3 },
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(allDemotedEvents);
+    // produced = 0 + 3 = 3, demoted = 3 → rate = 1.0
+    expect(analysis.rates.groundingWithholdFindingRate).toBeCloseTo(1.0, 5);
+  });
+});

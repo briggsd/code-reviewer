@@ -118,6 +118,18 @@ export interface RunMetricsAnalysis {
   rates: {
     /** Fraction of runs whose event carried a non-empty grounding block. */
     groundingDropRunRate: number;
+    /**
+     * Finding-level: demoted (ungrounded-with-quote) findings ÷ total produced
+     * (surfaced + demoted), pooled across runs. A climbing rate signals grounding may be
+     * over-demoting valid findings (#207 signal; complement to the run-level groundingDropRunRate).
+     */
+    groundingWithholdFindingRate: number;
+    /**
+     * Denominator behind groundingWithholdFindingRate: total findings produced (surfaced +
+     * demoted) pooled across runs. The finding-level sample size for that rate — distinct from
+     * runCount, which is the run-level sample size for groundingDropRunRate (#207).
+     */
+    groundingProducedFindingCount: number;
     /** Fraction of runs whose event carried a non-empty locationBackfill block. */
     locationBackfillRunRate: number;
     /** Fraction of runs whose event carried a non-empty acknowledgements block. */
@@ -204,6 +216,7 @@ export function analyzeRunMetrics(
   const outcomeCounts = new Map<string, number>();
 
   let groundingRunCount = 0;
+  let groundingDemotedTotal = 0;
   let locationBackfillRunCount = 0;
   let acknowledgementRunCount = 0;
   let thinReviewRunCount = 0;
@@ -306,6 +319,10 @@ export function analyzeRunMetrics(
       Object.keys(groundingBlock).length > 0
     ) {
       groundingRunCount += 1;
+      // asNumber() (not bare Number()) so a non-numeric droppedFindingCount can't propagate NaN
+      // into produced/the rate and past buildQualityReport's null-check — matching every other
+      // numeric accumulation in this function.
+      groundingDemotedTotal += asNumber(groundingBlock.droppedFindingCount);
     }
 
     const locationBackfillBlock = data.locationBackfill;
@@ -411,6 +428,12 @@ export function analyzeRunMetrics(
     outcomeCounts: outcomeCountsRecord,
     rates: {
       groundingDropRunRate: runCount === 0 ? 0 : groundingRunCount / runCount,
+      // produced = surfaced (totalFindings) + demoted (groundingDemotedTotal)
+      groundingWithholdFindingRate:
+        totalFindings + groundingDemotedTotal === 0
+          ? 0
+          : groundingDemotedTotal / (totalFindings + groundingDemotedTotal),
+      groundingProducedFindingCount: totalFindings + groundingDemotedTotal,
       locationBackfillRunRate: runCount === 0 ? 0 : locationBackfillRunCount / runCount,
       acknowledgementRunRate: runCount === 0 ? 0 : acknowledgementRunCount / runCount,
       thinReviewRate: nonTrivialRunCount === 0 ? 0 : thinReviewRunCount / nonTrivialRunCount,
@@ -688,6 +711,9 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
   lines.push("--- Rates ---");
   const r = analysis.rates;
   lines.push(`  groundingDropRunRate      ${(r.groundingDropRunRate * 100).toFixed(1)}%`);
+  lines.push(
+    `  groundingWithholdFindingRate ${(r.groundingWithholdFindingRate * 100).toFixed(1)}% (n=${r.groundingProducedFindingCount})`,
+  );
   lines.push(`  locationBackfillRunRate   ${(r.locationBackfillRunRate * 100).toFixed(1)}%`);
   lines.push(`  acknowledgementRunRate    ${(r.acknowledgementRunRate * 100).toFixed(1)}%`);
   lines.push(`  thinReviewRate            ${(r.thinReviewRate * 100).toFixed(1)}%`);

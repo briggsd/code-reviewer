@@ -765,8 +765,8 @@ describe("multi-reviewer 8-finding summary", () => {
 // 9. Grounding-withheld block (#204)
 // ---------------------------------------------------------------------------
 
-describe("grounding-withheld block (#204)", () => {
-  test("all-withheld: renders 'No findings survived grounding.' and withheld heading", () => {
+describe("grounding-withheld block (#204, #207 low-confidence reframe)", () => {
+  test("all-withheld: renders 'No blocking findings' and low-confidence heading (#207)", () => {
     const withheld = makeFinding({
       reviewer: "security",
       title: "Withheld vuln",
@@ -776,19 +776,21 @@ describe("grounding-withheld block (#204)", () => {
       makeSummary({ findings: [], groundingWithheld: [withheld] }),
     );
 
-    // Must use the survived-grounding message, not the bare one
-    expect(markdown).toContain("No findings survived grounding.");
+    // Must use the low-confidence message, not the bare one
+    expect(markdown).toContain("No blocking findings (see low-confidence block below).");
     expect(markdown).not.toMatch(/^No findings\.$/m);
+    // Old wording must be gone
+    expect(markdown).not.toContain("No findings survived grounding.");
 
-    // Withheld block heading and context note
-    expect(markdown).toContain("### ⚠️ Withheld (ungrounded this run)");
-    expect(markdown).toContain("withheld from the result");
+    // Low-confidence block heading and context note (#207)
+    expect(markdown).toContain("### ⚠️ Low-confidence findings (kept, non-blocking)");
+    expect(markdown).toContain("Excluded from the gate / not counted toward the result");
 
-    // Withheld finding title appears as a one-liner
+    // Low-confidence finding title appears as a one-liner
     expect(markdown).toContain("Withheld vuln");
   });
 
-  test("partial: grounded finding + withheld finding — both blocks render", () => {
+  test("partial: grounded finding + low-confidence finding — both blocks render", () => {
     const grounded = makeFinding({
       reviewer: "code_quality",
       title: "Grounded nit",
@@ -807,12 +809,14 @@ describe("grounding-withheld block (#204)", () => {
     expect(markdown).toContain("🧹 code\\_quality");
     expect(markdown).toContain("Grounded nit");
 
-    // Withheld block also rendered
-    expect(markdown).toContain("### ⚠️ Withheld (ungrounded this run)");
+    // Low-confidence block also rendered (#207)
+    expect(markdown).toContain("### ⚠️ Low-confidence findings (kept, non-blocking)");
     expect(markdown).toContain("Withheld issue");
 
-    // Bare "No findings survived grounding." must NOT appear (there are grounded findings)
+    // Old wording must be gone
     expect(markdown).not.toContain("No findings survived grounding.");
+    // Old heading must be gone
+    expect(markdown).not.toContain("Withheld (ungrounded this run)");
     // Bare "No findings." must also NOT appear
     expect(markdown).not.toMatch(/^No findings\.$/m);
   });
@@ -821,14 +825,15 @@ describe("grounding-withheld block (#204)", () => {
     const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [] }));
 
     expect(markdown).toContain("No findings.");
-    expect(markdown).not.toContain("No findings survived grounding.");
-    expect(markdown).not.toContain("Withheld (ungrounded this run)");
+    expect(markdown).not.toContain("No blocking findings");
+    expect(markdown).not.toContain("Low-confidence findings");
   });
 
-  test("withheld block not rendered when groundingWithheld is undefined", () => {
+  test("low-confidence block not rendered when groundingWithheld is undefined", () => {
     const finding = makeFinding({ title: "Normal finding" });
     const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [finding] }));
 
+    expect(markdown).not.toContain("Low-confidence findings");
     expect(markdown).not.toContain("Withheld (ungrounded this run)");
   });
 

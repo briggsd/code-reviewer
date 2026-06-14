@@ -72,11 +72,21 @@ function buildCorpus(diff: DiffSummary): string {
 /**
  * Assess whether each finding's quotedCode is grounded in the diff corpus.
  *
- * Drop rule: a finding goes to `dropped` iff:
+ * Partition rule — a finding goes to `dropped` iff:
  *   - finding.quotedCode is present with ≥1 checkable quote (length >= MIN_CHECKABLE_QUOTE_LENGTH), AND
  *   - none of its checkable quotes appears as a substring of the normalized corpus.
  *
- * A finding with no quotedCode (undefined/empty) or only sub-threshold quotes is ALWAYS kept.
+ * No-quote carve-out: a finding with no quotedCode (undefined/empty) or only sub-threshold
+ * quotes is ALWAYS kept in `grounded` at full confidence and CAN block the CI gate. There is
+ * no fabricated-location risk when there is no checkable quote to verify — dropping such a
+ * finding would silently discard valid structural/architectural observations that simply did
+ * not cite a specific code line.
+ *
+ * Caller contract (#207): the `dropped` set is NOT silently discarded by the caller. Each
+ * dropped finding is down-weighted to `confidence: "low"` and kept visible in the labeled
+ * low-confidence render block (non-blocking, excluded from the gate/title/findingIds). The
+ * partition itself is unchanged here; #214 is the future full-file-corpus promoter that can
+ * reinstate blocking eligibility for findings citing unchanged regions of changed files.
  */
 export function assessFindingGrounding(
   findings: readonly Finding[],

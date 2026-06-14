@@ -12,6 +12,7 @@ import type { ReviewerAcceptanceStat, RunMetricsAnalysis } from "./run-metrics-a
 
 export type HypothesisMetric =
   | "groundingDropRate"
+  | "groundingWithholdRate"
   | "thinReviewRate"
   | "overrideRate"
   | "acceptanceRate"
@@ -42,6 +43,8 @@ export interface QualityHypothesis {
 
 export interface QualityReportThresholds {
   maxGroundingDropRate: number; // default 0.15
+  /** Finding-level grounding withhold rate (demoted ÷ produced); climbing-rate MAX threshold. default 0.30 */
+  maxGroundingWithholdRate: number; // default 0.30
   maxThinReviewRate: number; // default 0.20
   maxOverrideRate: number; // default 0.10
   minAcceptanceRate: number; // default 0.50
@@ -54,6 +57,7 @@ export interface QualityReportThresholds {
 
 export const DEFAULT_QUALITY_THRESHOLDS: QualityReportThresholds = {
   maxGroundingDropRate: 0.15,
+  maxGroundingWithholdRate: 0.3,
   maxThinReviewRate: 0.2,
   maxOverrideRate: 0.1,
   minAcceptanceRate: 0.5,
@@ -97,6 +101,24 @@ export function buildQualityReport(
       threshold: t.maxGroundingDropRate,
       direction: "above",
       sampleSize: analysis.runCount,
+    });
+  }
+
+  // groundingWithholdRate ← rates.groundingWithholdFindingRate (#207). Finding-level rate:
+  // demoted ÷ produced. Complements the run-level groundingDropRate — "1 of 10 findings demoted"
+  // is distinguishable from "10 of 10 findings demoted".
+  const groundingWithholdFindingRate = analysis.rates.groundingWithholdFindingRate;
+  if (groundingWithholdFindingRate !== null && groundingWithholdFindingRate !== undefined) {
+    checkBreach(hypotheses, t, {
+      segmentType: "overall",
+      segment: "overall",
+      metric: "groundingWithholdRate",
+      value: groundingWithholdFindingRate,
+      threshold: t.maxGroundingWithholdRate,
+      direction: "above",
+      // Finding-level rate → finding-level sample size (produced findings), NOT runCount.
+      // runCount would mis-flag lowConfidence whenever runs and produced-findings diverge.
+      sampleSize: analysis.rates.groundingProducedFindingCount,
     });
   }
 

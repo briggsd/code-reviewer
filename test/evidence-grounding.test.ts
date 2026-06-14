@@ -358,4 +358,56 @@ describe("assessFindingGrounding", () => {
     expect(result.dropped[0]).toBe(fabrication);
     expect(result.grounded).toHaveLength(0);
   });
+
+  // ---------------------------------------------------------------------------
+  // #207: no-quote carve-out — findings with no quotedCode always land in grounded
+  // ---------------------------------------------------------------------------
+
+  test("no-quote carve-out: finding on a CHANGED file with quotedCode undefined → grounded (full confidence eligible)", () => {
+    // A finding that cites a changed file but has no quotedCode. Even though the file
+    // is changed, there is no fabricated-location risk without a checkable quote.
+    // It must land in `grounded` so it CAN block the CI gate (#207 explicit carve-out).
+    const diff = makeDiff("+  return db.accounts.findById(accountId);");
+    const finding = makeFinding({
+      location: { path: "auth/accounts.ts" },
+      // quotedCode intentionally omitted (undefined)
+    });
+
+    const result = assessFindingGrounding([finding], diff);
+
+    expect(result.grounded).toHaveLength(1);
+    expect(result.grounded[0]).toBe(finding);
+    expect(result.dropped).toHaveLength(0);
+  });
+
+  test("no-quote carve-out: finding on a CHANGED file with quotedCode: [] → grounded", () => {
+    // Same carve-out but with an explicit empty array rather than undefined.
+    const diff = makeDiff("+  return db.accounts.findById(accountId);");
+    const finding = makeFinding({
+      location: { path: "auth/accounts.ts" },
+      quotedCode: [],
+    });
+
+    const result = assessFindingGrounding([finding], diff);
+
+    expect(result.grounded).toHaveLength(1);
+    expect(result.grounded[0]).toBe(finding);
+    expect(result.dropped).toHaveLength(0);
+  });
+
+  test("partition unchanged (#207): ungrounded-with-quote finding still lands in dropped", () => {
+    // The #207 reframe changes what the CALLER does with `dropped` (down-weight instead of
+    // discard), but the partition itself is unchanged — an ungrounded quote still goes to dropped.
+    const diff = makeDiff("+  return db.accounts.findById(accountId);");
+    const fabricated = makeFinding({
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["db.dropTable('users');"], // not in diff
+    });
+
+    const result = assessFindingGrounding([fabricated], diff);
+
+    expect(result.dropped).toHaveLength(1);
+    expect(result.dropped[0]).toBe(fabricated);
+    expect(result.grounded).toHaveLength(0);
+  });
 });

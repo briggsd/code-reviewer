@@ -393,8 +393,11 @@ async function fuseAndDecide(input: {
       // from the GROUNDED set instead (the createSummaryTitle sibling) so the authoritative summary
       // cannot carry withheld-finding narration. Withheld findings stay visible only in the labeled
       // #204 block.
-      body: `${createSummaryBody(context, grounding.grounded)}\n\n_${groundingDroppedCount} finding(s) withheld: the code they cited could not be found in the changed files._`,
-      groundingWithheld: grounding.dropped,
+      body: `${createSummaryBody(context, grounding.grounded)}\n\n_${groundingDroppedCount} finding(s) shown at low confidence (kept, non-blocking): cited code was not found in the changed hunks._`,
+      // #207: down-weight rather than drop — each demoted finding is marked confidence:"low"
+      // and shown in the low-confidence block. Non-blocking and excluded from the gate/title/
+      // findingIds, but never silently lost. Full-file-corpus promotion is tracked in #214.
+      groundingWithheld: grounding.dropped.map((f) => ({ ...f, confidence: "low" as const })),
     };
     await emitTrace(options.traceSink, {
       type: "grounding.applied",

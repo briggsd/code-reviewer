@@ -18,6 +18,8 @@ type AnalysisOverride = Omit<Partial<RunMetricsAnalysis>, "rates"> & { rates?: P
 function makeAnalysis(overrides: AnalysisOverride): RunMetricsAnalysis {
   const baseRates: RunMetricsAnalysis["rates"] = {
     groundingDropRunRate: 0,
+    groundingWithholdFindingRate: 0,
+    groundingProducedFindingCount: 0,
     locationBackfillRunRate: 0,
     acknowledgementRunRate: 0,
     thinReviewRate: 0,
@@ -851,5 +853,87 @@ describe("buildQualityReport — structuredOutputRate (M015 S05, #128)", () => {
     expect(
       overrideReport.hypotheses.find((x) => x.metric === "structuredOutputRate"),
     ).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #207: groundingWithholdRate (finding-level withhold rate)
+// ---------------------------------------------------------------------------
+
+describe("buildQualityReport — groundingWithholdRate (#207)", () => {
+  test("groundingWithholdRate breach: above maxGroundingWithholdRate (0.30) → hypothesis emitted", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        groundingWithholdFindingRate: 0.4, // > 0.30 → breach
+        groundingProducedFindingCount: 100, // finding-level sample size, distinct from runCount=10
+      },
+    });
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find(
+      (x) => x.metric === "groundingWithholdRate" && x.segment === "overall",
+    );
+    expect(h).toBeDefined();
+    expect(h?.direction).toBe("above");
+    expect(h?.value).toBeCloseTo(0.4, 5);
+    expect(h?.threshold).toBeCloseTo(0.3, 5);
+    // Finding-level metric → sampleSize is produced-finding count, NOT runCount (#207 fix).
+    expect(h?.sampleSize).toBe(100);
+  });
+
+  test("groundingWithholdRate within threshold → no hypothesis", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        groundingWithholdFindingRate: 0.2, // < 0.30 → OK
+      },
+    });
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "groundingWithholdRate")).toBeUndefined();
+  });
+
+  test("groundingWithholdRate at exactly threshold boundary → no hypothesis (not strictly above)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        groundingWithholdFindingRate: 0.3, // = 0.30 → not above → no breach
+      },
+    });
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "groundingWithholdRate")).toBeUndefined();
+  });
+
+  test("groundingWithholdRate threshold override works", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        groundingWithholdFindingRate: 0.35, // > 0.30 default → breach
+      },
+    });
+    // Default 0.30: breach
+    const defaultReport = buildQualityReport(analysis);
+    expect(
+      defaultReport.hypotheses.find((x) => x.metric === "groundingWithholdRate"),
+    ).toBeDefined();
+
+    // Override to 0.40: 0.35 < 0.40 → no breach
+    const overrideReport = buildQualityReport(analysis, { maxGroundingWithholdRate: 0.4 });
+    expect(
+      overrideReport.hypotheses.find((x) => x.metric === "groundingWithholdRate"),
+    ).toBeUndefined();
+  });
+
+  test("existing groundingDropRate metric is unaffected by addition of groundingWithholdRate", () => {
+    // Both can breach simultaneously — they are complementary, not substitutes.
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        groundingDropRunRate: 0.2, // > 0.15 → breach
+        groundingWithholdFindingRate: 0.4, // > 0.30 → breach
+      },
+    });
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "groundingDropRate")).toBeDefined();
+    expect(report.hypotheses.find((x) => x.metric === "groundingWithholdRate")).toBeDefined();
   });
 });

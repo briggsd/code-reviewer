@@ -54,6 +54,7 @@ threshold. Cross-reference metric meanings to the table in `docs/telemetry-expor
 | Metric | Direction | Default threshold |
 |---|---|---|
 | `groundingDropRate` | above → bad | 0.15 |
+| `groundingWithholdRate` | above → bad | 0.30 |
 | `thinReviewRate` | above → bad | 0.20 |
 | `overrideRate` | above → bad | 0.10 |
 | `acceptanceRate` | below → bad | 0.50 |
@@ -73,6 +74,13 @@ Pick a breaching segment and name the suspected quality failure:
   high `withholdRate` but through the correction path.
 - High `groundingDropRate` → the reviewer is raising ungrounded / hallucinated findings that
   the grounding check drops; look at the reviewer's prompt specificity.
+- High `groundingWithholdRate` → of all findings produced, a climbing fraction was demoted to
+  low-confidence (cited code not found in the diff hunks). Distinct from `groundingDropRate`
+  (which is run-level — did any run have a demoted finding?) — `groundingWithholdRate` is
+  finding-level: it can distinguish "1 of 10 findings demoted" from "10 of 10 demoted." A
+  climbing rate may signal grounding is over-demoting valid findings (e.g. findings citing
+  unchanged regions of a changed file — the #207 signal). Investigate via #214
+  (full-file-corpus promotion).
 - High `overrideRate` → humans are break-glassing the bot; the bot may be misfiring.
 
 ### 3. Investigate on LEGAL material only
