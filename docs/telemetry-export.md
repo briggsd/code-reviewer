@@ -225,8 +225,9 @@ user-controlled content. No new content fields may be added to `QualityReport` o
 #### Dogfood boundary
 
 The quality report operates on local artifacts only — the `telemetry:quality` command calls
-`collectTelemetryEvents` (the same `gh`-based artifact collector used by `telemetry:analyze`)
-and writes its output locally. Do not add network ingestion or remote export to this module.
+`collectTelemetryEvents` (the same `gh`-based artifact collector used by `telemetry:analyze`),
+or reads a local fleet-dataset JSONL via `--dataset` (#198), and writes its output locally.
+Do not add network ingestion or remote export to this module.
 Remote send-side egress lives in the transport layer (#51, below); factory-side fleet fan-in
 (S06 #136) is the receive counterpart.
 
@@ -313,10 +314,12 @@ the accepted events to the fleet dataset JSONL (`.ai-review-fleet/telemetry.json
 
 That dataset is the JSONL store the quality/analyze pipeline consumes: it carries the same
 `ai_review.run_metrics` events `analyzeRunMetrics` / `buildQualityReport` read, so feeding it through
-those functions pools the fleet's runs into the hypothesis-queue segments. Note: the current
-`telemetry:quality` / `telemetry:analyze` CLIs collect events from CI artifacts via `gh`
-(`collectTelemetryEvents`) and do **not** yet take a local-dataset path — wiring the fleet JSONL into
-those collectors is a thin follow-up; the receive/aggregate boundary this slice owns is complete.
+those functions pools the fleet's runs into the hypothesis-queue segments. Point the collectors at it
+with `bun run telemetry:quality --dataset .ai-review-fleet/telemetry.jsonl` (and likewise
+`telemetry:analyze --dataset <path>`, #198): the `--dataset` flag reads the local JSONL directly via
+`readTelemetryEvents` instead of collecting from CI artifacts via `gh` (`collectTelemetryEvents`), and is
+mutually exclusive with `--runs`. The report is identical whether it is built from the fleet dataset or
+from CI artifacts — both paths feed the same `analyzeRunMetrics` / `buildQualityReport`.
 
 ### Boundaries (load-bearing)
 

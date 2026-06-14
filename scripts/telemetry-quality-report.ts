@@ -6,7 +6,8 @@ import type { QualityReportThresholds } from "../src/state/quality-report.ts";
 import { buildQualityReport, formatQualityReport } from "../src/state/quality-report.ts";
 import type { AnalyzeOptions } from "../src/state/run-metrics-analyze.ts";
 import { analyzeRunMetrics } from "../src/state/run-metrics-analyze.ts";
-import { collectTelemetryEvents } from "./telemetry-artifacts.ts";
+import type { CommonTelemetryCliOptions } from "./telemetry-artifacts.ts";
+import { loadTelemetryEvents, parseCommonTelemetryArgs } from "./telemetry-artifacts.ts";
 
 const DEFAULT_RUN_LIMIT = 20;
 const DEFAULT_OUTPUT = "telemetry-quality-report.json";
@@ -18,8 +19,13 @@ Download telemetry artifacts from the latest workflow runs of .github/workflows/
 and produce a quality report (hypothesis queue) identifying segments that breach quality
 thresholds. Counts/segments only — never finding text, diff text, prompts, or secrets.
 
+Alternatively, read run_metrics from a local fleet-dataset JSONL (the own-fleet fan-in store
+produced by telemetry:ingest, #136) via --dataset instead of collecting from CI artifacts.
+
 Options:
   -n, --runs <N>               Number of workflow runs to inspect (default: ${DEFAULT_RUN_LIMIT})
+  -d, --dataset <PATH>         Read run_metrics from this local JSONL dataset instead of
+                               collecting from CI artifacts via gh (mutually exclusive with --runs)
   -o, --output <PATH>          Output JSON path for the report (default: ${DEFAULT_OUTPUT})
   -t, --thin-floor <N>         Output-token floor below which a non-trivial run counts as
                                "thin" (default: ${DEFAULT_THIN_FLOOR}; trivial-tier runs are never flagged)
@@ -35,10 +41,7 @@ Threshold overrides (each a float in [0,1]):
 
   -h, --help                   Show this help message`;
 
-interface CliOptions {
-  runLimit: number;
-  outputPath: string;
-  thinReviewOutputTokenFloor?: number;
+interface CliOptions extends CommonTelemetryCliOptions {
   thresholdOverrides: Partial<QualityReportThresholds>;
 }
 
@@ -53,14 +56,12 @@ void main().catch((error) => {
 
 async function main(): Promise<void> {
   const options = parseArgs(Bun.argv.slice(2));
-  const runLimit = options.runLimit;
   const outputPath = resolve(options.outputPath);
 
-  const {
-    events: telemetryEvents,
-    telemetryFileCount,
-    artifactCount,
-  } = await collectTelemetryEvents(runLimit);
+  const { events: telemetryEvents, sourceSummary } = await loadTelemetryEvents({
+    runLimit: options.runLimit,
+    datasetPath: options.datasetPath,
+  });
 
   if (telemetryEvents.length === 0) {
     console.error("No telemetry events collected; nothing to analyze.");
@@ -84,9 +85,7 @@ async function main(): Promise<void> {
   const report = buildQualityReport(analysis, options.thresholdOverrides);
 
   console.log(formatQualityReport(report));
-  console.log(
-    `\nAnalyzed ${analysis.runCount} ai_review.run_metrics events from ${telemetryFileCount} telemetry files across ${artifactCount} artifacts.`,
-  );
+  console.log(`\nAnalyzed ${analysis.runCount} ai_review.run_metrics events ${sourceSummary}.`);
 
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
@@ -102,52 +101,24 @@ function parseFloat01(value: string, flag: string): number {
 }
 
 function parseArgs(argv: readonly string[]): CliOptions {
-  let runLimit = DEFAULT_RUN_LIMIT;
-  let outputPath = DEFAULT_OUTPUT;
-  let thinReviewOutputTokenFloor: number | undefined;
+  // The common flags (--runs/--dataset/--output/--thin-floor/--help and the
+  // --dataset/--runs mutual exclusion) are parsed by the shared helper; this script
+  // owns only the threshold overrides, which flow back via `rest` in original order.
+  const { options, rest } = parseCommonTelemetryArgs(argv, {
+    defaultRunLimit: DEFAULT_RUN_LIMIT,
+    defaultOutput: DEFAULT_OUTPUT,
+    usage,
+  });
+
+  const thresholdOverrides = parseThresholdOverrides(rest);
+  return { ...options, thresholdOverrides };
+}
+
+function parseThresholdOverrides(argv: readonly string[]): Partial<QualityReportThresholds> {
   const thresholdOverrides: Partial<QualityReportThresholds> = {};
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--help" || arg === "-h") {
-      console.log(usage);
-      process.exit(0);
-    }
-    if (arg === "--runs" || arg === "-n") {
-      const value = argv[index + 1];
-      if (value === undefined) {
-        throw new Error("--runs requires a numeric value");
-      }
-      index += 1;
-      const parsed = Number(value);
-      if (!Number.isInteger(parsed) || parsed <= 0) {
-        throw new Error("--runs value must be a positive integer");
-      }
-      runLimit = parsed;
-      continue;
-    }
-    if (arg === "--output" || arg === "-o") {
-      const value = argv[index + 1];
-      if (value === undefined) {
-        throw new Error("--output requires a path value");
-      }
-      index += 1;
-      outputPath = value;
-      continue;
-    }
-    if (arg === "--thin-floor" || arg === "-t") {
-      const value = argv[index + 1];
-      if (value === undefined) {
-        throw new Error("--thin-floor requires a numeric value");
-      }
-      index += 1;
-      const parsed = Number(value);
-      if (!Number.isInteger(parsed) || parsed < 0) {
-        throw new Error("--thin-floor value must be a non-negative integer");
-      }
-      thinReviewOutputTokenFloor = parsed;
-      continue;
-    }
     if (arg === "--max-grounding-drop") {
       const value = argv[index + 1];
       if (value === undefined) {
@@ -218,9 +189,5 @@ function parseArgs(argv: readonly string[]): CliOptions {
     throw new Error(`Unknown argument: ${arg}`);
   }
 
-  const result: CliOptions = { runLimit, outputPath, thresholdOverrides };
-  if (thinReviewOutputTokenFloor !== undefined) {
-    result.thinReviewOutputTokenFloor = thinReviewOutputTokenFloor;
-  }
-  return result;
+  return thresholdOverrides;
 }

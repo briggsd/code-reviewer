@@ -47,8 +47,8 @@ bun run src/cli.ts run --git-diff --runtime dummy --output-dir .ai-review   # re
 bun run src/cli.ts schemas        # emit config + structured-output JSON schemas
 bun run schema:config             # regenerate .ai-review.schema.json
 bun run telemetry:rollup --runs 20 --output telemetry-rollup.json   # aggregate run_metrics from recent CI artifacts (needs authed `gh`; targets the hardcoded .github/workflows/ai-review.yml)
-bun run telemetry:analyze --runs 20 --output telemetry-analyze.json  # segmented analysis (by tier/reviewer/decision/rates) from same events; prints human table + writes JSON
-bun run telemetry:quality --runs 20 --output telemetry-quality-report.json  # quality report (hypothesis queue): segments breaching thresholds; prints table + writes JSON
+bun run telemetry:analyze --runs 20 --output telemetry-analyze.json  # segmented analysis (by tier/reviewer/decision/rates) from same events; prints human table + writes JSON. Or read a local fleet dataset: --dataset .ai-review-fleet/telemetry.jsonl (mutually exclusive with --runs, #198)
+bun run telemetry:quality --runs 20 --output telemetry-quality-report.json  # quality report (hypothesis queue): segments breaching thresholds; prints table + writes JSON. Or read a local fleet dataset: --dataset <fleet.jsonl> (mutually exclusive with --runs, #198)
 bun run telemetry:ingest --input fleet.jsonl --dataset .ai-review-fleet/telemetry.jsonl  # own-fleet fan-in (#136): authenticate (AI_REVIEW_FLEET_INGEST_SECRET) + re-apply counts-only boundary ON RECEIVE, append accepted run_metrics to the fleet dataset telemetry:quality reads
 bun run boundaries     # architecture-boundary lint (dependency-cruiser; BLOCKING in CI's check job)
 bun run lint           # Biome lint+format check (BLOCKING in CI's check job since #96; not in `check`)

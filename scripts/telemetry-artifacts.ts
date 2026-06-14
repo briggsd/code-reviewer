@@ -6,7 +6,7 @@
 
 import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { JsonValue } from "../src/contracts/common.ts";
 import type { TelemetryEvent } from "../src/contracts/telemetry.ts";
@@ -26,6 +26,37 @@ export interface CollectedTelemetry {
   events: TelemetryEvent[];
   telemetryFileCount: number;
   artifactCount: number;
+}
+
+export interface TelemetrySource {
+  /** When set, read run_metrics from this local JSONL dataset instead of CI artifacts. */
+  datasetPath?: string;
+  /** Number of CI workflow runs to inspect when collecting from `gh` artifacts. */
+  runLimit: number;
+}
+
+export interface ResolvedTelemetry {
+  events: TelemetryEvent[];
+  /** Human-readable provenance for the analyzed-N summary line. */
+  sourceSummary: string;
+}
+
+/**
+ * Resolve telemetry events from either a local fleet-dataset JSONL (when `datasetPath` is
+ * set) or the `gh`-based CI artifact collector. Shared by telemetry:quality and
+ * telemetry:analyze so the two collectors cannot silently diverge (#198).
+ */
+export async function loadTelemetryEvents(source: TelemetrySource): Promise<ResolvedTelemetry> {
+  if (source.datasetPath !== undefined) {
+    const datasetPath = resolve(source.datasetPath);
+    const events = await readTelemetryEvents(datasetPath);
+    return { events, sourceSummary: `from local dataset ${datasetPath}` };
+  }
+  const collected = await collectTelemetryEvents(source.runLimit);
+  return {
+    events: collected.events,
+    sourceSummary: `from ${collected.telemetryFileCount} telemetry files across ${collected.artifactCount} artifacts`,
+  };
 }
 
 export async function collectTelemetryEvents(runLimit: number): Promise<CollectedTelemetry> {
@@ -94,6 +125,119 @@ export async function collectTelemetryEvents(runLimit: number): Promise<Collecte
   }
 
   return { events, telemetryFileCount, artifactCount };
+}
+
+/** Options parsed from the flags shared by telemetry:quality and telemetry:analyze. */
+export interface CommonTelemetryCliOptions {
+  runLimit: number;
+  datasetPath?: string;
+  outputPath: string;
+  thinReviewOutputTokenFloor?: number;
+}
+
+export interface ParseCommonArgsConfig {
+  defaultRunLimit: number;
+  defaultOutput: string;
+  /** Usage text printed (then exit 0) on --help/-h. */
+  usage: string;
+}
+
+export interface ParsedCommonArgs {
+  options: CommonTelemetryCliOptions;
+  /**
+   * Args (in order) the common parser did not recognize — each script parses its own
+   * extra flags from these, and errors on whatever remains genuinely unknown.
+   */
+  rest: string[];
+}
+
+/**
+ * Parse the CLI flags shared by both telemetry collectors (--runs/-n, --dataset/-d,
+ * --output/-o, --thin-floor/-t, --help/-h) and enforce the --dataset/--runs mutual
+ * exclusion. Shared so a future change to a common flag lands in one place rather than
+ * silently diverging across the two scripts (#198). Unrecognized args flow back via
+ * `rest` for the caller to interpret (telemetry:quality's threshold flags) or reject.
+ */
+export function parseCommonTelemetryArgs(
+  argv: readonly string[],
+  config: ParseCommonArgsConfig,
+): ParsedCommonArgs {
+  let runLimit = config.defaultRunLimit;
+  let runsSpecified = false;
+  let datasetPath: string | undefined;
+  let outputPath = config.defaultOutput;
+  let thinReviewOutputTokenFloor: number | undefined;
+  const rest: string[] = [];
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      continue;
+    }
+    if (arg === "--help" || arg === "-h") {
+      console.log(config.usage);
+      process.exit(0);
+    }
+    if (arg === "--runs" || arg === "-n") {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        throw new Error("--runs requires a numeric value");
+      }
+      index += 1;
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        throw new Error("--runs value must be a positive integer");
+      }
+      runLimit = parsed;
+      runsSpecified = true;
+      continue;
+    }
+    if (arg === "--dataset" || arg === "-d") {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        throw new Error("--dataset requires a path value");
+      }
+      index += 1;
+      datasetPath = value;
+      continue;
+    }
+    if (arg === "--output" || arg === "-o") {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        throw new Error("--output requires a path value");
+      }
+      index += 1;
+      outputPath = value;
+      continue;
+    }
+    if (arg === "--thin-floor" || arg === "-t") {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        throw new Error("--thin-floor requires a numeric value");
+      }
+      index += 1;
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        throw new Error("--thin-floor value must be a non-negative integer");
+      }
+      thinReviewOutputTokenFloor = parsed;
+      continue;
+    }
+    rest.push(arg);
+  }
+
+  if (datasetPath !== undefined && runsSpecified) {
+    throw new Error("--dataset and --runs are mutually exclusive");
+  }
+
+  const options: CommonTelemetryCliOptions = { runLimit, outputPath };
+  if (datasetPath !== undefined) {
+    options.datasetPath = datasetPath;
+  }
+  if (thinReviewOutputTokenFloor !== undefined) {
+    options.thinReviewOutputTokenFloor = thinReviewOutputTokenFloor;
+  }
+  return { options, rest };
 }
 
 export async function listWorkflowRuns(limit: number): Promise<WorkflowRunSummary[]> {
