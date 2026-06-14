@@ -34,6 +34,8 @@ const events: TelemetryEvent[] = [
         agentCount: 4,
         inputTokens: 3000,
         outputTokens: 1200,
+        cacheReadTokens: 6000,
+        cacheWriteTokens: 1000,
         estimatedCostUsd: 0.6,
       },
       grounding: { droppedFindingCount: 1 },
@@ -62,6 +64,8 @@ const events: TelemetryEvent[] = [
         agentCount: 2,
         inputTokens: 800,
         outputTokens: 100,
+        cacheReadTokens: 200,
+        cacheWriteTokens: 0,
         estimatedCostUsd: 0.2,
       },
     },
@@ -962,5 +966,109 @@ describe("analyzeRunMetrics cacheWriteTokensPerRun (#100b)", () => {
     ];
     const analysis = analyzeRunMetrics(noTokensStream);
     expect(analysis.byTier.trivial?.cacheWriteTokensPerRun).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #141 cache-hit-rate telemetry (M018 S04)
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics cacheHitRate (#141)", () => {
+  // Uses the top-level `events` fixture (run-1 full, run-2 lite, run-3 trivial).
+  //
+  // run-1 (full):   input=3000, cacheRead=6000, cacheWrite=1000
+  //   → denom = 3000 + 6000 + 1000 = 10000
+  //   → cacheHitRate = 6000 / 10000 = 0.6
+  //
+  // run-2 (lite):   input=800, cacheRead=200, cacheWrite=0
+  //   → denom = 800 + 200 + 0 = 1000
+  //   → cacheHitRate = 200 / 1000 = 0.2
+  //
+  // run-3 (trivial): input=200, cacheRead=0, cacheWrite=0
+  //   → denom = 200 + 0 + 0 = 200
+  //   → cacheHitRate = 0 / 200 = 0  (NOT null — denom is non-zero)
+  //
+  // Overall (fleet-wide):
+  //   totalInput = 3000 + 800 + 200 = 4000
+  //   totalCacheRead = 6000 + 200 + 0 = 6200
+  //   totalCacheWrite = 1000 + 0 + 0 = 1000
+  //   denom = 4000 + 6200 + 1000 = 11200
+  //   overallCacheHitRate = 6200 / 11200 ≈ 0.553571
+
+  test("byTier.full cacheReadTokensPerRun is 6000", () => {
+    const analysis = analyzeRunMetrics(events);
+    // run-1 (full) has cacheReadTokens=6000; only 1 run in full tier → 6000/1 = 6000
+    expect(analysis.byTier.full?.cacheReadTokensPerRun).toBe(6000);
+  });
+
+  test("byTier.full cacheHitRate is 0.6 (6000/10000)", () => {
+    const analysis = analyzeRunMetrics(events);
+    // 6000 / (3000 + 6000 + 1000) = 6000/10000 = 0.6
+    expect(analysis.byTier.full?.cacheHitRate).toBeCloseTo(0.6, 5);
+  });
+
+  test("byTier.lite cacheReadTokensPerRun is 200", () => {
+    const analysis = analyzeRunMetrics(events);
+    // run-2 (lite) has cacheReadTokens=200; only 1 run → 200/1 = 200
+    expect(analysis.byTier.lite?.cacheReadTokensPerRun).toBe(200);
+  });
+
+  test("byTier.lite cacheHitRate is 0.2 (200/1000)", () => {
+    const analysis = analyzeRunMetrics(events);
+    // 200 / (800 + 200 + 0) = 200/1000 = 0.2
+    expect(analysis.byTier.lite?.cacheHitRate).toBeCloseTo(0.2, 5);
+  });
+
+  test("byTier.trivial cacheHitRate is 0 (not null — denom is non-zero from inputTokens)", () => {
+    const analysis = analyzeRunMetrics(events);
+    // input=200, cacheRead=0, cacheWrite=0 → denom=200, ratio=0/200=0
+    expect(analysis.byTier.trivial?.cacheHitRate).toBe(0);
+  });
+
+  test("overall cacheHitRate is pooled across all tiers ≈ 6200/11200", () => {
+    const analysis = analyzeRunMetrics(events);
+    // totalInput=4000, totalCacheRead=6200, totalCacheWrite=1000 → denom=11200
+    expect(analysis.cacheHitRate).toBeCloseTo(6200 / 11200, 5);
+  });
+
+  test("cacheHitRate is null when denominator is 0 (no token data at all)", () => {
+    // Events with no tokens block → all token counts stay 0, denom=0 → cacheHitRate null
+    const noTokensEvents: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-14T00:00:00.000Z",
+        runId: "no-tokens-a",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 1000,
+          findingCount: 0,
+          findingsByReviewer: {},
+          // no tokens block
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(noTokensEvents);
+    expect(analysis.byTier.full?.cacheHitRate).toBeNull();
+    expect(analysis.cacheHitRate).toBeNull();
+  });
+
+  test("overall cacheHitRate is null when runCount is 0", () => {
+    const analysis = analyzeRunMetrics([]);
+    expect(analysis.cacheHitRate).toBeNull();
+  });
+
+  test("formatRunMetricsAnalysis contains CacheHit column header", () => {
+    const analysis = analyzeRunMetrics(events);
+    const output = formatRunMetricsAnalysis(analysis);
+    expect(output).toContain("CacheHit");
+  });
+
+  test("formatRunMetricsAnalysis contains Overall cache-hit rate", () => {
+    const analysis = analyzeRunMetrics(events);
+    const output = formatRunMetricsAnalysis(analysis);
+    expect(output).toContain("Overall cache-hit rate:");
   });
 });

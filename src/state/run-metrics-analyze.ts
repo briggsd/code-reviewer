@@ -39,6 +39,9 @@ export interface TierSegment {
   outputTokensPerRun: number;
   inputTokensPerRun: number;
   cacheWriteTokensPerRun: number;
+  cacheReadTokensPerRun: number;
+  /** Fraction of total input tokens served from cache: cacheRead / (input + cacheRead + cacheWrite). null when denominator is 0 (no token data). */
+  cacheHitRate: number | null;
   durationMsPerRun: number;
   costPerRunUsd: number;
   /** null when there are 0 findings across all runs in this tier */
@@ -85,6 +88,8 @@ export interface RunMetricsAnalysis {
   runCount: number;
   /** Per risk-tier aggregates (keys are tier names, e.g. "trivial", "lite", "full"). */
   byTier: Record<string, TierSegment>;
+  /** Pooled cache-hit rate across ALL real runs (the headline number). null when no token data. */
+  cacheHitRate: number | null;
   /** Total finding count per reviewer across all runs. */
   byReviewer: Record<string, number>;
   /** Each reviewer's fraction of total findings (0 when no findings). */
@@ -121,6 +126,7 @@ interface TierAccumulator {
   totalOutputTokens: number;
   totalInputTokens: number;
   totalCacheWriteTokens: number;
+  totalCacheReadTokens: number;
   totalDurationMs: number;
   totalCostUsd: number;
   thinReviewRunCount: number;
@@ -224,16 +230,19 @@ export function analyzeRunMetrics(
     let outputTokens = 0;
     let inputTokens = 0;
     let cacheWriteTokens = 0;
+    let cacheReadTokens = 0;
     let costUsd = 0;
     if (tokens !== undefined && isPlainObject(tokens)) {
       outputTokens = asNumber(tokens.outputTokens);
       inputTokens = asNumber(tokens.inputTokens);
       cacheWriteTokens = asNumber(tokens.cacheWriteTokens);
+      cacheReadTokens = asNumber(tokens.cacheReadTokens);
       costUsd = asNumber(tokens.estimatedCostUsd);
     }
     tierAcc.totalOutputTokens += outputTokens;
     tierAcc.totalInputTokens += inputTokens;
     tierAcc.totalCacheWriteTokens += cacheWriteTokens;
+    tierAcc.totalCacheReadTokens += cacheReadTokens;
     tierAcc.totalCostUsd += costUsd;
 
     // Duration
@@ -305,12 +314,16 @@ export function analyzeRunMetrics(
       continue;
     }
     const tierRunCount = acc.runCount;
+    const tierCacheHitDenom =
+      acc.totalInputTokens + acc.totalCacheReadTokens + acc.totalCacheWriteTokens;
     byTier[key] = {
       runCount: tierRunCount,
       findingsPerRun: tierRunCount === 0 ? 0 : acc.totalFindings / tierRunCount,
       outputTokensPerRun: tierRunCount === 0 ? 0 : acc.totalOutputTokens / tierRunCount,
       inputTokensPerRun: tierRunCount === 0 ? 0 : acc.totalInputTokens / tierRunCount,
       cacheWriteTokensPerRun: tierRunCount === 0 ? 0 : acc.totalCacheWriteTokens / tierRunCount,
+      cacheReadTokensPerRun: tierRunCount === 0 ? 0 : acc.totalCacheReadTokens / tierRunCount,
+      cacheHitRate: tierCacheHitDenom === 0 ? null : acc.totalCacheReadTokens / tierCacheHitDenom,
       durationMsPerRun: tierRunCount === 0 ? 0 : acc.totalDurationMs / tierRunCount,
       costPerRunUsd: tierRunCount === 0 ? 0 : acc.totalCostUsd / tierRunCount,
       costPerFindingUsd: acc.totalFindings === 0 ? null : acc.totalCostUsd / acc.totalFindings,
@@ -342,12 +355,27 @@ export function analyzeRunMetrics(
   // Non-trivial run count for thin-review rate denominator
   const nonTrivialRunCount = runCount - (tierAccumulators.get("trivial")?.runCount ?? 0);
 
+  // Overall (fleet-wide) cache-hit rate: pool totals across all tiers
+  let fleetTotalInputTokens = 0;
+  let fleetTotalCacheReadTokens = 0;
+  let fleetTotalCacheWriteTokens = 0;
+  for (const acc of tierAccumulators.values()) {
+    fleetTotalInputTokens += acc.totalInputTokens;
+    fleetTotalCacheReadTokens += acc.totalCacheReadTokens;
+    fleetTotalCacheWriteTokens += acc.totalCacheWriteTokens;
+  }
+  const fleetCacheHitDenom =
+    fleetTotalInputTokens + fleetTotalCacheReadTokens + fleetTotalCacheWriteTokens;
+  const overallCacheHitRate =
+    fleetCacheHitDenom === 0 ? null : fleetTotalCacheReadTokens / fleetCacheHitDenom;
+
   // S06: run_event analysis — filter to run_event events, match to real runs
   const runEventAnalysis = buildRunEventsAnalysis(events, realRunIds);
 
   return {
     runCount,
     byTier,
+    cacheHitRate: overallCacheHitRate,
     byReviewer,
     reviewerShare,
     decisionCounts: decisionCountsRecord,
@@ -541,6 +569,7 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
         padLeft("Findings/run", 14) +
         padLeft("Out tok/run", 13) +
         padLeft("In tok/run", 12) +
+        padLeft("CacheHit", 9) +
         padLeft("Dur ms/run", 12) +
         padLeft("Cost/run", 10) +
         padLeft("Cost/finding", 14) +
@@ -558,6 +587,10 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
           padLeft(seg.findingsPerRun.toFixed(2), 14) +
           padLeft(seg.outputTokensPerRun.toFixed(0), 13) +
           padLeft(seg.inputTokensPerRun.toFixed(0), 12) +
+          padLeft(
+            seg.cacheHitRate === null ? "n/a" : `${(seg.cacheHitRate * 100).toFixed(1)}%`,
+            9,
+          ) +
           padLeft(seg.durationMsPerRun.toFixed(0), 12) +
           padLeft(`$${seg.costPerRunUsd.toFixed(4)}`, 10) +
           padLeft(
@@ -570,6 +603,9 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
     }
   }
 
+  lines.push(
+    `Overall cache-hit rate: ${analysis.cacheHitRate === null ? "n/a" : `${(analysis.cacheHitRate * 100).toFixed(1)}%`}`,
+  );
   lines.push("");
 
   // Reviewer share
@@ -743,6 +779,7 @@ function getOrCreateTierAccumulator(
       totalOutputTokens: 0,
       totalInputTokens: 0,
       totalCacheWriteTokens: 0,
+      totalCacheReadTokens: 0,
       totalDurationMs: 0,
       totalCostUsd: 0,
       thinReviewRunCount: 0,

@@ -81,6 +81,10 @@ export function createReviewerPromptMetrics(
     contextMode === "path_references" ? referenceContextPayload : inlineContextPayload,
   );
   const inlineDiffBytes = byteLength(inlineContextPayload);
+  // NOTE: this is a context-SHARING savings heuristic (bytes/4), NOT a provider cost figure.
+  // It estimates input-tokens avoided by passing context as path-references instead of inline.
+  // Real provider token/cost/cache telemetry now flows separately via agents[].usage into the
+  // run_metrics tokens block (see src/state/run-metrics-analyze.ts cacheHitRate / cost-per-tier).
   const estimatedInputTokensSaved =
     contextMode === "path_references"
       ? Math.max(0, Math.round((inlineDiffBytes - contextPayloadBytes) / 4))

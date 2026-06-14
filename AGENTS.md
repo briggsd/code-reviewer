@@ -172,7 +172,11 @@ Details + diagram: **docs/architecture.md**.
   are exempt) and blocks via the Biome CI step.
 - `validateFinding` currently accepts any `reviewer` string; model self-mislabeling is a
   known backlog item, not a guarantee.
-- Context/token-savings metrics use a `bytes/4` approximation pending real provider telemetry.
+- Real provider token/cost/cache telemetry (input/output/cacheRead/cacheWrite/cost) flows from
+  `agents[].usage` into the `run_metrics` `tokens` block; `telemetry:analyze` segments real
+  cost-per-tier and cache-hit rate. The `bytes/4` approximation now applies ONLY to the
+  context-sharing savings heuristic (`estimatedInputTokensSaved`, reviewer-prompt.ts), which
+  has no provider equivalent.
 - Config is JSON-first: `.ai-review.json` / `ai-review.json` / `--config`. Regenerate the
   published schema with `bun run schema:config`.
 - **CI bun is pinned to `1.3.0`** (`.github/workflows/*.yml`); your local bun is usually newer.
