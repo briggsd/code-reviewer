@@ -402,6 +402,78 @@ describe("fixture local runner", () => {
     expect(result.context.contextArtifacts?.totalBytes).toBeGreaterThan(0);
   });
 
+  test("prunes deletion-only hunks and fully-deleted file bodies (#144)", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ai-review-prune-"));
+    const contextDirectory = join(directory, "context");
+    const fixture = normalizeReviewFixture({
+      workingDirectory: directory,
+      contextDirectory,
+      metadata: {
+        provider: "local",
+        repository: { provider: "local", name: "demo", slug: "demo" },
+        changeId: "local",
+        headSha: "abc123",
+        title: "Prune test",
+        author: { username: "dev" },
+        labels: [],
+      },
+      diff: {
+        files: [
+          // Case 1: status "deleted" WITH a patch body — body must be suppressed.
+          {
+            path: "src/old.ts",
+            status: "deleted",
+            additions: 0,
+            deletions: 5,
+            isBinary: false,
+            patch: "@@ -1,5 +0,0 @@\n-line1\n-line2\n-line3\n-line4\n-line5",
+          },
+          // Case 2: modified file whose patch is deletion-only — no patchPath written.
+          {
+            path: "src/shrink.ts",
+            status: "modified",
+            additions: 0,
+            deletions: 2,
+            isBinary: false,
+            patch: "@@ -1,2 +0,0 @@\n-removed1\n-removed2",
+          },
+          // Case 3: modified file with a mixed hunk — patchPath written, patch unchanged.
+          {
+            path: "src/change.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 1,
+            isBinary: false,
+            patch: "@@ -1 +1 @@\n-old\n+new",
+          },
+        ],
+        totalAdditions: 1,
+        totalDeletions: 8,
+        truncated: false,
+      },
+    });
+
+    const result = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    // Case 1: deleted file — no patchPath regardless of patch body presence.
+    expect(result.context.diff.files[0]?.patchPath).toBeUndefined();
+
+    // Case 2: deletion-only hunk — no patchPath.
+    expect(result.context.diff.files[1]?.patchPath).toBeUndefined();
+
+    // Case 3: mixed hunk — patchPath present, content unchanged.
+    const mixedPatchPath = result.context.diff.files[2]?.patchPath;
+    expect(mixedPatchPath).toBeDefined();
+    expect(await readFile(mixedPatchPath!, "utf8")).toBe("@@ -1 +1 @@\n-old\n+new");
+
+    // Counts surfaced in contextArtifacts.
+    expect(result.context.contextArtifacts?.deletedFileBodiesPruned).toBe(1);
+    expect(result.context.contextArtifacts?.deletionHunksPruned).toBe(1);
+
+    // Only the mixed-hunk file contributes a patch file.
+    expect(result.context.contextArtifacts?.patchFileCount).toBe(1);
+  });
+
   test("approves a tiny fixture with no fake findings", async () => {
     const fixture = normalizeReviewFixture({
       metadata: {

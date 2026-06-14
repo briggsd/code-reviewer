@@ -131,6 +131,10 @@ export interface ReviewContextArtifacts {
   changeContextBytes: number;
   patchBytes: number;
   totalBytes: number;
+  /** Number of deletion-only hunks pruned across all modified files (#144). */
+  deletionHunksPruned: number;
+  /** Number of fully-deleted file patch bodies suppressed (#144). */
+  deletedFileBodiesPruned: number;
 }
 
 export interface ReviewContext {

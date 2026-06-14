@@ -231,6 +231,8 @@ async function buildReviewContext(input: {
         changeContextBytes: context.contextArtifacts.changeContextBytes,
         patchBytes: context.contextArtifacts.patchBytes,
         totalBytes: context.contextArtifacts.totalBytes,
+        deletionHunksPruned: context.contextArtifacts.deletionHunksPruned,
+        deletedFileBodiesPruned: context.contextArtifacts.deletedFileBodiesPruned,
       },
       durationMs: contextBuildMs,
     },

@@ -7,6 +7,7 @@ import type {
   ReviewContext,
   ReviewContextArtifacts,
 } from "../contracts/index.ts";
+import { pruneDeletionOnlyHunks } from "./prune-deletion-hunks.ts";
 
 const CONTEXT_SCHEMA_VERSION = "ai-review.context.v1";
 const CHANGE_CONTEXT_FILENAME = "change-context.json";
@@ -33,15 +34,40 @@ export async function writeReviewContextArtifacts(
   const patchWrites: Promise<void>[] = [];
   let patchBytes = 0;
   let patchFileCount = 0;
+  let deletionHunksPruned = 0;
+  let deletedFileBodiesPruned = 0;
 
   for (const [index, file] of input.context.diff.files.entries()) {
+    // Fully-deleted files: emit name + stat only — never write a patch body (#144,
+    // port of PR-Agent `handle_patch_deletions`). Strip patchPath to satisfy
+    // exactOptionalPropertyTypes (setting it to undefined is not assignable).
+    if (file.status === "deleted") {
+      const { patchPath: _omit, ...fileWithoutPatchPath } = file;
+      files.push(fileWithoutPatchPath);
+      if (file.patch !== undefined && file.patch.length > 0) {
+        deletedFileBodiesPruned += 1;
+      }
+      continue;
+    }
+
     if (file.patch === undefined || file.patch.length === 0) {
       files.push(file);
       continue;
     }
 
+    // Prune deletion-only hunks (#144, port of PR-Agent `omit_deletion_hunks`).
+    const pruned = pruneDeletionOnlyHunks(file.patch);
+    deletionHunksPruned += pruned.droppedHunks;
+
+    if (pruned.patch === undefined) {
+      // All hunks were deletion-only — write file name-only (no patchPath).
+      const { patchPath: _omit, ...fileWithoutPatchPath } = file;
+      files.push(fileWithoutPatchPath);
+      continue;
+    }
+
+    const patch = pruned.patch;
     const patchPath = join(patchDirectoryPath, createPatchArtifactFilename(index, file));
-    const patch = file.patch;
     patchWrites.push(writeFile(resolveContextPath(input.context, patchPath), patch, "utf8"));
     patchBytes += Buffer.byteLength(patch, "utf8");
     patchFileCount += 1;
@@ -81,6 +107,8 @@ export async function writeReviewContextArtifacts(
       changeContextBytes,
       patchBytes,
       totalBytes: changeContextBytes + patchBytes,
+      deletionHunksPruned,
+      deletedFileBodiesPruned,
     },
   };
 }
