@@ -90,6 +90,12 @@ export interface RunReviewOptions {
    * never reaches this — it is explicit operator load only.
    */
   reviewerDefinitions?: readonly ReviewerDefinition[];
+  /**
+   * Providers the trusted operator has disabled for this run (#138 — operator provider-disable
+   * seam). Sourced from the AI_REVIEW_DISABLED_PROVIDERS env var in cli.ts and threaded through
+   * to ReviewContext. Reviewed-repo content never reaches this — operator env only.
+   */
+  disabledProviders?: readonly string[];
 }
 
 export interface RunReviewResult {
@@ -152,6 +158,9 @@ export async function runReviewFromChange(
     ...(options.reviewerDefinitions !== undefined
       ? { reviewerDefinitions: options.reviewerDefinitions }
       : {}),
+    ...(options.disabledProviders !== undefined
+      ? { disabledProviders: options.disabledProviders }
+      : {}),
   });
 }
 
@@ -207,6 +216,9 @@ async function buildReviewContext(input: {
     ...(fixture.priorState !== undefined ? { priorState: fixture.priorState } : {}),
     ...(options.reviewerDefinitions !== undefined
       ? { reviewerDefinitions: options.reviewerDefinitions }
+      : {}),
+    ...(options.disabledProviders !== undefined
+      ? { disabledProviders: options.disabledProviders }
       : {}),
   };
 
@@ -1152,14 +1164,57 @@ function createReviewerContextReferences(
 
 export function selectModel(context: ReviewContext, role: string): ModelSelection {
   const routing = context.config.modelRouting;
-  const selected = routing.roles[role] ?? routing.default;
+  const tier = context.risk.tier;
+  // Case-insensitive disable test: provider names are matched loosely so an operator setting
+  // AI_REVIEW_DISABLED_PROVIDERS=OpenAI still disables a config provider "openai" — a silent
+  // no-op on this emergency lever is the worst failure mode (#138 review).
+  const disabled = context.disabledProviders ?? [];
+  const isDisabled = (provider: string): boolean =>
+    disabled.some((p) => p.toLowerCase() === provider.toLowerCase());
+  const tierRouting = routing.byTier?.[tier];
+
+  // Precedence, most specific first: per-tier role → per-tier default → role → default (#138).
+  // tierCandidates are tracked separately so thinking-inheritance can tell whether the SELECTED
+  // candidate is itself tier-scoped. Undefined entries are skipped; routing.default is always
+  // present so the combined list is non-empty.
+  const tierCandidates = [tierRouting?.roles?.[role], tierRouting?.default].filter(
+    (c): c is ModelSelection => c !== undefined,
+  );
+  const topCandidates = [routing.roles[role], routing.default].filter(
+    (c): c is ModelSelection => c !== undefined,
+  );
+  const candidates = [...tierCandidates, ...topCandidates];
+
+  // Operator provider-disable (#138): skip candidates whose provider was disabled via the trusted
+  // AI_REVIEW_DISABLED_PROVIDERS env (never reviewed-repo config); fall through to the next
+  // configured candidate. #137 (S04) layers real cross-provider failback + circuit-breaker here.
+  // Track the index (not the object) so tier-vs-top classification below is by position, never by
+  // reference identity — robust even if the same ModelSelection object is aliased across slots.
+  const selectedIndex = candidates.findIndex((c) => !isDisabled(c.provider));
+  const selected = candidates[selectedIndex];
+  if (selected === undefined) {
+    throw new Error(
+      `selectModel: no model for role "${role}" at tier "${tier}" — every configured candidate ` +
+        `uses an operator-disabled provider (${disabled
+          .map((p) => p.toLowerCase())
+          .sort()
+          .join(", ")})`,
+    );
+  }
+
   // `thinking` is a task-level reasoning bound, not part of model identity. We resolve its
   // inheritance here, in the runtime-agnostic orchestration layer, so the convergence guard
-  // (#45) applies consistently for every agent runtime (pi, opencode, ...) — each adapter
-  // just translates the already-resolved value. A role override that omits `thinking` inherits
-  // modelRouting.default.thinking; model identity (provider/model/tier) stays object-level.
-  if (selected.thinking === undefined && routing.default.thinking !== undefined) {
-    return { ...selected, thinking: routing.default.thinking };
+  // (#45) applies consistently for every agent runtime (pi, opencode, ...) — each adapter just
+  // translates the already-resolved value. A candidate that omits `thinking` inherits the tier
+  // default's `thinking` ONLY when the SELECTED candidate is itself tier-scoped — otherwise (e.g.
+  // provider-disable fell through to a top-level role) it inherits the top-level default, so a
+  // skipped tier default's bound never bleeds onto a top-level fallback (#138). Model identity
+  // (provider/model/tier) stays object-level.
+  const selectedIsTierScoped = selectedIndex < tierCandidates.length;
+  const inheritedThinking =
+    (selectedIsTierScoped ? tierRouting?.default?.thinking : undefined) ?? routing.default.thinking;
+  if (selected.thinking === undefined && inheritedThinking !== undefined) {
+    return { ...selected, thinking: inheritedThinking };
   }
   return selected;
 }

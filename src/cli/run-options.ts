@@ -36,3 +36,28 @@ export function parseReviewersOption(args: string[]): string | undefined {
 function hasFlag(args: string[], name: string): boolean {
   return args.includes(name);
 }
+
+/**
+ * Parse the AI_REVIEW_DISABLED_PROVIDERS env var (#138 — operator provider-disable seam).
+ * Splits on comma, trims whitespace, lowercases, drops empty entries, dedupes. Returns undefined
+ * when the result is empty so the option is omitted (not set to an empty array) in RunReviewOptions.
+ * Lowercasing makes the disable lever case-insensitive (selectModel also compares case-insensitively):
+ * `AI_REVIEW_DISABLED_PROVIDERS=OpenAI` must still disable a config provider `"openai"` — a silent
+ * no-op on this emergency lever is the worst failure mode. Only called from the trusted env path
+ * (never from reviewed-repo config).
+ */
+export function parseDisabledProviders(raw: string | undefined): readonly string[] | undefined {
+  if (raw === undefined || raw.trim().length === 0) {
+    return undefined;
+  }
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const part of raw.split(",")) {
+    const trimmed = part.trim().toLowerCase();
+    if (trimmed.length > 0 && !seen.has(trimmed)) {
+      seen.add(trimmed);
+      result.push(trimmed);
+    }
+  }
+  return result.length > 0 ? result : undefined;
+}

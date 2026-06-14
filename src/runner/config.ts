@@ -1,6 +1,12 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Acknowledgement, ModelRoutingConfig, ReviewConfig } from "../contracts/index.ts";
+import type { RiskTier } from "../contracts/common.ts";
+import type {
+  Acknowledgement,
+  ModelRoutingConfig,
+  ModelTierRouting,
+  ReviewConfig,
+} from "../contracts/index.ts";
 import { createDefaultReviewConfig } from "./default-config.ts";
 
 const DEFAULT_CONFIG_FILENAMES = [".ai-review.json", "ai-review.json"];
@@ -96,7 +102,7 @@ function mergeModelRouting(base: ModelRoutingConfig, override: unknown): ModelRo
     return base;
   }
 
-  return {
+  const merged: ModelRoutingConfig = {
     default: isRecord(override.default)
       ? { ...base.default, ...(override.default as unknown as ModelRoutingConfig["default"]) }
       : base.default,
@@ -104,6 +110,16 @@ function mergeModelRouting(base: ModelRoutingConfig, override: unknown): ModelRo
       ? { ...base.roles, ...(override.roles as ModelRoutingConfig["roles"]) }
       : base.roles,
   };
+
+  // byTier: override-present-wins (wholesale replacement; base/default-config has no byTier,
+  // so carry forward base's byTier only when override doesn't supply one). (#138)
+  if (isRecord(override.byTier)) {
+    merged.byTier = override.byTier as Partial<Record<RiskTier, ModelTierRouting>>;
+  } else if (base.byTier !== undefined) {
+    merged.byTier = base.byTier;
+  }
+
+  return merged;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -127,6 +127,7 @@ jobs:
           GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
           AI_REVIEW_PI_PROVIDER: ${{ vars.AI_REVIEW_PI_PROVIDER }}
           AI_REVIEW_PI_MODEL: ${{ vars.AI_REVIEW_PI_MODEL }}
+          AI_REVIEW_DISABLED_PROVIDERS: ${{ vars.AI_REVIEW_DISABLED_PROVIDERS }}
           AI_REVIEW_EXPOSE_TRACE_PROMPTS: ${{ vars.AI_REVIEW_EXPOSE_TRACE_PROMPTS }}
           # Optional remote telemetry mirror (#51/#174). Default-off: unset ⇒ empty ⇒ no remote
           # leg. Wired only on this real (runtime: pi) job so dummy dry-run events never pollute

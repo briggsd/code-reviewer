@@ -74,6 +74,45 @@ export const reviewConfigSchema = {
           type: "object",
           additionalProperties: modelSelectionSchema,
         },
+        byTier: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            trivial: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                default: modelSelectionSchema,
+                roles: {
+                  type: "object",
+                  additionalProperties: modelSelectionSchema,
+                },
+              },
+            },
+            lite: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                default: modelSelectionSchema,
+                roles: {
+                  type: "object",
+                  additionalProperties: modelSelectionSchema,
+                },
+              },
+            },
+            full: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                default: modelSelectionSchema,
+                roles: {
+                  type: "object",
+                  additionalProperties: modelSelectionSchema,
+                },
+              },
+            },
+          },
+        },
       },
     },
     conventions: {

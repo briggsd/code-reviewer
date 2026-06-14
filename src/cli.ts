@@ -3,7 +3,11 @@
 import { join } from "node:path";
 import { finalizeCiExit } from "./cli/ci-exit.ts";
 import { ReviewProgressReporter } from "./cli/review-progress-reporter.ts";
-import { parseReviewersOption, parseRunPublishOptions } from "./cli/run-options.ts";
+import {
+  parseDisabledProviders,
+  parseReviewersOption,
+  parseRunPublishOptions,
+} from "./cli/run-options.ts";
 import { resolveRemoteEndpoint } from "./cli/telemetry-auth.ts";
 import type {
   BreakGlassOverride,
@@ -180,6 +184,12 @@ async function runCommand(args: string[]): Promise<void> {
   const reviewersPath = parseReviewersOption(args);
   const reviewerDefinitions =
     reviewersPath === undefined ? undefined : await loadMergedReviewerDefinitions(reviewersPath);
+
+  // Operator provider-disable seam (#138): a trusted operator can disable a misbehaving provider
+  // by setting AI_REVIEW_DISABLED_PROVIDERS (comma-separated provider names) as a GitHub Actions
+  // repository variable. selectModel skips disabled candidates and falls through to the next.
+  // Reviewed-repo content never reaches this — env/option only (mirrors reviewerDefinitions seam).
+  const disabledProviders = parseDisabledProviders(process.env.AI_REVIEW_DISABLED_PROVIDERS);
   if (runtimeName !== undefined && runtimeName !== "dummy" && runtimeName !== "pi") {
     throw new Error(`unsupported runtime: ${runtimeName}`);
   }
@@ -285,6 +295,7 @@ async function runCommand(args: string[]): Promise<void> {
             ...(runtime !== undefined ? { runtime } : {}),
             ...(jobKind !== undefined ? { jobKind } : {}),
             ...(reviewerDefinitions !== undefined ? { reviewerDefinitions } : {}),
+            ...(disabledProviders !== undefined ? { disabledProviders } : {}),
           })
         : await runReviewFromChange({
             runId,
@@ -305,6 +316,7 @@ async function runCommand(args: string[]): Promise<void> {
               : {}),
             ...(source.incremental !== undefined ? { incremental: source.incremental } : {}),
             ...(reviewerDefinitions !== undefined ? { reviewerDefinitions } : {}),
+            ...(disabledProviders !== undefined ? { disabledProviders } : {}),
           });
 
     if (publishOptions.publishInline) {

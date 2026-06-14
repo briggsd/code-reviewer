@@ -163,6 +163,291 @@
               "model"
             ]
           }
+        },
+        "byTier": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "trivial": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "default": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "provider": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "tier": {
+                      "type": "string",
+                      "enum": [
+                        "top",
+                        "standard",
+                        "light"
+                      ]
+                    },
+                    "temperature": {
+                      "type": "number"
+                    },
+                    "maxOutputTokens": {
+                      "type": "number",
+                      "minimum": 1
+                    },
+                    "thinking": {
+                      "type": "string",
+                      "enum": [
+                        "off",
+                        "minimal",
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "model"
+                  ]
+                },
+                "roles": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "provider": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "tier": {
+                        "type": "string",
+                        "enum": [
+                          "top",
+                          "standard",
+                          "light"
+                        ]
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "maxOutputTokens": {
+                        "type": "number",
+                        "minimum": 1
+                      },
+                      "thinking": {
+                        "type": "string",
+                        "enum": [
+                          "off",
+                          "minimal",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "model"
+                    ]
+                  }
+                }
+              }
+            },
+            "lite": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "default": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "provider": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "tier": {
+                      "type": "string",
+                      "enum": [
+                        "top",
+                        "standard",
+                        "light"
+                      ]
+                    },
+                    "temperature": {
+                      "type": "number"
+                    },
+                    "maxOutputTokens": {
+                      "type": "number",
+                      "minimum": 1
+                    },
+                    "thinking": {
+                      "type": "string",
+                      "enum": [
+                        "off",
+                        "minimal",
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "model"
+                  ]
+                },
+                "roles": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "provider": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "tier": {
+                        "type": "string",
+                        "enum": [
+                          "top",
+                          "standard",
+                          "light"
+                        ]
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "maxOutputTokens": {
+                        "type": "number",
+                        "minimum": 1
+                      },
+                      "thinking": {
+                        "type": "string",
+                        "enum": [
+                          "off",
+                          "minimal",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "model"
+                    ]
+                  }
+                }
+              }
+            },
+            "full": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "default": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "provider": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "tier": {
+                      "type": "string",
+                      "enum": [
+                        "top",
+                        "standard",
+                        "light"
+                      ]
+                    },
+                    "temperature": {
+                      "type": "number"
+                    },
+                    "maxOutputTokens": {
+                      "type": "number",
+                      "minimum": 1
+                    },
+                    "thinking": {
+                      "type": "string",
+                      "enum": [
+                        "off",
+                        "minimal",
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "model"
+                  ]
+                },
+                "roles": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "provider": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "tier": {
+                        "type": "string",
+                        "enum": [
+                          "top",
+                          "standard",
+                          "light"
+                        ]
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "maxOutputTokens": {
+                        "type": "number",
+                        "minimum": 1
+                      },
+                      "thinking": {
+                        "type": "string",
+                        "enum": [
+                          "off",
+                          "minimal",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "model"
+                    ]
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

@@ -88,9 +88,18 @@ export interface RiskAssessment {
   ignoredFileCount: number;
 }
 
+/** Per-tier routing override for a single risk tier (#138). */
+export interface ModelTierRouting {
+  default?: ModelSelection;
+  roles?: Record<string, ModelSelection>;
+}
+
 export interface ModelRoutingConfig {
   default: ModelSelection;
   roles: Record<string, ModelSelection>;
+  /** Per-risk-tier overrides (#138). Looked up before role/default in selectModel; a tier omitted
+   *  here inherits the top-level roles/default. Same trust level as `roles` (config-sourced). */
+  byTier?: Partial<Record<RiskTier, ModelTierRouting>>;
 }
 
 export interface Acknowledgement {
@@ -157,6 +166,12 @@ export interface ReviewContext {
    * gates which of these roles run at the current tier.
    */
   reviewerDefinitions?: readonly ReviewerDefinition[];
+  /**
+   * Providers the trusted operator has disabled for this run (#138) — sourced from the
+   * AI_REVIEW_DISABLED_PROVIDERS env var via RunReviewOptions, NEVER from reviewed-repo
+   * `.ai-review.json`. selectModel skips candidate models whose provider is in this set.
+   */
+  disabledProviders?: readonly string[];
 }
 
 export interface FindingLocation {
