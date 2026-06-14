@@ -83,6 +83,73 @@ Render in `buildReviewerPrompt` / `buildCoordinatorPrompt`. **Anything from the 
 trusted instruction lines. Reviewer-definitions (`reviewer-definitions.ts`) are the only
 trusted prompt source.
 
+## Adopter recipe: author a custom reviewer & load it **without forking** (M017)
+
+This is the operator-extension seam (S03 #143). An adopter — acting as the **trusted operator
+in their own CI** — registers extra reviewer definitions by an explicit `--reviewers <path>`
+they control. The factory core is never forked; on upgrade you keep the factory's built-in
+reviewers and your custom ones merge on top. The reviewed repo can never inject a reviewer:
+the path is operator-supplied and resolved in the trusted CI, never discovered from the
+reviewed repo (same lockout shape as the Pi `--extension`; see `docs/fork-safety.md` →
+"Operator reviewer extensions" and `docs/operator-extension-seam.md` for the full design).
+
+**1. Author the module** against the public API. The package root export
+(`ai-code-review-factory`, mapped to `src/public.ts`) exposes `defineReviewer`
+(alias `createReviewerDefinition`) and the `DefineReviewerInput` / `ReviewerDefinition` /
+`Severity` types. `defineReviewer` validates the input and injects the trusted shared
+anti-prompt-injection rules and `source: "trusted_operator"` for you — you supply only the
+judgment-shaping fields:
+
+```ts
+// my-reviewers.ts
+import { defineReviewer } from "ai-code-review-factory";
+
+export default [   // or: `export const reviewers = [ … ]` — both names are accepted
+  defineReviewer({
+    role: "accessibility",              // any non-empty role except the reserved "coordinator"
+    displayName: "Accessibility",
+    version: "accessibility.v1",
+    summary: "Flags a11y regressions in UI changes.",
+    flag: ["Missing alt text, unlabeled controls, color-only signals."],
+    doNotFlag: ["Pure backend changes.", "Style nits."],
+    allowedSeverities: ["warning", "suggestion"],   // subset of critical|warning|suggestion
+    severityCalibration: ["warning: a concrete barrier for assistive tech."],
+    outputExpectations: ["Cite the element and the WCAG criterion."],
+  }),
+];
+```
+
+The module must export (as `default` or a named `reviewers`) **either** an array of
+`ReviewerDefinition` **or** `{ definitions, replace? }`. With `replace: true` the operator set
+fully supplants the factory's trusted set; the default merges by role (see step 3). The
+full-replace object form (note: the key is `definitions`, and `replace` sits beside it):
+
+```ts
+// full-replace: discard the factory's built-in reviewers, run only these
+export default {
+  definitions: [defineReviewer({ /* … */ })],
+  replace: true,
+};
+```
+
+**2. Load it in your CI** — applies to every `run` form:
+
+```bash
+ai-code-review run --reviewers ./my-reviewers.ts   # + your usual flags
+```
+
+**3. Merge semantics** (`mergeReviewerDefinitions`, operator-wins by role): a new role
+**appends** (extend); a role colliding with a built-in **replaces** that built-in (swap);
+`{ definitions, replace: true }` discards the trusted set entirely. The reserved `coordinator`
+role is rejected, and duplicate roles within your module are an error. A custom reviewer is
+trusted-operator tier for *prompting*, but its **output is still model-authored and untrusted**
+— re-validated through `validateFinding` and pinned to its dispatched role by
+`enforceReviewerRole`, exactly like the built-ins (it cannot self-label findings as another role).
+
+Test landmarks: `loadOperatorReviewerDefinitions` / `mergeReviewerDefinitions`
+(`src/runner/operator-reviewers.ts`, `src/runner/reviewer-definitions.ts`), covered in
+`test/operator-reviewers.test.ts`; the public surface is locked by `test/public-api.test.ts`.
+
 ## Trust quick-reference
 
 - Trusted: factory-owned reviewer-definitions. Untrusted: everything from the reviewed repo
