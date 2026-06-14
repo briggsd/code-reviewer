@@ -112,6 +112,11 @@ from your local config — which is exactly how you can test policy rules locall
 ## Fields
 
 - `mode`: `advisory` or `blocking`.
+  - **Reviewer-failure (degraded) policy (#212):** these are two *separate* behaviors with different thresholds.
+    - **Banner — any failure.** When **one or more** reviewers fail in an otherwise *completing* run (e.g. timeouts or invalid output, after failback is exhausted), the published summary is marked with a `⚠️ Degraded review — N of M reviewers failed` banner naming the failed roles — so the surviving findings are never mistaken for a clean full review. This fires for a **minority** failure too (banner shown, CI outcome unchanged).
+    - **CI escalation — strict majority only.** When a **strict majority** of the attempted reviewers fail *and* the run would otherwise **pass**, the outcome is escalated like `review_failed`: in **blocking** mode it becomes `fail` (fail-closed); in **advisory** mode it becomes `neutral` (fail-open, **exit code stays 0** — only the `outcome` field changes from `pass` to `neutral`). This is **escalation-only**: a real blocking finding from a surviving reviewer still fails regardless, and a minority of failed reviewers never changes the outcome.
+
+    The per-run reviewer-failure rate (any failure) is tracked as the `reviewerFailureRate` quality metric (see `docs/review-quality-loop.md`).
 - `failOn`: finding severities that fail CI in blocking mode. Default: `["critical"]` (the built-in defaults are printed by `bun run src/cli.ts schemas` and live in `src/runner/default-config.ts`).
 - `sensitivePaths`: glob-like path patterns that escalate risk.
 - `ignoredPaths`: glob-like path patterns filtered out before review.

@@ -60,6 +60,17 @@ threshold. Cross-reference metric meanings to the table in `docs/telemetry-expor
 | `acceptanceRate` | below → bad | 0.50 |
 | `withholdRate` | above → bad | 0.30 |
 | `completionRate` | below → bad | 0.90 |
+| `reviewerFailureRate` | above → bad | 0.10 |
+
+A high `reviewerFailureRate` means a large share of runs **completed with at least one reviewer
+failing** (timeout / invalid output / failback exhausted) — the degraded-review condition (#212).
+It counts **both** minority-failure runs (degraded banner shown, CI outcome unchanged) and
+majority-failure runs (banner shown **and** CI escalated `pass`→`fail`/`neutral` — see the
+degraded policy under `mode` in `docs/configuration.md`); the metric itself does not distinguish
+them. Unlike `completionRate` (whole-run starts vs completions), this counts the *partial*
+degradation a completing run would otherwise hide. A breach points at an unhealthy provider/model
+or a per-reviewer timeout set too tight; `reviewerFailureCountByRole` in the analysis JSON
+localizes which role.
 
 A breach is a **hypothesis**, not a verdict. Segments with fewer than `minSampleSize` (default 5)
 runs are flagged `lowConfidence: true` — surfaced but flagged for low statistical confidence.

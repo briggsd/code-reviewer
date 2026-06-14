@@ -272,6 +272,24 @@ function formatPartialBySize(partialBySize: NonNullable<ReviewSummary["partialBy
 }
 
 // ---------------------------------------------------------------------------
+// Degraded-review banner (#212)
+// ---------------------------------------------------------------------------
+
+function formatDegradedBanner(degraded: NonNullable<ReviewSummary["degraded"]>): string[] {
+  const { failedReviewerCount, completedReviewerCount, failedRoles } = degraded;
+  const totalAttempted = failedReviewerCount + completedReviewerCount;
+  // Roles are MODEL-AUTHORED free text → strip CR/LF first (heading discipline, #74) then escape
+  const escapedRoles = failedRoles
+    .map((role) => escapeMarkdown(role.replace(/[\r\n]+/g, " ")))
+    .join(", ");
+  return [
+    "",
+    `> ⚠️ **Degraded review — ${failedReviewerCount} of ${totalAttempted} reviewers failed.** Findings below are from the surviving reviewer(s) only and may be incomplete. Failed: ${escapedRoles}.`,
+    "",
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // Low-confidence (grounding-demoted) block (#204, #207)
 // ---------------------------------------------------------------------------
 
@@ -330,6 +348,14 @@ export function formatReviewSummaryMarkdown(
     lines.push(`🚦 Comprehension gate: \`${summary.gateDecision}\``, "");
   }
   lines.push(summary.body, "");
+
+  // Degraded-review banner (#212): rendered above the fold, before reviewer groups, so a
+  // near-empty review can't read as clean. Only when at least one reviewer failed.
+  if (summary.degraded !== undefined) {
+    for (const line of formatDegradedBanner(summary.degraded)) {
+      lines.push(line);
+    }
+  }
 
   // Reviewer groups (or "No findings." / "No blocking findings (see low-confidence block below).")
   if (summary.findings.length === 0) {

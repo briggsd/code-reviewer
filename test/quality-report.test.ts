@@ -27,6 +27,9 @@ function makeAnalysis(overrides: AnalysisOverride): RunMetricsAnalysis {
   };
   const base: RunMetricsAnalysis = {
     runCount: 10,
+    reviewerFailureRunCount: 0,
+    reviewerFailureRate: null,
+    reviewerFailureCountByRole: {},
     byTier: {},
     cacheHitRate: null,
     byReviewer: {},
@@ -935,5 +938,84 @@ describe("buildQualityReport — groundingWithholdRate (#207)", () => {
     const report = buildQualityReport(analysis);
     expect(report.hypotheses.find((x) => x.metric === "groundingDropRate")).toBeDefined();
     expect(report.hypotheses.find((x) => x.metric === "groundingWithholdRate")).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #212: reviewerFailureRate quality hypothesis
+// ---------------------------------------------------------------------------
+
+describe("buildQualityReport — reviewerFailureRate (#212)", () => {
+  test("reviewerFailureRate above maxReviewerFailureRate (0.10) → hypothesis emitted", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      reviewerFailureRunCount: 2,
+      reviewerFailureRate: 0.2, // > 0.10 → breach
+      reviewerFailureCountByRole: {},
+    });
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find(
+      (x) => x.metric === "reviewerFailureRate" && x.segment === "overall",
+    );
+    expect(h).toBeDefined();
+    expect(h?.direction).toBe("above");
+    expect(h?.value).toBeCloseTo(0.2, 5);
+    expect(h?.threshold).toBeCloseTo(0.1, 5);
+    expect(h?.sampleSize).toBe(10);
+  });
+
+  test("reviewerFailureRate within threshold → no hypothesis", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      reviewerFailureRunCount: 1,
+      reviewerFailureRate: 0.05, // < 0.10 → OK
+      reviewerFailureCountByRole: {},
+    });
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "reviewerFailureRate")).toBeUndefined();
+  });
+
+  test("reviewerFailureRate null (runCount=0) → no hypothesis emitted", () => {
+    const analysis = makeAnalysis({
+      runCount: 0,
+      reviewerFailureRunCount: 0,
+      reviewerFailureRate: null,
+      reviewerFailureCountByRole: {},
+    });
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "reviewerFailureRate")).toBeUndefined();
+  });
+
+  test("maxReviewerFailureRate threshold override works", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      reviewerFailureRunCount: 2,
+      reviewerFailureRate: 0.15, // > 0.10 default → breach
+      reviewerFailureCountByRole: {},
+    });
+    // Default 0.10: breach
+    const defaultReport = buildQualityReport(analysis);
+    expect(defaultReport.hypotheses.find((x) => x.metric === "reviewerFailureRate")).toBeDefined();
+
+    // Override to 0.20: 0.15 < 0.20 → no breach
+    const overrideReport = buildQualityReport(analysis, { maxReviewerFailureRate: 0.2 });
+    expect(
+      overrideReport.hypotheses.find((x) => x.metric === "reviewerFailureRate"),
+    ).toBeUndefined();
+  });
+
+  test("reviewerFailureRate at exactly threshold boundary → no hypothesis (not strictly above)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      reviewerFailureRunCount: 1,
+      reviewerFailureRate: 0.1, // = 0.10 → not above → no breach
+      reviewerFailureCountByRole: {},
+    });
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "reviewerFailureRate")).toBeUndefined();
+  });
+
+  test("DEFAULT_QUALITY_THRESHOLDS includes maxReviewerFailureRate = 0.10", () => {
+    expect(DEFAULT_QUALITY_THRESHOLDS.maxReviewerFailureRate).toBeCloseTo(0.1, 5);
   });
 });

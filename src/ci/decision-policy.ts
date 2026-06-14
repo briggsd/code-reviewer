@@ -42,39 +42,62 @@ export function decideCiOutcome(
     };
   }
 
+  let base: CiDecision;
+
   if (config.mode === "advisory") {
-    return {
+    base = {
       outcome: "pass",
       exitCode: 0,
       reason: "Advisory mode does not fail CI for review findings.",
     };
+  } else {
+    const highestBlockingSeverity = highestSeverity(
+      summary.findings.map((finding) => finding.severity),
+      config.failOn,
+    );
+    if (highestBlockingSeverity !== undefined) {
+      base = {
+        outcome: "fail",
+        exitCode: 1,
+        reason: `Blocking mode fails CI because a ${highestBlockingSeverity} finding matched fail_on policy.`,
+      };
+    } else if (summary.outcome === "fail") {
+      base = {
+        outcome: "fail",
+        exitCode: 1,
+        reason: "Review summary requested a failing CI outcome.",
+      };
+    } else {
+      base = {
+        outcome: "pass",
+        exitCode: 0,
+        reason: "No findings matched blocking CI policy.",
+      };
+    }
   }
 
-  const highestBlockingSeverity = highestSeverity(
-    summary.findings.map((finding) => finding.severity),
-    config.failOn,
-  );
-  if (highestBlockingSeverity !== undefined) {
-    return {
-      outcome: "fail",
-      exitCode: 1,
-      reason: `Blocking mode fails CI because a ${highestBlockingSeverity} finding matched fail_on policy.`,
-    };
+  // Degraded review (#212): when a STRICT MAJORITY of attempted reviewers failed in a
+  // completing run, the surviving findings are not a trustworthy full review — treat it like
+  // review_failed for the gate. ESCALATION ONLY: never downgrade a would-be-fail (a blocking
+  // finding from a surviving reviewer must still fail), so this fires only when base == pass.
+  const degraded = summary.degraded;
+  const degradedMajority =
+    degraded !== undefined && degraded.failedReviewerCount > degraded.completedReviewerCount;
+  if (degradedMajority && base.outcome === "pass") {
+    const failOpen = options.failOpenOnReviewFailed ?? config.mode === "advisory";
+    return failOpen
+      ? {
+          outcome: "neutral",
+          exitCode: 0,
+          reason: "Majority of reviewers failed — review is degraded; policy is fail-open.",
+        }
+      : {
+          outcome: "fail",
+          exitCode: 1,
+          reason: "Majority of reviewers failed — review is degraded; policy is fail-closed.",
+        };
   }
-
-  if (summary.outcome === "fail") {
-    return {
-      outcome: "fail",
-      exitCode: 1,
-      reason: "Review summary requested a failing CI outcome.",
-    };
-  }
-
-  return {
-    outcome: "pass",
-    exitCode: 0,
-    reason: "No findings matched blocking CI policy.",
-  };
+  return base;
 }
 
 function highestSeverity(severities: Severity[], allowed: Severity[]): Severity | undefined {

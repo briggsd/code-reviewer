@@ -925,20 +925,42 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       clock,
     });
 
-    // Attach partialBySize to the summary when the admission gate degraded (#145).
-    const fusedSummary: ReviewSummary = admissionDecision.degraded
-      ? {
-          ...fused.summary,
-          partialBySize: {
-            admittedFileCount: admissionDecision.admittedPaths.size,
-            droppedFileCount: admissionDecision.demotedPaths.length,
-            originalBytes: admissionDecision.originalBytes,
-            admittedBytes: admissionDecision.admittedBytes,
-            budgetBytes: admissionDecision.budgetBytes,
-            droppedPaths: admissionDecision.demotedPaths,
-          },
-        }
-      : fused.summary;
+    // Attach partialBySize (#145) and degraded (#212) to the summary when applicable.
+    // Both optionals compose: a run can be partial-by-size AND have failed reviewers.
+    // Count DISTINCT roles on both sides: a "reviewer" is a role, so the banner's "N of M
+    // reviewers failed" and the majority gate compare role counts, not raw invocation counts —
+    // keep failedReviewerCount and failedRoles derived from the same set, and dedupe the
+    // completed side too so the comparison stays apples-to-apples (the two sets are disjoint:
+    // an invocation either fails xor completes). (PR #221 review.)
+    const reviewerFailures = runtimeResult.coordinatorResult?.reviewerFailures ?? [];
+    const failedRoles = [...new Set(reviewerFailures.map((f) => f.role))].sort();
+    const completedRoleCount = new Set(
+      (runtimeResult.coordinatorResult?.reviewerResults ?? []).map((r) => r.role),
+    ).size;
+    const fusedSummary: ReviewSummary = {
+      ...fused.summary,
+      ...(admissionDecision.degraded
+        ? {
+            partialBySize: {
+              admittedFileCount: admissionDecision.admittedPaths.size,
+              droppedFileCount: admissionDecision.demotedPaths.length,
+              originalBytes: admissionDecision.originalBytes,
+              admittedBytes: admissionDecision.admittedBytes,
+              budgetBytes: admissionDecision.budgetBytes,
+              droppedPaths: admissionDecision.demotedPaths,
+            },
+          }
+        : {}),
+      ...(failedRoles.length > 0
+        ? {
+            degraded: {
+              failedReviewerCount: failedRoles.length,
+              completedReviewerCount: completedRoleCount,
+              failedRoles,
+            },
+          }
+        : {}),
+    };
 
     await emitCompletedRunMetrics({
       options,

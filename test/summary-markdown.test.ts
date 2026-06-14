@@ -994,3 +994,74 @@ describe("partial-by-size block (#145)", () => {
     expect(markdown).toContain("4 MB"); // Math.round(4_000_000/100_000)/10
   });
 });
+
+// ---------------------------------------------------------------------------
+// Degraded-review banner (#212)
+// ---------------------------------------------------------------------------
+
+describe("formatReviewSummaryMarkdown — degraded banner (#212)", () => {
+  test("renders degraded banner with count and role names when degraded is set", () => {
+    const summary = makeSummary({
+      degraded: {
+        failedReviewerCount: 2,
+        completedReviewerCount: 1,
+        failedRoles: ["code_quality", "performance"],
+      },
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).toContain("Degraded review");
+    expect(markdown).toContain("2 of 3");
+    expect(markdown).toContain("code\\_quality"); // escaped
+    expect(markdown).toContain("performance");
+  });
+
+  test("summary WITHOUT degraded does not contain 'Degraded review'", () => {
+    const summary = makeSummary();
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).not.toContain("Degraded review");
+  });
+
+  test("degraded banner appears above reviewer groups (above the fold)", () => {
+    const summary = makeSummary({
+      degraded: {
+        failedReviewerCount: 1,
+        completedReviewerCount: 1,
+        failedRoles: ["code_quality"],
+      },
+      findings: [makeFinding({ reviewer: "security", severity: "warning", title: "Some issue" })],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    const bannerIdx = markdown.indexOf("Degraded review");
+    const reviewerGroupIdx = markdown.indexOf("🔒 security");
+
+    expect(bannerIdx).toBeGreaterThan(-1);
+    expect(reviewerGroupIdx).toBeGreaterThan(-1);
+    expect(bannerIdx).toBeLessThan(reviewerGroupIdx);
+  });
+
+  test("role names with CR/LF are sanitized and escaped in the banner", () => {
+    const summary = makeSummary({
+      degraded: {
+        failedReviewerCount: 1,
+        completedReviewerCount: 1,
+        failedRoles: ["bad\nrole\r\nname"],
+      },
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // CR/LF stripped, then escaped — role value appears as "bad role name" (spaces, not newlines)
+    expect(markdown).toContain("bad role name");
+    // The banner line itself must not split into multiple blockquote lines due to the embedded
+    // newline in the role text. Extract the blockquote line and check the role text doesn't
+    // contain a raw newline.
+    const bannerLine = markdown
+      .split("\n")
+      .find((line) => line.startsWith("> ⚠️ **Degraded review"));
+    expect(bannerLine).toBeDefined();
+    // The single banner line must contain the sanitized role text, not be broken
+    expect(bannerLine).toContain("bad role name");
+  });
+});

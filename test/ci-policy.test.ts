@@ -189,6 +189,121 @@ describe("summary markdown formatting", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Degraded review (#212) — majority-failed escalation
+// ---------------------------------------------------------------------------
+
+describe("CI decision — degraded review (#212)", () => {
+  test("(a) degraded MAJORITY (failed 2 > completed 1), no findings, blocking mode → fail", () => {
+    const config = createDefaultReviewConfig();
+    const summary = degradedPassSummary({ failedReviewerCount: 2, completedReviewerCount: 1 });
+    expect(decideCiOutcome(summary, { ...config, mode: "blocking" })).toEqual({
+      outcome: "fail",
+      exitCode: 1,
+      reason: "Majority of reviewers failed — review is degraded; policy is fail-closed.",
+    });
+  });
+
+  test("(b) degraded MAJORITY, fail-open via failOpenOnReviewFailed:true → neutral", () => {
+    const config = createDefaultReviewConfig();
+    const summary = degradedPassSummary({ failedReviewerCount: 2, completedReviewerCount: 1 });
+    expect(
+      decideCiOutcome(summary, { ...config, mode: "blocking" }, { failOpenOnReviewFailed: true }),
+    ).toEqual({
+      outcome: "neutral",
+      exitCode: 0,
+      reason: "Majority of reviewers failed — review is degraded; policy is fail-open.",
+    });
+  });
+
+  test("(b2) degraded MAJORITY, fail-open via advisory mode → neutral", () => {
+    const config = createDefaultReviewConfig();
+    const summary = degradedPassSummary({ failedReviewerCount: 2, completedReviewerCount: 1 });
+    expect(decideCiOutcome(summary, { ...config, mode: "advisory" })).toEqual({
+      // advisory mode sets base="pass", so the degraded-majority check still fires
+      // (base.outcome === "pass"); failOpen=true (mode===advisory) → neutral.
+      outcome: "neutral",
+      exitCode: 0,
+      reason: "Majority of reviewers failed — review is degraded; policy is fail-open.",
+    });
+  });
+
+  test("(c) degraded MINORITY (failed 1 < completed 2) → base pass unchanged", () => {
+    const config = createDefaultReviewConfig();
+    const summary = degradedPassSummary({ failedReviewerCount: 1, completedReviewerCount: 2 });
+    expect(decideCiOutcome(summary, { ...config, mode: "blocking" })).toEqual({
+      outcome: "pass",
+      exitCode: 0,
+      reason: "No findings matched blocking CI policy.",
+    });
+  });
+
+  test("(d) degraded MAJORITY but surviving critical finding → still fail (blocking severity)", () => {
+    const config = createDefaultReviewConfig();
+    const summary = degradedPassSummary({ failedReviewerCount: 2, completedReviewerCount: 1 });
+    // Add a surviving critical finding — escalation must NOT downgrade a would-be-fail
+    const summaryWithFinding: ReviewSummary = {
+      ...summary,
+      findings: [
+        {
+          reviewer: "security",
+          severity: "critical",
+          category: "auth",
+          title: "Critical surviving finding",
+          body: "A real problem.",
+          confidence: "high",
+          evidence: [],
+          recommendation: "Fix it.",
+        },
+      ],
+    };
+    const result = decideCiOutcome(summaryWithFinding, { ...config, mode: "blocking" });
+    expect(result.outcome).toBe("fail");
+    // Must be the blocking-severity reason, NOT the degraded reason
+    expect(result.reason).toContain("critical finding matched fail_on policy");
+    expect(result.reason).not.toContain("Majority of reviewers failed");
+  });
+
+  test("(e) overridden:true short-circuits regardless of degraded majority", () => {
+    const config = createDefaultReviewConfig();
+    const summary = degradedPassSummary({ failedReviewerCount: 2, completedReviewerCount: 1 });
+    expect(decideCiOutcome(summary, { ...config, mode: "blocking" }, { overridden: true })).toEqual(
+      {
+        outcome: "neutral",
+        exitCode: 0,
+        reason: "Human break-glass override — CI status is non-blocking for this run.",
+      },
+    );
+  });
+});
+
+function degradedPassSummary(degraded: {
+  failedReviewerCount: number;
+  completedReviewerCount: number;
+}): ReviewSummary {
+  return {
+    decision: "approved",
+    outcome: "pass",
+    title: "AI review — degraded",
+    body: "Surviving findings only.",
+    findings: [],
+    risk: {
+      tier: "full",
+      reason: "Complex change.",
+      matchedRules: [],
+      sensitivePaths: [],
+      reviewedFileCount: 5,
+      ignoredFileCount: 0,
+    },
+    degraded: {
+      failedReviewerCount: degraded.failedReviewerCount,
+      completedReviewerCount: degraded.completedReviewerCount,
+      // Generate roles to always match failedReviewerCount (robust for any count, not just <=2).
+      failedRoles: Array.from({ length: degraded.failedReviewerCount }, (_, i) => `role_${i}`),
+    },
+  };
+}
+
 function reviewFailedSummary(): ReviewSummary {
   return {
     decision: "review_failed",

@@ -1295,3 +1295,179 @@ describe("analyzeRunMetrics groundingWithholdFindingRate (#207)", () => {
     expect(analysis.rates.groundingWithholdFindingRate).toBeCloseTo(1.0, 5);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #212: reviewerFailureRunCount / reviewerFailureRate / reviewerFailureCountByRole
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics reviewer-failure counts (#212)", () => {
+  // Three runs:
+  //   run-A: failures=[{kind:"reviewer",role:"code_quality"},{kind:"reviewer",role:"performance"}]
+  //   run-B: failures=[{kind:"reviewer",role:"code_quality"}]  (same role as A but separate run)
+  //   run-C: failures=[{kind:"coordinator"}]  (coordinator kind — not counted)
+  const reviewerFailureEvents: TelemetryEvent[] = [
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-14T00:00:00.000Z",
+      runId: "rf-A",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "approved_with_comments",
+        outcome: "pass",
+        durationMs: 3000,
+        findingCount: 1,
+        failures: [
+          {
+            kind: "reviewer",
+            role: "code_quality",
+            errorName: "TimeoutError",
+            errorCategory: "timeout",
+          },
+          {
+            kind: "reviewer",
+            role: "performance",
+            errorName: "SchemaError",
+            errorCategory: "schema_invalid",
+          },
+        ],
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-14T01:00:00.000Z",
+      runId: "rf-B",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 2000,
+        findingCount: 0,
+        failures: [
+          {
+            kind: "reviewer",
+            role: "code_quality",
+            errorName: "TimeoutError",
+            errorCategory: "timeout",
+          },
+        ],
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-14T02:00:00.000Z",
+      runId: "rf-C",
+      data: {
+        runtime: "pi",
+        riskTier: "lite",
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 1000,
+        findingCount: 0,
+        // coordinator kind — must NOT count toward reviewer-failure run count
+        failures: [
+          {
+            kind: "coordinator",
+            role: "coordinator",
+            errorName: "SomeError",
+            errorCategory: "unknown",
+          },
+        ],
+      },
+    },
+  ];
+
+  test("reviewerFailureRunCount counts only runs with reviewer-kind failures", () => {
+    const analysis = analyzeRunMetrics(reviewerFailureEvents);
+    // run-A and run-B have reviewer failures; run-C has coordinator only → count = 2
+    expect(analysis.reviewerFailureRunCount).toBe(2);
+  });
+
+  test("reviewerFailureRate = reviewerFailureRunCount / runCount", () => {
+    const analysis = analyzeRunMetrics(reviewerFailureEvents);
+    // 2 of 3 runs → 0.6667
+    expect(analysis.reviewerFailureRate).toBeCloseTo(2 / 3, 5);
+  });
+
+  test("reviewerFailureCountByRole accumulates per-role counts across runs (stable-sorted keys)", () => {
+    const analysis = analyzeRunMetrics(reviewerFailureEvents);
+    // code_quality failed in run-A AND run-B → 2 runs; performance failed in run-A only → 1 run
+    expect(analysis.reviewerFailureCountByRole).toEqual({
+      code_quality: 2,
+      performance: 1,
+    });
+    // Stable-sorted: code_quality < performance
+    expect(Object.keys(analysis.reviewerFailureCountByRole)).toEqual([
+      "code_quality",
+      "performance",
+    ]);
+  });
+
+  test("a run with two failures of the same role counts that role only ONCE in byRole", () => {
+    const dupRoleEvent: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-14T10:00:00.000Z",
+        runId: "rf-dup",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 1000,
+          findingCount: 0,
+          failures: [
+            { kind: "reviewer", role: "security", errorName: "Err1", errorCategory: "timeout" },
+            { kind: "reviewer", role: "security", errorName: "Err2", errorCategory: "timeout" },
+          ],
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(dupRoleEvent);
+    expect(analysis.reviewerFailureRunCount).toBe(1);
+    expect(analysis.reviewerFailureCountByRole).toEqual({ security: 1 });
+  });
+
+  test("reviewerFailureRate is null when runCount is 0", () => {
+    const analysis = analyzeRunMetrics([]);
+    expect(analysis.reviewerFailureRate).toBeNull();
+  });
+
+  test("reviewerFailureRunCount = 0 and byRole = {} when no failures block present", () => {
+    const noFailuresEvent: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-14T00:00:00.000Z",
+        runId: "rf-none",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 1000,
+          findingCount: 0,
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(noFailuresEvent);
+    expect(analysis.reviewerFailureRunCount).toBe(0);
+    expect(analysis.reviewerFailureRate).toBe(0);
+    expect(analysis.reviewerFailureCountByRole).toEqual({});
+  });
+
+  test("formatRunMetricsAnalysis includes reviewerFailureRunCount and reviewerFailureRate", () => {
+    const analysis = analyzeRunMetrics(reviewerFailureEvents);
+    const formatted = formatRunMetricsAnalysis(analysis);
+    expect(formatted).toContain("reviewerFailureRunCount");
+    expect(formatted).toContain("reviewerFailureRate");
+  });
+
+  test("formatRunMetricsAnalysis includes byRole line when roles present", () => {
+    const analysis = analyzeRunMetrics(reviewerFailureEvents);
+    const formatted = formatRunMetricsAnalysis(analysis);
+    expect(formatted).toContain("reviewerFailureByRole");
+    expect(formatted).toContain("code_quality:2");
+    expect(formatted).toContain("performance:1");
+  });
+});

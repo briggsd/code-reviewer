@@ -103,6 +103,12 @@ export interface RunEventsAnalysis {
 
 export interface RunMetricsAnalysis {
   runCount: number;
+  /** Runs whose run_metrics carried >=1 reviewer-kind failure (#212). */
+  reviewerFailureRunCount: number;
+  /** reviewerFailureRunCount / runCount; null when runCount is 0. */
+  reviewerFailureRate: number | null;
+  /** Per-role reviewer-failure run counts, stable-sorted keys (counts only). */
+  reviewerFailureCountByRole: Record<string, number>;
   /** Per risk-tier aggregates (keys are tier names, e.g. "trivial", "lite", "full"). */
   byTier: Record<string, TierSegment>;
   /** Pooled cache-hit rate across ALL real runs (the headline number). null when no token data. */
@@ -178,6 +184,7 @@ interface RunMetricsEventData extends Record<string, JsonValue> {
   locationBackfill?: Record<string, JsonValue>;
   acknowledgements?: Record<string, JsonValue>;
   structuredOutput?: Record<string, JsonValue>;
+  failures?: JsonValue[];
 }
 
 type RunMetricsEvent = TelemetryEvent & { data: RunMetricsEventData };
@@ -223,6 +230,8 @@ export function analyzeRunMetrics(
   let totalFindings = 0;
   let structuredOutputStructuredCount = 0;
   let structuredOutputTotalCount = 0;
+  let reviewerFailureRunCount = 0;
+  const reviewerFailureCountByRoleMap = new Map<string, number>();
 
   for (const event of realEvents) {
     const data = event.data;
@@ -348,6 +357,34 @@ export function analyzeRunMetrics(
       structuredOutputStructuredCount += asNumber(structuredOutputBlock.structuredCount) ?? 0;
       structuredOutputTotalCount += asNumber(structuredOutputBlock.totalCount) ?? 0;
     }
+
+    // Reviewer-failure run count (#212): count a run AT MOST ONCE toward reviewerFailureRunCount
+    // even if it has multiple failed reviewers; but per-role counts increment once per DISTINCT
+    // failed role in that run (so the per-role denominator stays "runs", consistent with runCount).
+    const failuresBlock = data.failures;
+    if (Array.isArray(failuresBlock)) {
+      const reviewerFailureEntries = failuresBlock.filter(
+        (entry): entry is Record<string, JsonValue> =>
+          isPlainObject(entry) && entry.kind === "reviewer",
+      );
+      if (reviewerFailureEntries.length > 0) {
+        reviewerFailureRunCount += 1;
+        // De-duplicate roles within this run before incrementing per-role counts
+        const rolesInThisRun = new Set<string>();
+        for (const entry of reviewerFailureEntries) {
+          if (typeof entry.role === "string" && entry.role.length > 0) {
+            // Roles are MODEL-AUTHORED free text (validateFinding accepts any string). Strip
+            // CR/LF + cap length before using as a key — this value is later interpolated into
+            // the line-oriented analytics text report, where an embedded newline would inject a
+            // synthetic key:value line. Mirrors the #74 discipline in summary-markdown.ts.
+            rolesInThisRun.add(entry.role.replace(/[\r\n]+/g, " ").slice(0, 128));
+          }
+        }
+        for (const role of rolesInThisRun) {
+          incrementMap(reviewerFailureCountByRoleMap, role, 1);
+        }
+      }
+    }
   }
 
   // Build byTier with stable key ordering
@@ -418,8 +455,17 @@ export function analyzeRunMetrics(
   // S06: run_event analysis — filter to run_event events, match to real runs
   const runEventAnalysis = buildRunEventsAnalysis(events, realRunIds);
 
+  // Build stable-key-sorted reviewerFailureCountByRole record (#212), mirroring overrideCountByTier
+  const reviewerFailureCountByRole: Record<string, number> = {};
+  for (const key of Array.from(reviewerFailureCountByRoleMap.keys()).sort()) {
+    reviewerFailureCountByRole[key] = reviewerFailureCountByRoleMap.get(key) ?? 0;
+  }
+
   return {
     runCount,
+    reviewerFailureRunCount,
+    reviewerFailureRate: runCount === 0 ? null : reviewerFailureRunCount / runCount,
+    reviewerFailureCountByRole,
     byTier,
     cacheHitRate: overallCacheHitRate,
     byReviewer,
@@ -718,6 +764,19 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
   lines.push(`  acknowledgementRunRate    ${(r.acknowledgementRunRate * 100).toFixed(1)}%`);
   lines.push(`  thinReviewRate            ${(r.thinReviewRate * 100).toFixed(1)}%`);
   lines.push(`  structuredOutputRate      ${(r.structuredOutputRate * 100).toFixed(1)}%`);
+  lines.push(`  reviewerFailureRunCount   ${analysis.reviewerFailureRunCount}`);
+  const rfRateStr =
+    analysis.reviewerFailureRate === null
+      ? "n/a"
+      : `${(analysis.reviewerFailureRate * 100).toFixed(1)}%`;
+  lines.push(`  reviewerFailureRate       ${rfRateStr}`);
+  const rfByRoleKeys = Object.keys(analysis.reviewerFailureCountByRole);
+  if (rfByRoleKeys.length > 0) {
+    const byRoleParts = rfByRoleKeys.map(
+      (role) => `${role}:${analysis.reviewerFailureCountByRole[role] ?? 0}`,
+    );
+    lines.push(`  reviewerFailureByRole     ${byRoleParts.join(", ")}`);
+  }
 
   // Run events section (present only when run_event data exists)
   if (analysis.runEvents !== undefined) {

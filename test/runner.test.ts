@@ -7,6 +7,7 @@ import type {
   CoordinatorRunInput,
   CoordinatorRunResult,
   Finding,
+  ReviewerRunFailure,
   ReviewerRunInput,
   ReviewerRunResult,
   RuntimeEvent,
@@ -16,6 +17,7 @@ import type {
 import {
   createRuntimeToolPolicy,
   decideCiOutcome,
+  formatReviewSummaryMarkdown,
   getTierProfile,
   loadProjectReviewConfig,
   loadReviewFixture,
@@ -1462,3 +1464,144 @@ describe("patchBudgets config normalization (#145)", () => {
     expect(result.demotedPaths).toContain("src/a.ts");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Degraded review (#212): completing run with reviewer failures surfaces marker
+// ---------------------------------------------------------------------------
+
+describe("degraded review — completing run with failed reviewers (#212)", () => {
+  test("result.summary.degraded is populated and banner renders in markdown", async () => {
+    const fixture = normalizeReviewFixture({
+      metadata: {
+        provider: "local",
+        repository: { provider: "local", name: "demo", slug: "demo" },
+        changeId: "local",
+        headSha: "abc123",
+        title: "Refactor core module",
+        author: { username: "dev" },
+        labels: [],
+      },
+      diff: {
+        files: [
+          {
+            path: "src/core.ts",
+            status: "modified",
+            additions: 20,
+            deletions: 5,
+            isBinary: false,
+          },
+        ],
+        totalAdditions: 20,
+        totalDeletions: 5,
+        truncated: false,
+      },
+      config: {
+        mode: "blocking",
+        failOn: ["critical"],
+      },
+    });
+
+    const survivingFinding = reviewFinding({ severity: "warning", title: "Surviving finding" });
+    const runtime = new DegradedCompletingRuntime(survivingFinding);
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    // The run completes normally (not review_failed)
+    expect(result.summary.decision).not.toBe("review_failed");
+
+    // degraded marker is set with correct counts and roles
+    expect(result.summary.degraded).toBeDefined();
+    expect(result.summary.degraded?.failedReviewerCount).toBe(2);
+    expect(result.summary.degraded?.completedReviewerCount).toBe(1);
+    expect(result.summary.degraded?.failedRoles).toEqual(["code_quality", "performance"]);
+
+    // Markdown output contains the degraded banner — cannot be mistaken for a clean review
+    const markdown = formatReviewSummaryMarkdown(result.summary);
+    expect(markdown).toContain("Degraded review");
+    expect(markdown).toContain("2 of 3");
+    expect(markdown).toContain("code\\_quality");
+    expect(markdown).toContain("performance");
+  });
+});
+
+/**
+ * A COMPLETING (non-timeout) runtime whose runCoordinator returns normally but includes
+ * two failed reviewers — exercising the #212 degraded marker path.
+ */
+class DegradedCompletingRuntime implements AgentRuntime {
+  readonly name = "degraded-completing";
+
+  constructor(private readonly survivingFinding: Finding) {}
+
+  async runCoordinator(input: CoordinatorRunInput): Promise<CoordinatorRunResult> {
+    const reviewerResults: ReviewerRunResult[] = [
+      {
+        runId: input.runId,
+        agentRunId: `${input.runId}:security`,
+        role: "security",
+        findings: [this.survivingFinding],
+        rawOutput: JSON.stringify({ findings: [this.survivingFinding] }),
+      },
+    ];
+
+    const errorClassification: ReviewerRunFailure["errorClassification"] = {
+      category: "timeout",
+      retryable: false,
+      reason: "Reviewer timed out during evaluation.",
+    };
+
+    const reviewerFailures: ReviewerRunFailure[] = [
+      {
+        runId: input.runId,
+        agentRunId: `${input.runId}:code_quality`,
+        role: "code_quality",
+        errorName: "TimeoutError",
+        errorMessage: "Reviewer timed out",
+        errorClassification,
+      },
+      {
+        runId: input.runId,
+        agentRunId: `${input.runId}:performance`,
+        role: "performance",
+        errorName: "SchemaMismatchError",
+        errorMessage: "Invalid output schema",
+        errorClassification: {
+          category: "schema_invalid",
+          retryable: false,
+          reason: "Output did not match the expected schema.",
+        },
+      },
+    ];
+
+    const summary = summarizeReview(input.context, [this.survivingFinding]);
+
+    return {
+      runId: input.runId,
+      agentRunId: `${input.runId}:coordinator`,
+      summary,
+      reviewerResults,
+      reviewerFailures,
+      rawOutput: "{}",
+    };
+  }
+
+  async runReviewer(input: ReviewerRunInput): Promise<ReviewerRunResult> {
+    return {
+      runId: input.runId,
+      agentRunId: `${input.runId}:${input.role}`,
+      role: input.role,
+      findings: [],
+      rawOutput: '{"findings":[]}',
+    };
+  }
+
+  streamEvents(_runId: string, _onEvent: (event: RuntimeEvent) => void): RuntimeEventSubscription {
+    return { unsubscribe: () => {} };
+  }
+
+  async cancel(_runId: string): Promise<void> {}
+}

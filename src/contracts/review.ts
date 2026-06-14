@@ -282,6 +282,19 @@ export interface ReviewSummary {
     budgetBytes: number;
     droppedPaths: string[];
   };
+  /**
+   * Set when one or more reviewers FAILED in a COMPLETING run (#212) — surviving findings are
+   * published, but the review is degraded, not clean. Counts/roles only (M008): no finding/
+   * diff/prompt text. Distinct from `review_failed` (whole-run failure) and `partialBySize`
+   * (diff exceeded the byte budget). Rendered as a degraded banner and factored into the CI
+   * decision when a majority of attempted reviewers failed.
+   */
+  degraded?: {
+    failedReviewerCount: number;
+    completedReviewerCount: number;
+    /** Failed reviewer roles, de-duplicated and sorted (counts/identifiers only). */
+    failedRoles: string[];
+  };
 }
 
 export interface PriorFindingState {

@@ -18,7 +18,8 @@ export type HypothesisMetric =
   | "acceptanceRate"
   | "withholdRate"
   | "completionRate"
-  | "structuredOutputRate";
+  | "structuredOutputRate"
+  | "reviewerFailureRate";
 
 export type SegmentType = "overall" | "tier" | "reviewer";
 
@@ -51,6 +52,7 @@ export interface QualityReportThresholds {
   maxWithholdRate: number; // default 0.30
   minCompletionRate: number; // default 0.90
   minStructuredOutputRate: number; // default 0.90
+  maxReviewerFailureRate: number; // default 0.10
   /** Segments below this sample size are surfaced but marked lowConfidence. default 5 */
   minSampleSize: number;
 }
@@ -64,6 +66,7 @@ export const DEFAULT_QUALITY_THRESHOLDS: QualityReportThresholds = {
   maxWithholdRate: 0.3,
   minCompletionRate: 0.9,
   minStructuredOutputRate: 0.9,
+  maxReviewerFailureRate: 0.1,
   minSampleSize: 5,
 };
 
@@ -152,6 +155,19 @@ export function buildQualityReport(
       threshold: t.minStructuredOutputRate,
       direction: "below",
       sampleSize: analysis.structuredOutput.totalCount,
+    });
+  }
+
+  // reviewerFailureRate (#212): skip when null (runCount is 0)
+  if (analysis.reviewerFailureRate !== null && analysis.reviewerFailureRate !== undefined) {
+    checkBreach(hypotheses, t, {
+      segmentType: "overall",
+      segment: "overall",
+      metric: "reviewerFailureRate",
+      value: analysis.reviewerFailureRate,
+      threshold: t.maxReviewerFailureRate,
+      direction: "above",
+      sampleSize: analysis.runCount,
     });
   }
 
