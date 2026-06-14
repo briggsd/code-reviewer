@@ -234,6 +234,13 @@ export interface ReviewSummary {
    * Observability/rendering only — the CI gate stays driven by `decideCiOutcome` over findings.
    */
   gateDecision?: GateDecision;
+  /**
+   * Findings the deterministic evidence-grounding step withheld this run (their cited code was not
+   * found in the diff) (#204). Surfaced in a separate "Withheld" render block so the coordinator's
+   * prose has a visible referent; deliberately EXCLUDED from `findings`, the CI gate, the title
+   * count, and metadata `findingIds` — nothing here survived grounding.
+   */
+  groundingWithheld?: Finding[];
 }
 
 export interface PriorFindingState {

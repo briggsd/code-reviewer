@@ -762,8 +762,98 @@ describe("multi-reviewer 8-finding summary", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 9. Doc test: break-glass section in docs/architecture.md
+// 9. Grounding-withheld block (#204)
 // ---------------------------------------------------------------------------
+
+describe("grounding-withheld block (#204)", () => {
+  test("all-withheld: renders 'No findings survived grounding.' and withheld heading", () => {
+    const withheld = makeFinding({
+      reviewer: "security",
+      title: "Withheld vuln",
+      severity: "critical",
+    });
+    const markdown = formatReviewSummaryMarkdown(
+      makeSummary({ findings: [], groundingWithheld: [withheld] }),
+    );
+
+    // Must use the survived-grounding message, not the bare one
+    expect(markdown).toContain("No findings survived grounding.");
+    expect(markdown).not.toMatch(/^No findings\.$/m);
+
+    // Withheld block heading and context note
+    expect(markdown).toContain("### ⚠️ Withheld (ungrounded this run)");
+    expect(markdown).toContain("withheld from the result");
+
+    // Withheld finding title appears as a one-liner
+    expect(markdown).toContain("Withheld vuln");
+  });
+
+  test("partial: grounded finding + withheld finding — both blocks render", () => {
+    const grounded = makeFinding({
+      reviewer: "code_quality",
+      title: "Grounded nit",
+      severity: "suggestion",
+    });
+    const withheld = makeFinding({
+      reviewer: "security",
+      title: "Withheld issue",
+      severity: "warning",
+    });
+    const markdown = formatReviewSummaryMarkdown(
+      makeSummary({ findings: [grounded], groundingWithheld: [withheld] }),
+    );
+
+    // Normal reviewer group rendered
+    expect(markdown).toContain("🧹 code\\_quality");
+    expect(markdown).toContain("Grounded nit");
+
+    // Withheld block also rendered
+    expect(markdown).toContain("### ⚠️ Withheld (ungrounded this run)");
+    expect(markdown).toContain("Withheld issue");
+
+    // Bare "No findings survived grounding." must NOT appear (there are grounded findings)
+    expect(markdown).not.toContain("No findings survived grounding.");
+    // Bare "No findings." must also NOT appear
+    expect(markdown).not.toMatch(/^No findings\.$/m);
+  });
+
+  test("regression: no groundingWithheld + zero findings → plain 'No findings.' preserved", () => {
+    const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [] }));
+
+    expect(markdown).toContain("No findings.");
+    expect(markdown).not.toContain("No findings survived grounding.");
+    expect(markdown).not.toContain("Withheld (ungrounded this run)");
+  });
+
+  test("withheld block not rendered when groundingWithheld is undefined", () => {
+    const finding = makeFinding({ title: "Normal finding" });
+    const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [finding] }));
+
+    expect(markdown).not.toContain("Withheld (ungrounded this run)");
+  });
+
+  test("withheld findings are severity-sorted and rendered as one-liners", () => {
+    const withheld = [
+      makeFinding({ title: "Suggestion withheld", severity: "suggestion" }),
+      makeFinding({ title: "Critical withheld", severity: "critical" }),
+      makeFinding({ title: "Warning withheld", severity: "warning" }),
+    ];
+    const markdown = formatReviewSummaryMarkdown(
+      makeSummary({ findings: [], groundingWithheld: withheld }),
+    );
+
+    const critIdx = markdown.indexOf("CRITICAL: Critical withheld");
+    const warnIdx = markdown.indexOf("WARNING: Warning withheld");
+    const suggIdx = markdown.indexOf("SUGGESTION: Suggestion withheld");
+
+    expect(critIdx).toBeGreaterThan(-1);
+    expect(warnIdx).toBeGreaterThan(-1);
+    expect(suggIdx).toBeGreaterThan(-1);
+    // Critical before warning before suggestion
+    expect(critIdx).toBeLessThan(warnIdx);
+    expect(warnIdx).toBeLessThan(suggIdx);
+  });
+});
 
 describe("break-glass section in docs/architecture.md", () => {
   test("architecture.md documents the Break-glass / human override section", async () => {

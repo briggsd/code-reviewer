@@ -8,7 +8,12 @@ import type {
   TelemetrySink,
   TraceSink,
 } from "../src/index.ts";
-import { createStableFindingId, loadReviewFixture, runReview } from "../src/index.ts";
+import {
+  createStableFindingId,
+  formatReviewSummaryMarkdown,
+  loadReviewFixture,
+  runReview,
+} from "../src/index.ts";
 
 // ---------------------------------------------------------------------------
 // Minimal in-test sinks (mirrors state.test.ts pattern)
@@ -256,5 +261,82 @@ describe("evidence grounding spine integration", () => {
       (metrics?.data?.reReview as { withheldFindingCount: number } | undefined)
         ?.withheldFindingCount,
     ).toBe(1);
+  });
+
+  test("all-withheld: summary has findings.length===0, groundingWithheld populated, title/outcome reflect 0 survivors, and markdown has no bare 'No findings.' (#204)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const telemetrySink = new RecordingTelemetrySink();
+    const traceSink = new RecordingTraceSink();
+
+    // Both findings have fabricated quotedCode → both are dropped by grounding.
+    const fabricated1: Finding = {
+      reviewer: "security",
+      severity: "critical",
+      category: "auth",
+      title: "Fabricated critical",
+      body: "body",
+      confidence: "high",
+      evidence: ["fabricated evidence"],
+      recommendation: "fix it",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["return db.accounts.deleteEverything();"],
+    };
+    const fabricated2: Finding = {
+      reviewer: "code_quality",
+      severity: "warning",
+      category: "correctness",
+      title: "Fabricated warning",
+      body: "body",
+      confidence: "medium",
+      evidence: ["more fabricated evidence"],
+      recommendation: "fix it too",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["db.dropTable('users');"],
+    };
+
+    // Self-guard: neither fabricated quote must be in the diff
+    const fixturePatches = fixture.diff.files.map((f) => f.patch ?? "").join("\n");
+    expect(fixturePatches).not.toContain("deleteEverything");
+    expect(fixturePatches).not.toContain("dropTable");
+
+    fixture.fakeFindings = [fabricated1, fabricated2];
+
+    const result = await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-14T00:00:00.000Z"),
+      telemetrySink,
+      traceSink,
+    });
+
+    const { summary } = result;
+
+    // (a) No findings survived grounding
+    expect(summary.findings).toHaveLength(0);
+
+    // (b) groundingWithheld carries all dropped findings
+    expect(summary.groundingWithheld).toBeDefined();
+    expect(summary.groundingWithheld).toHaveLength(2);
+    const withheldTitles = summary.groundingWithheld?.map((f) => f.title) ?? [];
+    expect(withheldTitles).toContain("Fabricated critical");
+    expect(withheldTitles).toContain("Fabricated warning");
+
+    // (c) Title reflects 0 survivors (approved, no blocking findings)
+    expect(summary.title).not.toContain("2");
+    expect(summary.decision).toBe("approved");
+    expect(summary.outcome).toBe("pass");
+
+    // (d) Grounding trace emitted with 2 drops
+    const groundingTrace = traceSink.events.find((e) => e.type === "grounding.applied");
+    expect(groundingTrace).toBeDefined();
+    expect(groundingTrace?.data?.droppedFindingCount).toBe(2);
+
+    // (e) The rendered markdown must NOT have bare "No findings." on its own line —
+    //     it must have "No findings survived grounding." instead, and the withheld block.
+    const markdown = formatReviewSummaryMarkdown(summary);
+    expect(markdown).not.toMatch(/^No findings\.$/m);
+    expect(markdown).toContain("No findings survived grounding.");
+    expect(markdown).toContain("### ⚠️ Withheld (ungrounded this run)");
+    expect(markdown).toContain("Fabricated critical");
+    expect(markdown).toContain("Fabricated warning");
   });
 });

@@ -388,6 +388,7 @@ async function fuseAndDecide(input: {
       // reflect the findings now shown, not the coordinator's pre-grounding count.
       title: createSummaryTitle(decision, grounding.grounded),
       body: `${runtimeResult.summary.body}\n\n_${groundingDroppedCount} finding(s) withheld: the code they cited could not be found in the changed files._`,
+      groundingWithheld: grounding.dropped,
     };
     await emitTrace(options.traceSink, {
       type: "grounding.applied",

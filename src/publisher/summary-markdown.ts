@@ -229,6 +229,27 @@ function formatReviewerGroup(reviewer: string, findings: Finding[]): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Withheld (grounding-dropped) block (#204)
+// ---------------------------------------------------------------------------
+
+function formatWithheldGroup(findings: Finding[]): string[] {
+  const sorted = sortFindingsBySeverity(findings);
+  const lines: string[] = [
+    "---",
+    "",
+    "### ⚠️ Withheld (ungrounded this run)",
+    "",
+    "_The reviewer cited code not found in this diff, so these were withheld from the result (not counted, no tracking ID this run)._",
+    "",
+  ];
+  for (const finding of sorted) {
+    lines.push(formatOneLiner(finding));
+  }
+  lines.push("");
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
 // Break-glass footer (#22-P1)
 // ---------------------------------------------------------------------------
 
@@ -267,9 +288,10 @@ export function formatReviewSummaryMarkdown(
   }
   lines.push(summary.body, "");
 
-  // Reviewer groups (or "No findings.")
+  // Reviewer groups (or "No findings." / "No findings survived grounding.")
   if (summary.findings.length === 0) {
-    lines.push("No findings.");
+    const hasWithheld = (summary.groundingWithheld?.length ?? 0) > 0;
+    lines.push(hasWithheld ? "No findings survived grounding." : "No findings.");
     lines.push("");
   } else {
     const reviewerKeys = sortedReviewerKeys(summary.findings);
@@ -278,6 +300,13 @@ export function formatReviewSummaryMarkdown(
       for (const line of formatReviewerGroup(reviewer, group)) {
         lines.push(line);
       }
+    }
+  }
+
+  // Withheld (grounding-dropped) block (#204)
+  if (summary.groundingWithheld !== undefined && summary.groundingWithheld.length > 0) {
+    for (const line of formatWithheldGroup(summary.groundingWithheld)) {
+      lines.push(line);
     }
   }
 
