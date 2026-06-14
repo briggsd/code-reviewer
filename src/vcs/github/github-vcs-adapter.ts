@@ -25,8 +25,10 @@ import {
   parseSummaryHiddenMetadata,
 } from "../../publisher/summary-metadata.ts";
 import { breakGlassMatchesHead, GITHUB_TRUSTED_ASSOCIATIONS } from "../break-glass-marker.ts";
+import type { FetchLike } from "../shared/http-json-client.ts";
+import { HttpJsonClient } from "../shared/http-json-client.ts";
 
-export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
+export type { FetchLike } from "../shared/http-json-client.ts";
 
 export interface GitHubVcsAdapterOptions {
   token?: string;
@@ -112,6 +114,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
   private readonly apiBaseUrl: string;
   private readonly userAgent: string;
   private readonly fetchImpl: FetchLike;
+  private readonly http: HttpJsonClient;
 
   // Memoized promise for the bot's own user id — resolved once per adapter instance.
   // Undefined means the identity could not be fetched; safe-on-failure: an unresolved
@@ -124,6 +127,12 @@ export class GitHubVcsAdapter implements VcsAdapter {
     this.apiBaseUrl = (options.apiBaseUrl ?? "https://api.github.com").replace(/\/$/, "");
     this.userAgent = options.userAgent ?? "ai-code-review-factory";
     this.fetchImpl = options.fetch ?? fetch;
+    this.http = new HttpJsonClient({
+      baseUrl: this.apiBaseUrl,
+      fetchImpl: this.fetchImpl,
+      providerNoun: "GitHub",
+      headers: (hasJsonBody) => this.headers(hasJsonBody),
+    });
   }
 
   // Resolves the numeric id of the authenticated token's user via GET /user.
@@ -161,7 +170,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
   }
 
   async getChange(ref: ChangeRef): Promise<ChangeMetadata> {
-    const response = await this.request<GitHubPullResponse>(this.pullPath(ref));
+    const response = await this.http.request<GitHubPullResponse>(this.pullPath(ref));
     const owner = ref.repository.owner ?? ownerFromSlug(ref.repository.slug);
     const repoName = repoNameFromSlug(ref.repository.slug, ref.repository.name);
 
@@ -205,7 +214,9 @@ export class GitHubVcsAdapter implements VcsAdapter {
   }
 
   async getDiff(ref: ChangeRef): Promise<DiffSummary> {
-    const files = await this.requestAllPages<GitHubPullFileResponse>(`${this.pullPath(ref)}/files`);
+    const files = await this.http.requestAllPages<GitHubPullFileResponse>(
+      `${this.pullPath(ref)}/files`,
+    );
     const normalizedFiles = files.map((file) => normalizeChangedFile(file));
 
     return {
@@ -224,7 +235,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
   }
 
   async getPriorReviewState(ref: ChangeRef): Promise<PriorReviewState | undefined> {
-    const comments = await this.requestAllPages<GitHubIssueCommentResponse>(
+    const comments = await this.http.requestAllPages<GitHubIssueCommentResponse>(
       this.issueCommentsPath(ref),
     );
     const existing = comments.findLast(
@@ -237,7 +248,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
 
   async detectBreakGlassOverride(ref: ChangeRef): Promise<BreakGlassOverride | undefined> {
     try {
-      const comments = await this.requestAllPages<GitHubIssueCommentResponse>(
+      const comments = await this.http.requestAllPages<GitHubIssueCommentResponse>(
         this.issueCommentsPath(ref),
       );
       // Find the LAST qualifying break-glass comment (most recent wins).
@@ -284,7 +295,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
       // Three-dot diff: sinceSha...headSha (changes reachable from head but not from sinceSha)
       const basehead = `${sinceSha}...${ref.headSha}`;
       const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/compare/${encodeURIComponent(basehead)}`;
-      const response = await this.request<GitHubCompareResponse>(path);
+      const response = await this.http.request<GitHubCompareResponse>(path);
 
       // isAncestor: sinceSha is a clean ancestor of head only when status is "ahead" or "identical".
       // "behind" or "diverged" indicates a force-push/rebase — not safe to narrow.
@@ -320,11 +331,14 @@ export class GitHubVcsAdapter implements VcsAdapter {
     const existing = await this.findExistingSummaryComment(input.change);
     const response =
       existing === undefined
-        ? await this.request<GitHubIssueCommentResponse>(this.issueCommentsPath(input.change), {
-            method: "POST",
-            body: { body },
-          })
-        : await this.request<GitHubIssueCommentResponse>(
+        ? await this.http.request<GitHubIssueCommentResponse>(
+            this.issueCommentsPath(input.change),
+            {
+              method: "POST",
+              body: { body },
+            },
+          )
+        : await this.http.request<GitHubIssueCommentResponse>(
             this.issueCommentPath(input.change, existing.id),
             {
               method: "PATCH",
@@ -404,7 +418,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
       }
 
       try {
-        const response = await this.request<GitHubPullReviewCommentResponse>(
+        const response = await this.http.request<GitHubPullReviewCommentResponse>(
           this.pullCommentsPath(input.change),
           {
             method: "POST",
@@ -480,7 +494,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
     // matches nothing → publishSummary POSTs a fresh comment (a possible duplicate, the safe
     // direction) rather than editing an unverified one.
     const [comments, botId] = await Promise.all([
-      this.requestAllPages<GitHubIssueCommentResponse>(this.issueCommentsPath(change)),
+      this.http.requestAllPages<GitHubIssueCommentResponse>(this.issueCommentsPath(change)),
       this.resolveBotUserId(),
     ]);
 
@@ -500,7 +514,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
     // nothing and the map stays empty — worst case is a duplicate comment, which is the
     // safe direction; suppression (skipping a real finding) is the unsafe one (#84).
     const [comments, botId] = await Promise.all([
-      this.requestAllPages<GitHubPullReviewCommentResponse>(this.pullCommentsPath(change)),
+      this.http.requestAllPages<GitHubPullReviewCommentResponse>(this.pullCommentsPath(change)),
       this.resolveBotUserId(),
     ]);
     const byFindingAndHead = new Map<string, GitHubPullReviewCommentResponse>();
@@ -518,49 +532,6 @@ export class GitHubVcsAdapter implements VcsAdapter {
     }
 
     return byFindingAndHead;
-  }
-
-  private async request<T>(
-    pathOrUrl: string,
-    options: { method?: string; body?: unknown } = {},
-  ): Promise<T> {
-    const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${this.apiBaseUrl}${pathOrUrl}`;
-    const response = await this.fetchImpl(url, {
-      ...(options.method !== undefined ? { method: options.method } : {}),
-      headers: this.headers(options.body !== undefined),
-      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `GitHub API request failed: ${response.status} ${response.statusText} for ${url}`,
-      );
-    }
-
-    return (await response.json()) as T;
-  }
-
-  private async requestAllPages<T>(path: string): Promise<T[]> {
-    let nextUrl: string | undefined = `${this.apiBaseUrl}${path}?per_page=100`;
-    const results: T[] = [];
-
-    while (nextUrl !== undefined) {
-      const response = await this.fetchImpl(nextUrl, {
-        headers: this.headers(),
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `GitHub API request failed: ${response.status} ${response.statusText} for ${nextUrl}`,
-        );
-      }
-
-      const page = (await response.json()) as T[];
-      results.push(...page);
-      nextUrl = parseNextLink(response.headers.get("link"));
-    }
-
-    return results;
   }
 
   private headers(hasJsonBody = false): HeadersInit {
@@ -620,21 +591,6 @@ function normalizeStatus(status: string): ChangedFileStatus {
   }
 
   return "modified";
-}
-
-function parseNextLink(linkHeader: string | null): string | undefined {
-  if (linkHeader === null) {
-    return undefined;
-  }
-
-  for (const part of linkHeader.split(",")) {
-    const [urlPart, relPart] = part.split(";").map((value) => value.trim());
-    if (relPart === 'rel="next"' && urlPart?.startsWith("<") && urlPart.endsWith(">")) {
-      return urlPart.slice(1, -1);
-    }
-  }
-
-  return undefined;
 }
 
 function ownerFromSlug(slug: string): string {

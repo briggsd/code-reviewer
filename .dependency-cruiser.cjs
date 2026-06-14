@@ -56,6 +56,17 @@ module.exports = {
       to: { path: "^src/vcs/github" },
     },
     {
+      name: "vcs-shared-stays-neutral",
+      severity: "error",
+      comment:
+        "src/vcs/shared holds provider-neutral VCS helpers (the HTTP/JSON client + paging). " +
+        "It must NOT import a concrete provider adapter (github/gitlab) — the provider noun is " +
+        "injected as a constructor param. vcs/* -> vcs/shared is intentionally allowed; coupling " +
+        "shared back to a provider would reintroduce the cross-VCS coupling this module removes (#156).",
+      from: { path: "^src/vcs/shared" },
+      to: { path: "^src/vcs/(github|gitlab)" },
+    },
+    {
       name: "no-circular",
       severity: "error",
       comment:

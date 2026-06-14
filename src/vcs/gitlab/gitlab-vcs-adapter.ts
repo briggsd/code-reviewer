@@ -29,8 +29,10 @@ import {
   GITLAB_MIN_TRUSTED_ACCESS_LEVEL,
   mapGitLabAccessLevel,
 } from "../break-glass-marker.ts";
+import type { FetchLike } from "../shared/http-json-client.ts";
+import { HttpJsonClient } from "../shared/http-json-client.ts";
 
-export type GitLabFetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
+export type GitLabFetchLike = FetchLike;
 
 export interface GitLabVcsAdapterOptions {
   token?: string;
@@ -122,6 +124,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
   private readonly token: string | undefined;
   private readonly apiBaseUrl: string;
   private readonly fetchImpl: GitLabFetchLike;
+  private readonly http: HttpJsonClient;
 
   // Memoized promise for the bot's own user id — resolved once per adapter instance.
   // Undefined means the identity could not be fetched; safe-on-failure: an unresolved
@@ -133,6 +136,12 @@ export class GitLabVcsAdapter implements VcsAdapter {
     this.token = options.token;
     this.apiBaseUrl = (options.apiBaseUrl ?? "https://gitlab.com/api/v4").replace(/\/$/, "");
     this.fetchImpl = options.fetch ?? fetch;
+    this.http = new HttpJsonClient({
+      baseUrl: this.apiBaseUrl,
+      fetchImpl: this.fetchImpl,
+      providerNoun: "GitLab",
+      headers: (hasJsonBody) => this.headers(hasJsonBody),
+    });
   }
 
   // Resolves the numeric id of the authenticated token's user via GET /user.
@@ -160,7 +169,9 @@ export class GitLabVcsAdapter implements VcsAdapter {
   }
 
   async getChange(ref: ChangeRef): Promise<ChangeMetadata> {
-    const response = await this.request<GitLabMergeRequestResponse>(this.mergeRequestPath(ref));
+    const response = await this.http.request<GitLabMergeRequestResponse>(
+      this.mergeRequestPath(ref),
+    );
     const headSha = response.diff_refs?.head_sha ?? response.sha ?? ref.headSha;
     const baseSha = response.diff_refs?.base_sha ?? ref.baseSha;
 
@@ -199,7 +210,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
   }
 
   async getDiff(ref: ChangeRef): Promise<DiffSummary> {
-    const response = await this.request<GitLabChangesResponse>(
+    const response = await this.http.request<GitLabChangesResponse>(
       `${this.mergeRequestPath(ref)}/changes`,
     );
     const files = response.changes.map((change) => normalizeChangedFile(change));
@@ -224,7 +235,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
   }
 
   async getPriorReviewState(ref: ChangeRef): Promise<PriorReviewState | undefined> {
-    const notes = await this.request<GitLabNoteResponse[]>(this.mergeRequestNotesPath(ref));
+    const notes = await this.http.request<GitLabNoteResponse[]>(this.mergeRequestNotesPath(ref));
     const existing = notes.findLast((note) => parseSummaryHiddenMetadata(note.body) !== undefined);
     const metadata = parseSummaryHiddenMetadata(existing?.body);
 
@@ -248,7 +259,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
       // but NOT from head: on a clean fast-forward re-push that set is empty; a force-push/rebase
       // leaves sinceSha-only commits → non-empty → not safe to narrow. A timed-out compare can't
       // confirm emptiness, so it counts as non-ancestor (the safe, full-review direction).
-      const reverse = await this.request<GitLabCompareResponse>(
+      const reverse = await this.http.request<GitLabCompareResponse>(
         this.comparePath(ref, ref.headSha, sinceSha),
       );
       const isAncestor = reverse.compare_timeout !== true && (reverse.commits?.length ?? 0) === 0;
@@ -262,7 +273,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
       }
 
       // Forward straight compare (sinceSha..headSha): the net paths changed since the prior head.
-      const forward = await this.request<GitLabCompareResponse>(
+      const forward = await this.http.request<GitLabCompareResponse>(
         this.comparePath(ref, sinceSha, ref.headSha),
       );
       if (forward.compare_timeout === true) {
@@ -290,7 +301,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
 
   async detectBreakGlassOverride(ref: ChangeRef): Promise<BreakGlassOverride | undefined> {
     try {
-      const notes = await this.request<GitLabNoteResponse[]>(this.mergeRequestNotesPath(ref));
+      const notes = await this.http.request<GitLabNoteResponse[]>(this.mergeRequestNotesPath(ref));
       // Candidates: non-system notes whose leading line is `break glass <head-sha>` for THIS head
       // commit and that are not bot summaries. Iterate most-recent-first so the first qualifying
       // author wins.
@@ -352,11 +363,11 @@ export class GitLabVcsAdapter implements VcsAdapter {
     const existing = await this.findExistingSummaryNote(input.change);
     const response =
       existing === undefined
-        ? await this.request<GitLabNoteResponse>(this.mergeRequestNotesPath(input.change), {
+        ? await this.http.request<GitLabNoteResponse>(this.mergeRequestNotesPath(input.change), {
             method: "POST",
             body: { body },
           })
-        : await this.request<GitLabNoteResponse>(
+        : await this.http.request<GitLabNoteResponse>(
             this.mergeRequestNotePath(input.change, existing.id),
             {
               method: "PUT",
@@ -407,7 +418,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
     // Fetch diff_refs from the MR — these three SHAs are required to position inline comments
     // as GitLab diff discussions.  A hard fetch failure propagates like other adapter methods
     // (publish-inline is already inside the publish path — mirror publishSummary's request usage).
-    const mrResponse = await this.request<GitLabMergeRequestResponse>(
+    const mrResponse = await this.http.request<GitLabMergeRequestResponse>(
       this.mergeRequestPath(input.change),
     );
     const diffRefs = mrResponse.diff_refs;
@@ -446,7 +457,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
     // empty — worst case is a duplicate comment, which is the safe direction; suppression
     // (skipping a real finding) is the unsafe one (#84).
     const [discussions, botId] = await Promise.all([
-      this.request<GitLabDiscussionResponse[]>(
+      this.http.request<GitLabDiscussionResponse[]>(
         `${this.mergeRequestPath(input.change)}/discussions`,
       ),
       this.resolveBotUserId(),
@@ -501,7 +512,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
       }
 
       try {
-        const response = await this.request<GitLabDiscussionResponse>(
+        const response = await this.http.request<GitLabDiscussionResponse>(
           `${this.mergeRequestPath(input.change)}/discussions`,
           {
             method: "POST",
@@ -575,7 +586,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
     // fails (suppression). Safe-on-failure: an unresolved botId matches nothing → a fresh note is
     // POSTed (possible duplicate, the safe direction) rather than editing an unverified one.
     const [notes, botId] = await Promise.all([
-      this.request<GitLabNoteResponse[]>(this.mergeRequestNotesPath(change)),
+      this.http.request<GitLabNoteResponse[]>(this.mergeRequestNotesPath(change)),
       this.resolveBotUserId(),
     ]);
 
@@ -586,26 +597,6 @@ export class GitLabVcsAdapter implements VcsAdapter {
         botId !== undefined &&
         note.author?.id === botId,
     );
-  }
-
-  private async request<T>(
-    pathOrUrl: string,
-    options: { method?: string; body?: unknown } = {},
-  ): Promise<T> {
-    const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${this.apiBaseUrl}${pathOrUrl}`;
-    const response = await this.fetchImpl(url, {
-      ...(options.method !== undefined ? { method: options.method } : {}),
-      headers: this.headers(options.body !== undefined),
-      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `GitLab API request failed: ${response.status} ${response.statusText} for ${url}`,
-      );
-    }
-
-    return (await response.json()) as T;
   }
 
   private headers(hasJsonBody = false): HeadersInit {
