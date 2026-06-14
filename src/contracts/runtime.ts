@@ -91,6 +91,8 @@ export interface ReviewerRunResult {
   tracePath?: string;
   /** Pi only: true when output came via the structured tool, false via the prose fallback (M015 S05, #128). */
   structuredOutput?: boolean;
+  /** Pi only (#189): the model the agent actually executed on — resolved AFTER the #45 dummy→defaultModel swap. Undefined for runtimes that resolve no real model (dummy) or a degenerate setup with no model at all. */
+  effectiveModel?: string;
 }
 
 export interface ReviewerRunFailure {
@@ -103,6 +105,8 @@ export interface ReviewerRunFailure {
   durationMs?: number;
   attemptCount?: number;
   retryCount?: number;
+  /** Pi only (#189): the model this reviewer was invoked on before it failed (resolved like ReviewerRunResult.effectiveModel). A failed invocation still consumed a real model, so it must count toward per-model cost/error-rate attribution. */
+  effectiveModel?: string;
 }
 
 export interface CoordinatorRunResult {
@@ -120,6 +124,8 @@ export interface CoordinatorRunResult {
   tracePath?: string;
   /** Pi only: true when output came via the structured tool, false via the prose fallback (M015 S05, #128). */
   structuredOutput?: boolean;
+  /** Pi only (#189): the model the agent actually executed on — resolved AFTER the #45 dummy→defaultModel swap. Undefined for runtimes that resolve no real model (dummy) or a degenerate setup with no model at all. */
+  effectiveModel?: string;
 }
 
 export interface RuntimeEventSubscription {

@@ -9,6 +9,9 @@ import type {
   PiProcessRunResult,
   ReviewRunRecord,
   RuntimeEvent,
+  TelemetryEvent,
+  TelemetryFlushResult,
+  TelemetrySink,
 } from "../src/index.ts";
 import {
   BunPiProcessRunner,
@@ -124,6 +127,33 @@ class SlowCoordinatorPiProcessRunner extends FakePiProcessRunner {
 class TruncatedSecurityPiProcessRunner extends FakePiProcessRunner {
   override async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
     if (input.role === "security") {
+      this.calls.push(input);
+      return {
+        finalText: '{"findings":[',
+        events: [
+          {
+            type: "message_end",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: '{"findings":[' }],
+              finish_reason: "length",
+            },
+          },
+        ],
+        rawOutput: "",
+      };
+    }
+
+    return super.run(input);
+  }
+}
+
+// Every reviewer returns a truncated (content-class) response, so all reviewers fail with a
+// degradable category and the coordinator short-circuits via buildAllReviewersFailedResult (#120)
+// — reviewerResults is empty and the coordinator never runs.
+class AllReviewersTruncatePiProcessRunner extends FakePiProcessRunner {
+  override async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role !== "coordinator") {
       this.calls.push(input);
       return {
         finalText: '{"findings":[',
@@ -898,6 +928,245 @@ describe("PiAgentRuntime", () => {
     await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
 
     expect(runner.calls.find((entry) => entry.role === "security")?.model).toBeUndefined();
+  });
+
+  // ---------------------------------------------------------------------------
+  // #189: effectiveModel — runtime-resolved model identity in telemetry
+  // ---------------------------------------------------------------------------
+
+  class RecordingTelemetrySink implements TelemetrySink {
+    readonly events: TelemetryEvent[] = [];
+    emit(event: TelemetryEvent): void {
+      this.events.push(event);
+    }
+    async flush(): Promise<TelemetryFlushResult> {
+      return {
+        deliveredCount: this.events.length,
+        failedCount: 0,
+        droppedCount: 0,
+        pendingCount: 0,
+      };
+    }
+    async close(): Promise<TelemetryFlushResult> {
+      return this.flush();
+    }
+  }
+
+  test("Test A — effectiveModel is the resolved default, not the dummy placeholder (#189)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new FakePiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    const result = await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    // Coordinator: the dummy placeholder was swapped for claude-sonnet-4-6
+    expect(result.coordinatorResult?.effectiveModel).toBe("claude-sonnet-4-6");
+    // Every reviewer result also carries the resolved model
+    const reviewerResults = result.coordinatorResult?.reviewerResults ?? [];
+    expect(reviewerResults.length).toBeGreaterThan(0);
+    for (const reviewerResult of reviewerResults) {
+      expect(reviewerResult.effectiveModel).toBe("claude-sonnet-4-6");
+    }
+  });
+
+  test("Test B — per-role identity is preserved (coordinator gets its own model, reviewers get default) (#189)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    // Override coordinator to a different real model
+    fixture.config.modelRouting.roles.coordinator = {
+      provider: "anthropic",
+      model: "claude-opus-4",
+      tier: "top",
+    };
+    const runner = new FakePiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    const result = await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    // Coordinator explicitly set to claude-opus-4 — not a dummy placeholder, so no swap
+    expect(result.coordinatorResult?.effectiveModel).toBe("claude-opus-4");
+    // Reviewers still use the dummy placeholder → swapped to default claude-sonnet-4-6
+    const securityResult = result.coordinatorResult?.reviewerResults.find(
+      (r) => r.role === "security",
+    );
+    expect(securityResult?.effectiveModel).toBe("claude-sonnet-4-6");
+  });
+
+  test("Test C — no defaultModel => effectiveModel is undefined (#189)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new FakePiProcessRunner();
+    // No defaultModel: dummy placeholders resolve to no model at all
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    const result = await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    // Degenerate setup: no real model resolved → effectiveModel must be absent
+    expect(result.coordinatorResult?.effectiveModel).toBeUndefined();
+    const reviewerResults = result.coordinatorResult?.reviewerResults ?? [];
+    expect(reviewerResults.length).toBeGreaterThan(0);
+    for (const reviewerResult of reviewerResults) {
+      expect(reviewerResult.effectiveModel).toBeUndefined();
+    }
+  });
+
+  test("Test D — run_metrics aggregation: effectiveModelIds deduped+sorted; run.start modelIds still show placeholders (#189)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    // Same setup as Test B: coordinator overridden to claude-opus-4, reviewers default to claude-sonnet-4-6
+    fixture.config.modelRouting.roles.coordinator = {
+      provider: "anthropic",
+      model: "claude-opus-4",
+      tier: "top",
+    };
+    const runner = new FakePiProcessRunner();
+    const telemetrySink = new RecordingTelemetrySink();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    await runReview({
+      fixture,
+      runtime,
+      telemetrySink,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const metricsEvent = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
+    expect(metricsEvent).toBeDefined();
+
+    // effectiveModelIds: deduped + sorted (claude-opus-4 < claude-sonnet-4-6)
+    expect(metricsEvent?.data?.effectiveModelIds).toEqual(["claude-opus-4", "claude-sonnet-4-6"]);
+
+    // At least one agent entry carries effectiveModel
+    const agents = metricsEvent?.data?.agents;
+    expect(Array.isArray(agents)).toBe(true);
+    const agentArray = agents as Array<Record<string, unknown>>;
+    // .every(), not .some(): with a configured defaultModel every agent (coordinator + all
+    // reviewers, all of which the fake gives usage) must carry the resolved model — .some()
+    // would pass on the coordinator alone, blind to a reviewer-path regression.
+    expect(agentArray.every((a) => a.effectiveModel !== undefined)).toBe(true);
+
+    // run.start modelIds still reflect the configured strings (the whole point of #189):
+    // unoverridden roles keep their dummy placeholders, so modelIds ≠ effectiveModelIds
+    const runStartEvent = telemetrySink.events.find(
+      (e) => e.type === "ai_review.run_event" && e.data?.event === "run.start",
+    );
+    // Assert the event exists so the contrast below can never be vacuously skipped.
+    expect(runStartEvent).toBeDefined();
+    const modelIds = runStartEvent?.data?.modelIds as string[] | undefined;
+    expect(modelIds).toBeDefined();
+    // Dummy placeholder strings appear in configured modelIds but NOT in effectiveModelIds —
+    // that gap is exactly what #189 closes: effectiveModelIds gives the real runtime picture.
+    const startEffectiveModelIds = metricsEvent?.data?.effectiveModelIds as string[] | undefined;
+    expect(modelIds?.some((m) => m.startsWith("dummy-"))).toBe(true);
+    expect(startEffectiveModelIds?.some((m) => m.startsWith("dummy-"))).toBe(false);
+    // The two arrays are NOT equal — effectiveModelIds ≠ modelIds
+    expect(modelIds).not.toEqual(startEffectiveModelIds);
+  });
+
+  test("Test F — a reviewer that fails all retries still contributes its effectiveModel to effectiveModelIds (#189)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    // Give the failing reviewer (security) a DISTINCT real model so its appearance in
+    // effectiveModelIds / failures is attributable ONLY to the failure path — without the fix,
+    // claude-opus-4 (used solely by the failed reviewer) would be absent from effectiveModelIds.
+    fixture.config.modelRouting.roles.security = {
+      provider: "anthropic",
+      model: "claude-opus-4",
+      tier: "top",
+    };
+    const runner = new OneReviewerFailsPiProcessRunner();
+    const telemetrySink = new RecordingTelemetrySink();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      telemetrySink,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    // security ended as a failure, not a result
+    expect(result.coordinatorResult?.reviewerResults.map((r) => r.role)).not.toContain("security");
+    const securityFailure = result.coordinatorResult?.reviewerFailures?.find(
+      (f) => f.role === "security",
+    );
+    expect(securityFailure).toBeDefined();
+    // The failed reviewer carries the model it was invoked on
+    expect(securityFailure?.effectiveModel).toBe("claude-opus-4");
+
+    const metricsEvent = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
+    const ids = metricsEvent?.data?.effectiveModelIds as string[] | undefined;
+    // The failed reviewer's model is present (only the failure path can have contributed it)...
+    expect(ids).toContain("claude-opus-4");
+    // ...alongside the succeeding reviewers'/coordinator's resolved default.
+    expect(ids).toContain("claude-sonnet-4-6");
+
+    // The per-failure metrics entry also carries the model (per-model error-rate attribution).
+    const failureEntries = metricsEvent?.data?.failures as
+      | Array<Record<string, unknown>>
+      | undefined;
+    const securityFailureMetric = failureEntries?.find((f) => f.role === "security");
+    expect(securityFailureMetric?.effectiveModel).toBe("claude-opus-4");
+  });
+
+  test("Test G — all-reviewers-failed (#120 degrade) path: effectiveModelIds comes solely from failures, no coordinator entry (#189)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    // Distinct real model for one reviewer so per-reviewer contribution is provable; the rest use
+    // the dummy placeholder → swapped to the default. Coordinator overridden to a model that must
+    // NOT appear (it never runs on the degrade path).
+    fixture.config.modelRouting.roles.security = {
+      provider: "anthropic",
+      model: "claude-opus-4",
+      tier: "top",
+    };
+    fixture.config.modelRouting.roles.coordinator = {
+      provider: "anthropic",
+      model: "claude-3-never-runs",
+      tier: "top",
+    };
+    const runner = new AllReviewersTruncatePiProcessRunner();
+    const telemetrySink = new RecordingTelemetrySink();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      telemetrySink,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    // Degrade path: no reviewer results, all reviewers in failures, review_failed.
+    expect(result.coordinatorResult?.reviewerResults).toHaveLength(0);
+    expect(result.coordinatorResult?.reviewerFailures?.length ?? 0).toBeGreaterThan(0);
+    expect(result.summary.decision).toBe("review_failed");
+
+    const metricsEvent = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
+    const ids = (metricsEvent?.data?.effectiveModelIds as string[] | undefined) ?? [];
+    // effectiveModelIds is populated ENTIRELY from reviewerFailures here (reviewerResults is empty):
+    // both the distinct failed-reviewer model and the swapped default are present...
+    expect(ids).toContain("claude-opus-4");
+    expect(ids).toContain("claude-sonnet-4-6");
+    // ...and the coordinator's configured model is absent because the coordinator never ran.
+    expect(ids).not.toContain("claude-3-never-runs");
   });
 
   test("buildPiProcessArgs emits --thinking only when the resolved model carries a bound", () => {

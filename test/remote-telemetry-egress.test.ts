@@ -241,6 +241,39 @@ describe("projectEventForEgress (#50 counts-only boundary)", () => {
     expect(projected?.runId).toBeUndefined();
     expect(projected?.data).toEqual({ riskTier: "full" });
   });
+
+  test("Test E — effectiveModelIds and effectiveModel survive the M008 egress boundary unchanged (#189)", () => {
+    // effectiveModelIds / effectiveModel are stable identifier arrays (M008): they pass
+    // AGGREGATE_KEY_PATTERN by construction (letter-first, no spaces/special chars), so
+    // projectEventForEgress must preserve them without any rollup-export.ts change.
+    const event: TelemetryEvent = {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-13T12:00:00.000Z",
+      runId: "run-e2e-test",
+      data: {
+        riskTier: "full",
+        effectiveModelIds: ["claude-sonnet-4-6"],
+        agents: [
+          {
+            agentRunId: "run-e2e-test:pi:security",
+            role: "security",
+            kind: "reviewer",
+            effectiveModel: "claude-sonnet-4-6",
+            usage: { inputTokens: 100, outputTokens: 50 },
+          },
+        ],
+      },
+    };
+
+    const projected = projectEventForEgress(event);
+    expect(projected).not.toBeNull();
+    // effectiveModelIds passes the key pattern and must be preserved
+    expect(projected?.data?.effectiveModelIds).toEqual(["claude-sonnet-4-6"]);
+    // The agents array survives; effectiveModel inside is preserved
+    const agents = projected?.data?.agents as Array<Record<string, unknown>> | undefined;
+    expect(agents).toBeDefined();
+    expect(agents?.[0]?.effectiveModel).toBe("claude-sonnet-4-6");
+  });
 });
 
 describe("TeeTelemetryTransport", () => {

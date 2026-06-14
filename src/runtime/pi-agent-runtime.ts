@@ -225,13 +225,15 @@ export class PiAgentRuntime implements AgentRuntime {
               result,
             };
           } catch (error) {
+            const effectiveModel = this.modelArgs(reviewer.model).model?.model;
+            const failure = createReviewerFailure(
+              input.runId,
+              `${input.runId}:pi:${reviewer.role}`,
+              reviewer.role,
+              error,
+            );
             snapshot.reviewerFailures.push(
-              createReviewerFailure(
-                input.runId,
-                `${input.runId}:pi:${reviewer.role}`,
-                reviewer.role,
-                error,
-              ),
+              effectiveModel !== undefined ? { ...failure, effectiveModel } : failure,
             );
             throw error;
           } finally {
@@ -252,14 +254,14 @@ export class PiAgentRuntime implements AgentRuntime {
           return [];
         }
 
-        return [
-          createReviewerFailure(
-            input.runId,
-            `${input.runId}:pi:${reviewer.role}`,
-            reviewer.role,
-            settled.reason,
-          ),
-        ];
+        const effectiveModel = this.modelArgs(reviewer.model).model?.model;
+        const failure = createReviewerFailure(
+          input.runId,
+          `${input.runId}:pi:${reviewer.role}`,
+          reviewer.role,
+          settled.reason,
+        );
+        return [effectiveModel !== undefined ? { ...failure, effectiveModel } : failure];
       });
       snapshot.reviewerResults = reviewerResults;
       snapshot.reviewerFailures = reviewerFailures;
@@ -317,6 +319,8 @@ export class PiAgentRuntime implements AgentRuntime {
       }
 
       const coordinatorPrompt = buildCoordinatorPrompt(input, reviewerResults, reviewerFailures);
+      const resolvedModel = this.modelArgs(input.model);
+      const effectiveModel = resolvedModel.model?.model;
       let streamedEventCount = 0;
       const processResult = await this.processRunner.run({
         runId: input.runId,
@@ -334,7 +338,7 @@ export class PiAgentRuntime implements AgentRuntime {
           streamedEventCount += 1;
           this.forwardPiEvent(input.runId, agentRunId, "coordinator", event);
         },
-        ...this.modelArgs(input.model),
+        ...resolvedModel,
       });
       if (streamedEventCount === 0) {
         this.forwardPiEvents(input.runId, agentRunId, "coordinator", processResult.events);
@@ -389,6 +393,7 @@ export class PiAgentRuntime implements AgentRuntime {
         rawOutput: processResult.finalText,
         ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
         structuredOutput,
+        ...(effectiveModel !== undefined ? { effectiveModel } : {}),
       };
     } finally {
       if (this.partialCoordinatorSnapshots.get(input.runId) === snapshot) {
@@ -495,6 +500,8 @@ export class PiAgentRuntime implements AgentRuntime {
         let streamedEventCount = 0;
         const prompt = buildReviewerPrompt(input);
         const promptMetrics = createReviewerPromptMetrics(input, prompt);
+        const resolvedModel = this.modelArgs(input.model);
+        const effectiveModel = resolvedModel.model?.model;
         const processResult = await this.processRunner.run({
           runId: input.runId,
           agentRunId,
@@ -511,7 +518,7 @@ export class PiAgentRuntime implements AgentRuntime {
             streamedEventCount += 1;
             this.forwardPiEvent(input.runId, agentRunId, input.role, event);
           },
-          ...this.modelArgs(input.model),
+          ...resolvedModel,
         });
         if (streamedEventCount === 0) {
           this.forwardPiEvents(input.runId, agentRunId, input.role, processResult.events);
@@ -583,6 +590,7 @@ export class PiAgentRuntime implements AgentRuntime {
           attemptCount: attempt,
           retryCount,
           structuredOutput,
+          ...(effectiveModel !== undefined ? { effectiveModel } : {}),
         };
       } catch (error) {
         const retryCount = attempt - 1;

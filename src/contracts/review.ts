@@ -269,6 +269,7 @@ export interface ReviewRunAgentMetrics {
   prompt?: AgentPromptMetrics;
   attemptCount?: number;
   retryCount?: number;
+  effectiveModel?: string;
 }
 
 export interface ReviewRunTokenMetrics extends TokenUsage {
@@ -284,6 +285,8 @@ export interface ReviewRunAgentFailureMetrics {
   durationMs?: number;
   attemptCount?: number;
   retryCount?: number;
+  /** Pi only (#189): the model the failed reviewer was invoked on — for per-model error-rate attribution. */
+  effectiveModel?: string;
 }
 
 export interface ReviewRunContextMetrics {
@@ -301,6 +304,8 @@ export interface ReviewRunMetrics {
   failures?: ReviewRunAgentFailureMetrics[];
   /** Counts-only structured-vs-prose tally across this run's Pi agents (M015 S05, #128). totalCount excludes agents with no structured-tool concept. */
   structuredOutput?: { structuredCount: number; totalCount: number };
+  /** Deduped, sorted runtime-reported effective model identifiers for this run (#189). Identifiers-only (M008). Absent for runtimes that resolve no real model (e.g. dummy). Distinct from run.start `modelIds`, which records CONFIGURED intent. */
+  effectiveModelIds?: readonly string[];
 }
 
 export interface ReviewRunRecord {

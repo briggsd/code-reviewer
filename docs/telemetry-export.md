@@ -112,7 +112,7 @@ as of issue #20 (S04–S06). Each run_event carries `type: "ai_review.run_event"
 
 | Subtype | Emitted | Payload (counts/identifiers only) |
 |---|---|---|
-| `run.start` | Every run (before agents execute) | `event`, `schemaVersion`, `repository` (slug), `changeId`, `riskTier`, `selectedReviewerRoles` (string array), `modelIds` (unique sorted string array) |
+| `run.start` | Every run (before agents execute) | `event`, `schemaVersion`, `repository` (slug), `changeId`, `riskTier`, `selectedReviewerRoles` (string array), `modelIds` (unique sorted string array — **configured intent**, from `.ai-review.json` / default config) |
 | `run.completed` | Completed runs only (not failed) | `event`, `schemaVersion`, `repository`, `riskTier`, `decision`, `outcome`, `durationMs`, `findingCount`, `findingsBySeverity` (counts), `findingsByReviewer` (counts), `tokens?` (`inputTokens`/`outputTokens`/`cacheReadTokens`/`cacheWriteTokens`/`estimatedCostUsd` numbers — present only when the run has token metrics) |
 | `run.correction` | Completed runs with a prior-state comparison or acknowledged findings | `event`, `schemaVersion`, `repository`, `riskTier`, `newFindingCount`, `recurringFindingCount`, `fixedFindingCount`, `withheldFindingCount`, `acceptanceByReviewer` (per-reviewer counts: accepted/notAccepted/rejected/withheldExcluded) |
 | `run.override` | A run for which a trusted commenter posted a `break glass <head-sha>` PR/MR comment (#22 phase 2) | `event`, `schemaVersion`, `repository`, `changeId`, `riskTier`, `overrideCommentId` (stable identifier of the triggering comment — the audit pointer; never an author name), `authorAssociation` (coarse role category that authorized it — one of `OWNER`/`MEMBER`/`COLLABORATOR`, the same three values for both GitHub and GitLab: GitLab Developer/Maintainer/Owner access maps to COLLABORATOR/MEMBER/OWNER. Like `riskTier`, not an author name) |
@@ -121,6 +121,14 @@ The `run.override` event records that a human break-glass override occurred and 
 triggering comment by stable id. The **override rate** (override events / started runs, and per
 tier) is the quality signal — a rising rate means the bot is misfiring. The override identity and
 rationale stay in the PR/MR comment itself, not in telemetry (M008).
+
+**`modelIds` vs `effectiveModelIds` (#189):** the `run.start` run_event subtype's `modelIds`
+records the *configured intent* — the model strings from `.ai-review.json` or the default config
+(e.g. `"dummy-standard"` placeholders). The Pi runtime swaps dummy placeholders for the real model
+at startup; the separate **`ai_review.run_metrics`** event (not a `run_event` subtype above) carries
+`effectiveModelIds` — the *runtime-resolved* identifiers actually used (deduped, sorted; absent for
+runtimes that resolve no real model), plus per-agent `effectiveModel` on its `agents` / `failures`
+entries. Use `effectiveModelIds` for per-model cost/token segmentation.
 
 ### Acceptance mapping (run.correction)
 
