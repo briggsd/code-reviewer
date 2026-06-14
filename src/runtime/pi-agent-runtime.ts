@@ -598,15 +598,16 @@ export class PiAgentRuntime implements AgentRuntime {
         // is never guaranteed; when it is absent we fall back to parsing the model's prose (which
         // still routes through the retained quote-repair). `structuredOutput` records which path ran
         // so the production hit-rate is observable — the evidence S05 uses to retire repair. A tool
-        // call WITH invalid args is NOT silently re-parsed from prose: `parseReviewerToolArgs` throws
-        // (re-validating every finding), surfacing schema drift as a classified failure.
+        // call with an args payload that is NOT an object / has no `findings` array throws (classified
+        // failure); one or more INVALID findings are dropped tolerantly and counted, symmetric with
+        // the prose path (M020 S04, #219). Only an all-invalid non-empty array throws (no
+        // false-approve).
         const toolArgs = readToolCallArgs(processResult.events, SUBMIT_FINDINGS_TOOL_NAME);
         const structuredOutput = toolArgs.status === "found";
-        // The structured tool path re-validates and THROWS on any invalid arg (no silent drop), so
-        // its drop count is always 0. The prose fallback drops corrupt/invalid findings tolerantly
-        // and reports how many — surfaced as `droppedFindingCount` telemetry (M015 S05, #128).
+        // Both paths now drop invalid findings tolerantly and surface the count as `droppedFindingCount`
+        // telemetry (M015 S05, #128; M020 S04, #219). Only genuinely unparseable inputs throw.
         const { findings: parsedFindings, droppedFindingCount } = structuredOutput
-          ? { findings: parseReviewerToolArgs(toolArgs.args), droppedFindingCount: 0 }
+          ? parseReviewerToolArgs(toolArgs.args)
           : parseReviewerOutput(processResult.finalText);
         const roleEnforcement = enforceReviewerRole(parsedFindings, input.role);
         const severityEnforcement = enforceReviewerAllowedSeverities(

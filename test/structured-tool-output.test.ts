@@ -111,10 +111,11 @@ describe("readToolCallArgs", () => {
 });
 
 describe("parseReviewerToolArgs", () => {
-  test("validates a findings array into Finding[]", () => {
-    const findings = parseReviewerToolArgs({ findings: [validFinding()] });
-    expect(findings).toHaveLength(1);
-    expect(findings[0]).toMatchObject({
+  test("validates a findings array and returns ParsedReviewerOutput", () => {
+    const result = parseReviewerToolArgs({ findings: [validFinding()] });
+    expect(result.findings).toHaveLength(1);
+    expect(result.droppedFindingCount).toBe(0);
+    expect(result.findings[0]).toMatchObject({
       reviewer: "correctness",
       severity: "warning",
       category: "logic",
@@ -126,34 +127,37 @@ describe("parseReviewerToolArgs", () => {
   });
 
   test("accepts an empty findings array (clean diff)", () => {
-    expect(parseReviewerToolArgs({ findings: [] })).toEqual([]);
+    expect(parseReviewerToolArgs({ findings: [] })).toEqual({
+      findings: [],
+      droppedFindingCount: 0,
+    });
   });
 
   test("drops a model-emitted finding id (#31/#32 trust boundary)", () => {
-    const [finding] = parseReviewerToolArgs({
+    const { findings } = parseReviewerToolArgs({
       findings: [validFinding({ id: "attacker-chosen-id" })],
     });
-    expect(finding).not.toHaveProperty("id");
+    expect(findings[0]).not.toHaveProperty("id");
   });
 
   test("keeps a valid location and drops one missing a string path", () => {
-    const [withLocation] = parseReviewerToolArgs({
+    const { findings: withLocationArr } = parseReviewerToolArgs({
       findings: [validFinding({ location: { path: "src/a.ts", line: 3 } })],
     });
-    expect(withLocation?.location).toEqual({ path: "src/a.ts", line: 3 });
+    expect(withLocationArr[0]?.location).toEqual({ path: "src/a.ts", line: 3 });
 
-    const [withoutLocation] = parseReviewerToolArgs({
+    const { findings: withoutLocationArr } = parseReviewerToolArgs({
       findings: [validFinding({ location: { line: 3 } })],
     });
-    expect(withoutLocation).not.toHaveProperty("location");
+    expect(withoutLocationArr[0]).not.toHaveProperty("location");
   });
 
   test("normalizes quotedCode and a string evidence value", () => {
-    const [finding] = parseReviewerToolArgs({
+    const { findings } = parseReviewerToolArgs({
       findings: [validFinding({ evidence: "single string", quotedCode: ["  padded line  "] })],
     });
-    expect(finding?.evidence).toEqual(["single string"]);
-    expect(finding?.quotedCode).toEqual(["padded line"]);
+    expect(findings[0]?.evidence).toEqual(["single string"]);
+    expect(findings[0]?.quotedCode).toEqual(["padded line"]);
   });
 
   test("throws when args is not an object", () => {
@@ -166,30 +170,64 @@ describe("parseReviewerToolArgs", () => {
     expect(() => parseReviewerToolArgs({ findings: "nope" })).toThrow(/findings array/);
   });
 
-  test("throws when a finding is missing a required field", () => {
+  test("drops a single invalid finding (missing required field) and throws all-dropped", () => {
     const { recommendation, ...incomplete } = validFinding();
-    expect(() => parseReviewerToolArgs({ findings: [incomplete] })).toThrow(/invalid finding/);
+    expect(() => parseReviewerToolArgs({ findings: [incomplete] })).toThrow(
+      /all findings failed validation/,
+    );
   });
 
   // `evidence` is a required, non-empty string array in the schema, so a null or non-string-scalar
   // value is malformed and must be rejected (NOT leniently coerced to []). `undefined`/absent is the
   // only "empty is ok" case (covered by validFinding's default). This pins that boundary.
-  test("rejects a null or non-string-scalar evidence value", () => {
+  test("rejects a null or non-string-scalar evidence value (all-dropped throws)", () => {
     expect(() => parseReviewerToolArgs({ findings: [validFinding({ evidence: null })] })).toThrow(
-      /invalid finding/,
+      /all findings failed validation/,
     );
     expect(() => parseReviewerToolArgs({ findings: [validFinding({ evidence: 42 })] })).toThrow(
-      /invalid finding/,
+      /all findings failed validation/,
     );
   });
 
-  test("throws on an invalid severity/confidence enum value", () => {
+  test("throws all-dropped on an invalid severity/confidence enum value (single-element)", () => {
     expect(() =>
       parseReviewerToolArgs({ findings: [validFinding({ severity: "blocker" })] }),
-    ).toThrow();
+    ).toThrow(/all findings failed validation/);
     expect(() =>
       parseReviewerToolArgs({ findings: [validFinding({ confidence: "certain" })] }),
-    ).toThrow();
+    ).toThrow(/all findings failed validation/);
+  });
+
+  // Tolerant drop: one invalid + one valid → keep valid, count the drop, no throw.
+  test("drops one invalid finding and keeps the valid one (droppedFindingCount: 1)", () => {
+    const { recommendation, ...incomplete } = validFinding();
+    const result = parseReviewerToolArgs({
+      findings: [incomplete, validFinding({ severity: "critical" })],
+    });
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]?.severity).toBe("critical");
+    expect(result.droppedFindingCount).toBe(1);
+  });
+
+  // All-invalid non-empty array: no findings survive → throws, no false-approve.
+  test("throws when all findings in a non-empty array are invalid (no false-approve)", () => {
+    const { recommendation, ...incomplete } = validFinding();
+    expect(() => parseReviewerToolArgs({ findings: [incomplete, incomplete] })).toThrow(
+      /all findings failed validation/,
+    );
+  });
+
+  // Clean passthrough: N valid findings → droppedFindingCount: 0.
+  test("passes through N valid findings with droppedFindingCount: 0", () => {
+    const result = parseReviewerToolArgs({
+      findings: [
+        validFinding(),
+        validFinding({ severity: "critical" }),
+        validFinding({ severity: "suggestion" }),
+      ],
+    });
+    expect(result.findings).toHaveLength(3);
+    expect(result.droppedFindingCount).toBe(0);
   });
 });
 
@@ -201,7 +239,7 @@ describe("readToolCallArgs + parseReviewerToolArgs (end to end)", () => {
     if (result.status !== "found") {
       throw new Error("expected found");
     }
-    const findings = parseReviewerToolArgs(result.args);
+    const { findings } = parseReviewerToolArgs(result.args);
     expect(findings).toHaveLength(2);
     expect(findings.map((f) => f.severity)).toEqual(["warning", "critical"]);
   });

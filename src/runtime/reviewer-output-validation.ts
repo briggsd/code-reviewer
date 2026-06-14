@@ -9,19 +9,12 @@
 import type { Finding, ReviewSummary, RiskAssessment, Severity } from "../contracts/index.ts";
 import type { summarizeReview } from "../runner/run-review.ts";
 import { extractFencedJson, parseJsonCandidate, parseJsonObject } from "./pi-json-repair.ts";
-import { getRecord, validateFinding } from "./structured-tool-output.ts";
+import { getRecord, type ParsedReviewerOutput, validateFinding } from "./structured-tool-output.ts";
 
-// Result of the tolerant prose-fallback parse. `droppedFindingCount` makes a PARTIAL drop
-// observable (M015 S05, #128): when some-but-not-all findings are discarded (a recovery-parse
-// failure on a corrupt element, or a per-element validateFinding rejection), the survivor count
-// alone hides the discrepancy. A prompt-injected reviewer could emit a real finding with an
-// out-of-enum severity that is silently dropped; surfacing the drop count restores the loud,
-// investigable signal the pre-S05 throw-on-first-invalid behaviour gave (see the reviewer
-// `agent.output` telemetry). The all-dropped case still throws (no false-approve).
-export interface ParsedReviewerOutput {
-  findings: Finding[];
-  droppedFindingCount: number;
-}
+// ParsedReviewerOutput is defined in structured-tool-output.ts (where parseReviewerToolArgs lives)
+// and re-exported from there. It is re-used here for the prose path so both delivery paths share
+// the same return shape. See structured-tool-output.ts for the type's doc comment and rationale.
+export type { ParsedReviewerOutput };
 
 export function parseReviewerOutput(text: string): ParsedReviewerOutput {
   // Tier 1 (whole-object parse, unchanged path): if the full JSON parses, take its findings array.

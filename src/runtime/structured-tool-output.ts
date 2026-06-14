@@ -27,6 +27,19 @@
 
 import type { Finding } from "../contracts/index.ts";
 
+// Result of the tolerant structured parse. `droppedFindingCount` makes a PARTIAL drop observable
+// (M020 S04, #219): when some-but-not-all findings are discarded (a per-element validateFinding
+// rejection), the survivor count alone hides the discrepancy. Surfacing the drop count restores
+// the loud, investigable signal the pre-#219 throw-on-first-invalid behaviour gave (see the
+// reviewer `agent.output` telemetry). The all-dropped case still throws (no false-approve).
+// NOTE: exported here (not in reviewer-output-validation.ts) to avoid a module-edge cycle —
+// reviewer-output-validation already imports getRecord/validateFinding FROM this module, so
+// defining ParsedReviewerOutput here keeps structured-tool-output.ts a pure leaf.
+export interface ParsedReviewerOutput {
+  findings: Finding[];
+  droppedFindingCount: number;
+}
+
 /** Name of the factory-owned terminal tool the reviewer calls to deliver findings (S01, #124). */
 export const SUBMIT_FINDINGS_TOOL_NAME = "submit_findings";
 
@@ -59,19 +72,34 @@ export function readToolCallArgs(events: readonly unknown[], toolName: string): 
 }
 
 /**
- * Validate `submit_findings` tool arguments into `Finding[]`. Mirrors `parseReviewerOutput`'s
- * post-parse logic exactly (same `validateFinding` per item), minus the JSON parsing/repair the
- * structured path no longer needs. Throws when `args` is not an object or `args.findings` is not an
- * array, or when any finding fails validation — letting the caller fall back / classify the failure
- * just as the prose path does.
+ * Validate `submit_findings` tool arguments into a `ParsedReviewerOutput`. Mirrors
+ * `parseReviewerOutput`'s tolerant per-element logic exactly (same `validateFinding` per item),
+ * minus the JSON parsing/repair the structured path no longer needs. Throws when `args` is not an
+ * object or `args.findings` is not an array (genuinely unparseable → classified failure). Per
+ * finding: drops invalid elements and counts them in `droppedFindingCount` instead of throwing on
+ * the first bad one — a partial drop surfaces as telemetry, not a total reviewer loss. If the input
+ * array is non-empty but ALL findings fail validation, throws (no false-approve, symmetric with the
+ * prose path's all-dropped guard).
  */
-export function parseReviewerToolArgs(args: unknown): Finding[] {
-  const findings = getRecord(args).findings;
-  if (!Array.isArray(findings)) {
+export function parseReviewerToolArgs(args: unknown): ParsedReviewerOutput {
+  const rawFindings = getRecord(args).findings;
+  if (!Array.isArray(rawFindings)) {
     throw new Error("submit_findings tool arguments did not contain a findings array");
   }
 
-  return findings.map((finding) => validateFinding(finding));
+  const findings = rawFindings.flatMap((f) => {
+    try {
+      return [validateFinding(f)];
+    } catch {
+      return [];
+    }
+  });
+
+  if (findings.length === 0 && rawFindings.length > 0) {
+    throw new Error("submit_findings tool arguments: all findings failed validation");
+  }
+
+  return { findings, droppedFindingCount: rawFindings.length - findings.length };
 }
 
 // ── Shared finding validation (moved verbatim from pi-agent-runtime.ts; the prose path imports
