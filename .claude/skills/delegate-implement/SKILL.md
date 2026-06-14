@@ -89,12 +89,19 @@ the real-Pi review is **advisory**. Don't let the CI review be round 1 — front
      (e.g. empty-string on every input path), and **doc claims that overstate** (don't assert a
      guarantee the code doesn't make). Most round-1 findings live here and need no model to catch.
    - **Local dogfood review (security/correctness-heavy diffs only):** run the factory on its own
-     branch first — `bun run src/cli.ts run --git-diff --base main --runtime pi --pi-api-key
-     env:ANTHROPIC_API_KEY --output-dir /tmp/x` (key in macOS keychain: `security
-     find-generic-password -s ANTHROPIC_API_KEY -w`). Same reviewer as CI, but iterate locally with
-     no push/queue/runner latency, so the PR opens near the noise floor. Worth the ~1 review's tokens
-     when round-1 reliably has real findings (new auth flag, content-based skip-review heuristic); skip
-     for doc/trivial diffs.
+     branch first — `bun run src/cli.ts run --git-diff --base main --runtime pi --pi-provider anthropic
+     --pi-model claude-sonnet-4-6 --pi-api-key env:ANTHROPIC_API_KEY --output-dir /tmp/x` (key in macOS
+     keychain: `security find-generic-password -s ANTHROPIC_API_KEY -w`). **`--pi-provider`/`--pi-model`
+     are required** — the default config's `modelRouting` is all `dummy` placeholders that get swapped
+     for the runtime's `defaultModel`, so without them every reviewer dies with `--api-key requires a
+     model`. Use `--git-diff` (no `--base`) to review **uncommitted** work, or `--base main` for
+     **committed** branch work; with new untracked files, `git add -N <paths>` first so the diff sees
+     them (`git reset` after). **Don't trust the summary's `findingCount` alone** — a reviewer can fail
+     (timeout/`schema_invalid`) and the summary still reads "clean"; check the trace for
+     `failedReviewerCount`/`agent.failed`. Same reviewer as CI, but iterate locally with no
+     push/queue/runner latency, so the PR opens near the noise floor. Worth the ~1 review's tokens when
+     round-1 reliably has real findings (new auth flag, content-based skip-review heuristic); skip for
+     doc/trivial diffs.
 2. **Hard stopping rule: max ~2 CI review rounds.** After round 2, accept-and-document the remaining
    findings (they're typically suggestions / impossible-given-invariants) and **merge on the green
    blocking check** (`merge-worktree.sh <pr#>`) — don't spend a full advisory cycle on a doc-only
