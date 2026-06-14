@@ -257,6 +257,8 @@ export interface ReviewRunDurations {
   contextBuildMs?: number;
   riskAssessmentMs?: number;
   coordinatorMs?: number;
+  fanOutMs?: number;
+  fusionMs?: number;
   publishMs?: number;
   fetchMs?: number;
 }
@@ -270,6 +272,7 @@ export interface ReviewRunAgentMetrics {
   attemptCount?: number;
   retryCount?: number;
   effectiveModel?: string;
+  durationMs?: number;
 }
 
 export interface ReviewRunTokenMetrics extends TokenUsage {

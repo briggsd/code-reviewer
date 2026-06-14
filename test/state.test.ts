@@ -31,6 +31,7 @@ import {
   RedactingTraceSink,
   runReview,
 } from "../src/index.ts";
+import { createRunMetrics, createRunMetricsTelemetryEvent } from "../src/runner/run-metrics.ts";
 
 class FailingRuntime implements AgentRuntime {
   readonly name = "failing";
@@ -1116,3 +1117,190 @@ function createIncrementingClock(startIso: string): () => Date {
     return date;
   };
 }
+
+// ---------------------------------------------------------------------------
+// #196: createRunMetrics / createRunMetricsTelemetryEvent latency decomposition
+// ---------------------------------------------------------------------------
+
+describe("createRunMetrics + createRunMetricsTelemetryEvent latency decomposition (#196)", () => {
+  /** Minimal ReviewContext sufficient for createRunMetricsTelemetryEvent */
+  const minimalContext = {
+    runId: "r1",
+    safetyMode: "strict" as const,
+    metadata: {
+      provider: "github" as const,
+      repository: { provider: "github" as const, name: "demo", slug: "owner/demo" },
+      changeId: "42",
+      headSha: "abc123",
+      title: "Test PR",
+      author: { username: "dev" },
+      labels: [],
+    },
+    risk: {
+      tier: "full" as const,
+      reason: "sensitive path",
+      matchedRules: [],
+      sensitivePaths: [],
+      reviewedFileCount: 2,
+      ignoredFileCount: 0,
+    },
+    diff: {
+      files: [],
+      totalAdditions: 0,
+      totalDeletions: 0,
+      truncated: false as const,
+    },
+    config: {},
+    workingDirectory: "/tmp",
+    contextDirectory: "/tmp/ctx",
+  };
+
+  test("createRunMetrics threads reviewer durationMs and coordinator fusionMs into agents (#196)", () => {
+    const metrics = createRunMetrics({
+      durationsMs: { overallMs: 5000, coordinatorMs: 3000, fanOutMs: 2000, fusionMs: 1000 },
+      coordinatorResult: {
+        runId: "r1",
+        agentRunId: "r1:pi:coordinator",
+        summary: {
+          decision: "approved",
+          outcome: "pass",
+          title: "OK",
+          body: "",
+          findings: [],
+          risk: minimalContext.risk,
+        },
+        reviewerResults: [
+          {
+            runId: "r1",
+            agentRunId: "r1:pi:security",
+            role: "security",
+            findings: [],
+            usage: { inputTokens: 10, outputTokens: 5, estimatedCostUsd: 0.001 },
+            durationMs: 1234,
+          },
+        ],
+        fanOutMs: 2000,
+        fusionMs: 1000,
+        usage: { inputTokens: 20, outputTokens: 10, estimatedCostUsd: 0.002 },
+      },
+    });
+
+    // durationsMs carries both fanOutMs and fusionMs
+    expect(metrics.durationsMs.fanOutMs).toBe(2000);
+    expect(metrics.durationsMs.fusionMs).toBe(1000);
+
+    // reviewer agent entry carries its own durationMs
+    const securityAgent = metrics.agents?.find((a) => a.role === "security");
+    expect(securityAgent?.durationMs).toBe(1234);
+
+    // coordinator agent entry carries fusionMs as durationMs
+    const coordinatorAgent = metrics.agents?.find((a) => a.role === "coordinator");
+    expect(coordinatorAgent?.durationMs).toBe(1000);
+  });
+
+  test("createRunMetricsTelemetryEvent serializes durationsMs.fanOutMs, durationsMs.fusionMs, and agents[].durationMs (#196)", () => {
+    const metrics = createRunMetrics({
+      durationsMs: { overallMs: 5000, coordinatorMs: 3000, fanOutMs: 2000, fusionMs: 1000 },
+      coordinatorResult: {
+        runId: "r1",
+        agentRunId: "r1:pi:coordinator",
+        summary: {
+          decision: "approved",
+          outcome: "pass",
+          title: "OK",
+          body: "",
+          findings: [],
+          risk: minimalContext.risk,
+        },
+        reviewerResults: [
+          {
+            runId: "r1",
+            agentRunId: "r1:pi:security",
+            role: "security",
+            findings: [],
+            usage: { inputTokens: 10, outputTokens: 5, estimatedCostUsd: 0.001 },
+            durationMs: 500,
+          },
+        ],
+        fanOutMs: 2000,
+        fusionMs: 1000,
+        usage: { inputTokens: 20, outputTokens: 10, estimatedCostUsd: 0.002 },
+      },
+    });
+
+    const syntheticSummary = {
+      decision: "approved" as const,
+      outcome: "pass" as const,
+      title: "OK",
+      body: "",
+      findings: [],
+      risk: minimalContext.risk,
+    };
+    const event = createRunMetricsTelemetryEvent({
+      runId: "r1",
+      timestamp: "2026-06-14T00:00:00.000Z",
+      context: minimalContext as unknown as Parameters<
+        typeof createRunMetricsTelemetryEvent
+      >[0]["context"],
+      metrics,
+      status: "completed",
+      runtime: "pi",
+      summary: syntheticSummary,
+    });
+
+    // durationsMs block carries fanOutMs and fusionMs
+    const durationsMs = event.data?.durationsMs as Record<string, unknown> | undefined;
+    expect(typeof durationsMs?.fanOutMs).toBe("number");
+    expect(durationsMs?.fanOutMs).toBe(2000);
+    expect(durationsMs?.fusionMs).toBe(1000);
+
+    // agents[] carries durationMs on each entry
+    const agents = event.data?.agents as Array<Record<string, unknown>> | undefined;
+    const securityAgent = agents?.find((a) => a.role === "security");
+    expect(securityAgent?.durationMs).toBe(500);
+    const coordinatorAgent = agents?.find((a) => a.role === "coordinator");
+    expect(coordinatorAgent?.durationMs).toBe(1000);
+  });
+
+  test("createRunMetrics omits durationMs from agents when not provided (#196)", () => {
+    const metrics = createRunMetrics({
+      durationsMs: { overallMs: 1000 },
+      coordinatorResult: {
+        runId: "r2",
+        agentRunId: "r2:pi:coordinator",
+        summary: {
+          decision: "approved",
+          outcome: "pass",
+          title: "OK",
+          body: "",
+          findings: [],
+          risk: minimalContext.risk,
+        },
+        reviewerResults: [
+          {
+            runId: "r2",
+            agentRunId: "r2:pi:security",
+            role: "security",
+            findings: [],
+            // no durationMs — simulates dummy runtime or pre-#196 path
+            usage: { inputTokens: 10, outputTokens: 5, estimatedCostUsd: 0.001 },
+          },
+        ],
+        // no fanOutMs / fusionMs
+        usage: { inputTokens: 20, outputTokens: 10, estimatedCostUsd: 0.002 },
+      },
+    });
+
+    // durationsMs carries neither fanOutMs nor fusionMs (undefined → omitted)
+    expect(metrics.durationsMs.fanOutMs).toBeUndefined();
+    expect(metrics.durationsMs.fusionMs).toBeUndefined();
+
+    // reviewer agent entry has no durationMs
+    const securityAgent = metrics.agents?.find((a) => a.role === "security");
+    expect("durationMs" in (securityAgent ?? {})).toBe(false);
+
+    // coordinator agent entry has no durationMs
+    const coordinatorAgent = metrics.agents?.find((a) => a.role === "coordinator");
+    expect("durationMs" in (coordinatorAgent ?? {})).toBe(false);
+  });
+});

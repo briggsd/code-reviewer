@@ -1072,3 +1072,121 @@ describe("analyzeRunMetrics cacheHitRate (#141)", () => {
     expect(output).toContain("Overall cache-hit rate:");
   });
 });
+
+// ---------------------------------------------------------------------------
+// #196: fanOutMsPerRun / fusionMsPerRun latency decomposition
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics fanOutMsPerRun / fusionMsPerRun (#196)", () => {
+  // Three synthetic runs:
+  //   run-196-a: full tier, durationsMs.fanOutMs=2000, durationsMs.fusionMs=1000
+  //   run-196-b: full tier, durationsMs.fanOutMs=3000, durationsMs.fusionMs=500
+  //   run-196-c: lite tier, durationsMs.fanOutMs=1000, durationsMs.fusionMs=0 (short-circuit: fusionMs omitted)
+  const subDurationEvents: TelemetryEvent[] = [
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-14T00:00:00.000Z",
+      runId: "run-196-a",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        reviewedFileCount: 2,
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 5000,
+        durationsMs: { overallMs: 5000, coordinatorMs: 3000, fanOutMs: 2000, fusionMs: 1000 },
+        findingCount: 0,
+        findingsByReviewer: {},
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-14T01:00:00.000Z",
+      runId: "run-196-b",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        reviewedFileCount: 2,
+        decision: "minor_issues",
+        outcome: "pass",
+        durationMs: 6000,
+        durationsMs: { overallMs: 6000, coordinatorMs: 3500, fanOutMs: 3000, fusionMs: 500 },
+        findingCount: 1,
+        findingsByReviewer: { security: 1 },
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-14T02:00:00.000Z",
+      runId: "run-196-c",
+      data: {
+        runtime: "pi",
+        riskTier: "lite",
+        reviewedFileCount: 1,
+        decision: "approved",
+        outcome: "pass",
+        durationMs: 1200,
+        // Short-circuit: fanOutMs present, fusionMs absent (no synthesis ran)
+        durationsMs: { overallMs: 1200, coordinatorMs: 800, fanOutMs: 1000 },
+        findingCount: 0,
+        findingsByReviewer: {},
+      },
+    },
+    {
+      // dummy runtime: excluded
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-14T03:00:00.000Z",
+      runId: "run-196-dummy",
+      data: {
+        runtime: "dummy",
+        riskTier: "full",
+        durationMs: 1000,
+        durationsMs: { overallMs: 1000, fanOutMs: 9999, fusionMs: 9999 },
+        findingCount: 0,
+        findingsByReviewer: {},
+      },
+    },
+  ];
+
+  test("fanOutMsPerRun averages fanOutMs correctly per tier (#196)", () => {
+    const analysis = analyzeRunMetrics(subDurationEvents);
+    // full tier: (2000 + 3000) / 2 = 2500
+    expect(analysis.byTier.full?.fanOutMsPerRun).toBeCloseTo(2500, 5);
+    // lite tier: 1000 / 1 = 1000
+    expect(analysis.byTier.lite?.fanOutMsPerRun).toBeCloseTo(1000, 5);
+  });
+
+  test("fusionMsPerRun averages fusionMs correctly per tier, missing values contribute 0 (#196)", () => {
+    const analysis = analyzeRunMetrics(subDurationEvents);
+    // full tier: (1000 + 500) / 2 = 750
+    expect(analysis.byTier.full?.fusionMsPerRun).toBeCloseTo(750, 5);
+    // lite tier: fusionMs absent → treated as 0; average = 0/1 = 0
+    expect(analysis.byTier.lite?.fusionMsPerRun).toBeCloseTo(0, 5);
+  });
+
+  test("dummy runtime is excluded from fanOutMsPerRun / fusionMsPerRun (#196)", () => {
+    const analysis = analyzeRunMetrics(subDurationEvents);
+    // Only 2 real full-tier runs; dummy's 9999 values must not appear
+    expect(analysis.byTier.full?.fanOutMsPerRun).not.toBe(9999);
+    expect(analysis.byTier.full?.fusionMsPerRun).not.toBe(9999);
+    // Confirms exact averages (also validates dummy exclusion)
+    expect(analysis.byTier.full?.fanOutMsPerRun).toBeCloseTo(2500, 5);
+    expect(analysis.byTier.full?.fusionMsPerRun).toBeCloseTo(750, 5);
+  });
+
+  test("fanOutMsPerRun and fusionMsPerRun are 0 when no sub-duration data is present (#196)", () => {
+    // Use the base events which have no durationsMs block
+    const analysis = analyzeRunMetrics(events);
+    for (const seg of Object.values(analysis.byTier)) {
+      expect(seg.fanOutMsPerRun).toBe(0);
+      expect(seg.fusionMsPerRun).toBe(0);
+    }
+  });
+
+  test("formatRunMetricsAnalysis includes FanOut ms/run and Fusion ms/run columns (#196)", () => {
+    const analysis = analyzeRunMetrics(subDurationEvents);
+    const formatted = formatRunMetricsAnalysis(analysis);
+    expect(formatted).toContain("FanOut ms/run");
+    expect(formatted).toContain("Fusion ms/run");
+  });
+});

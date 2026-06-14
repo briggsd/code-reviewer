@@ -21,6 +21,7 @@ import {
   FileSystemReviewStateStore,
   JsonlTraceSink,
   loadReviewFixture,
+  normalizeReviewFixture,
   PiAgentRuntime,
   runReview,
   shouldRetryReviewerFailure,
@@ -1158,6 +1159,13 @@ describe("PiAgentRuntime", () => {
     expect(result.coordinatorResult?.reviewerResults).toHaveLength(0);
     expect(result.coordinatorResult?.reviewerFailures?.length ?? 0).toBeGreaterThan(0);
     expect(result.summary.decision).toBe("review_failed");
+
+    // Fan-out still ran (every reviewer was dispatched, then failed), so fanOutMs is recorded even
+    // on the degrade path; fusionMs stays undefined since synthesis never ran (#196).
+    const degradeFanOutMs = result.coordinatorResult?.fanOutMs;
+    expect(typeof degradeFanOutMs).toBe("number");
+    expect(Number.isFinite(degradeFanOutMs) && (degradeFanOutMs as number) >= 0).toBe(true);
+    expect(result.coordinatorResult?.fusionMs).toBeUndefined();
 
     const metricsEvent = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
     const ids = (metricsEvent?.data?.effectiveModelIds as string[] | undefined) ?? [];
@@ -2541,6 +2549,98 @@ describe("PiAgentRuntime", () => {
     expect(result.summary.findings[0]?.quotedCode).toEqual([
       "return db.accounts.findById(accountId);",
     ]);
+  });
+
+  // #196: coordinator latency decomposition
+  test("durationMs on each reviewerResult is a finite number >= 0 after a successful multi-reviewer run (#196)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new FakePiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    const result = await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    const reviewerResults = result.coordinatorResult?.reviewerResults ?? [];
+    expect(reviewerResults.length).toBeGreaterThan(0);
+    for (const reviewerResult of reviewerResults) {
+      expect(typeof reviewerResult.durationMs).toBe("number");
+      expect(Number.isFinite(reviewerResult.durationMs)).toBe(true);
+      expect(reviewerResult.durationMs).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  test("fanOutMs and fusionMs are finite numbers >= 0 on the coordinatorResult after a full synthesis run (#196)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new FakePiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    const result = await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    const coord = result.coordinatorResult;
+    expect(typeof coord?.fanOutMs).toBe("number");
+    expect(Number.isFinite(coord?.fanOutMs)).toBe(true);
+    expect(coord?.fanOutMs).toBeGreaterThanOrEqual(0);
+
+    expect(typeof coord?.fusionMs).toBe("number");
+    expect(Number.isFinite(coord?.fusionMs)).toBe(true);
+    expect(coord?.fusionMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test("short-circuit path: fanOutMs is defined, fusionMs is undefined (#196)", async () => {
+    // Build a trivial-tier fixture: small diff, no sensitive paths → tier=trivial →
+    // shortCircuitOnZeroFindings=true. FakePiProcessRunner returns zero findings for
+    // non-security reviewers, and the trivial tier only dispatches code_quality (#no security).
+    const runner = new FakePiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    const fixture = normalizeReviewFixture({
+      metadata: {
+        provider: "local",
+        repository: { provider: "local", name: "demo", slug: "demo" },
+        changeId: "local",
+        headSha: "abc123",
+        title: "Small tweak",
+        author: { username: "dev" },
+        labels: [],
+      },
+      diff: {
+        files: [
+          {
+            path: "src/util.ts",
+            status: "modified",
+            additions: 2,
+            deletions: 1,
+            isBinary: false,
+          },
+        ],
+        totalAdditions: 2,
+        totalDeletions: 1,
+        truncated: false,
+      },
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    // Trivial tier + zero findings → short circuit
+    expect(result.coordinatorResult?.coordinatorShortCircuited).toBe(true);
+    // fanOutMs must be defined (the fan-out ran)
+    expect(result.coordinatorResult?.fanOutMs).toBeDefined();
+    expect(typeof result.coordinatorResult?.fanOutMs).toBe("number");
+    expect(Number.isFinite(result.coordinatorResult?.fanOutMs)).toBe(true);
+    // fusionMs must be undefined (no synthesis ran)
+    expect(result.coordinatorResult?.fusionMs).toBeUndefined();
   });
 });
 

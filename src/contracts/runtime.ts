@@ -93,6 +93,8 @@ export interface ReviewerRunResult {
   structuredOutput?: boolean;
   /** Pi only (#189): the model the agent actually executed on — resolved AFTER the #45 dummy→defaultModel swap. Undefined for runtimes that resolve no real model (dummy) or a degenerate setup with no model at all. */
   effectiveModel?: string;
+  /** Wall-clock ms of this reviewer's full runReviewer invocation incl. retries (#196). Pi only. */
+  durationMs?: number;
 }
 
 export interface ReviewerRunFailure {
@@ -126,6 +128,10 @@ export interface CoordinatorRunResult {
   structuredOutput?: boolean;
   /** Pi only (#189): the model the agent actually executed on — resolved AFTER the #45 dummy→defaultModel swap. Undefined for runtimes that resolve no real model (dummy) or a degenerate setup with no model at all. */
   effectiveModel?: string;
+  /** Fan-out span ms: first reviewer dispatched → all reviewers settled (#196). Pi only. */
+  fanOutMs?: number;
+  /** Coordinator fusion ms: the post-fan-out synthesis LLM call; undefined when no synthesis ran (short-circuit / all-failed) (#196). Pi only. */
+  fusionMs?: number;
 }
 
 export interface RuntimeEventSubscription {

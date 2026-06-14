@@ -43,6 +43,23 @@ export interface TierSegment {
   /** Fraction of total input tokens served from cache: cacheRead / (input + cacheRead + cacheWrite). null when denominator is 0 (no token data). */
   cacheHitRate: number | null;
   durationMsPerRun: number;
+  /**
+   * Average fan-out span ms per run (first reviewer dispatched → all settled) (#196).
+   * Denominator is ALL runs in the tier. Fan-out runs on EVERY path (normal, short-circuit, and
+   * all-reviewers-failed), so every post-#196 run contributes its real measured fanOutMs; only
+   * pre-#196 historical events (which lack the field) contribute 0. This is a per-run
+   * decomposition figure (it composes with fusionMsPerRun against coordinatorMs), NOT a
+   * per-fan-out average. A tier dominated by pre-#196 events reads low — segment by date when
+   * mixing old and new data.
+   */
+  fanOutMsPerRun: number;
+  /**
+   * Average coordinator fusion ms per run (post-fan-out synthesis call) (#196). Same all-runs
+   * denominator as {@link fanOutMsPerRun}, but short-circuit / all-reviewers-failed runs run NO
+   * synthesis and so contribute 0 (as do pre-#196 events) while still counting toward the
+   * denominator — a tier with many short-circuit runs reads lower than the per-synthesis latency.
+   */
+  fusionMsPerRun: number;
   costPerRunUsd: number;
   /** null when there are 0 findings across all runs in this tier */
   costPerFindingUsd: number | null;
@@ -128,6 +145,8 @@ interface TierAccumulator {
   totalCacheWriteTokens: number;
   totalCacheReadTokens: number;
   totalDurationMs: number;
+  totalFanOutMs: number;
+  totalFusionMs: number;
   totalCostUsd: number;
   thinReviewRunCount: number;
 }
@@ -139,6 +158,7 @@ interface RunMetricsEventData extends Record<string, JsonValue> {
   decision?: string;
   outcome?: string;
   durationMs?: number;
+  durationsMs?: Record<string, JsonValue>;
   findingCount?: number;
   findingsByReviewer?: Record<string, JsonValue>;
   tokens?: Record<string, JsonValue>;
@@ -249,6 +269,13 @@ export function analyzeRunMetrics(
     const durationMs = asNumber(data.durationMs);
     tierAcc.totalDurationMs += durationMs;
 
+    // Sub-durations: fanOutMs / fusionMs from data.durationsMs (#196)
+    const durationsMs = data.durationsMs;
+    if (durationsMs !== undefined && isPlainObject(durationsMs)) {
+      tierAcc.totalFanOutMs += asNumber(durationsMs.fanOutMs);
+      tierAcc.totalFusionMs += asNumber(durationsMs.fusionMs);
+    }
+
     // Thin-review classification (#91): contextual floor from assessThinReview(), which
     // uses riskTier and reviewedFileCount to compute the expected minimum. Trivial runs
     // are never flagged. Explicit --thin-floor wins for all events; otherwise legacy
@@ -325,6 +352,8 @@ export function analyzeRunMetrics(
       cacheReadTokensPerRun: tierRunCount === 0 ? 0 : acc.totalCacheReadTokens / tierRunCount,
       cacheHitRate: tierCacheHitDenom === 0 ? null : acc.totalCacheReadTokens / tierCacheHitDenom,
       durationMsPerRun: tierRunCount === 0 ? 0 : acc.totalDurationMs / tierRunCount,
+      fanOutMsPerRun: tierRunCount === 0 ? 0 : acc.totalFanOutMs / tierRunCount,
+      fusionMsPerRun: tierRunCount === 0 ? 0 : acc.totalFusionMs / tierRunCount,
       costPerRunUsd: tierRunCount === 0 ? 0 : acc.totalCostUsd / tierRunCount,
       costPerFindingUsd: acc.totalFindings === 0 ? null : acc.totalCostUsd / acc.totalFindings,
       thinReviewRunCount: acc.thinReviewRunCount,
@@ -571,6 +600,8 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
         padLeft("In tok/run", 12) +
         padLeft("CacheHit", 9) +
         padLeft("Dur ms/run", 12) +
+        padLeft("FanOut ms/run", 15) +
+        padLeft("Fusion ms/run", 15) +
         padLeft("Cost/run", 10) +
         padLeft("Cost/finding", 14) +
         padLeft("Thin", 6) +
@@ -592,6 +623,8 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
             9,
           ) +
           padLeft(seg.durationMsPerRun.toFixed(0), 12) +
+          padLeft(seg.fanOutMsPerRun.toFixed(0), 15) +
+          padLeft(seg.fusionMsPerRun.toFixed(0), 15) +
           padLeft(`$${seg.costPerRunUsd.toFixed(4)}`, 10) +
           padLeft(
             seg.costPerFindingUsd === null ? "n/a" : `$${seg.costPerFindingUsd.toFixed(4)}`,
@@ -781,6 +814,8 @@ function getOrCreateTierAccumulator(
       totalCacheWriteTokens: 0,
       totalCacheReadTokens: 0,
       totalDurationMs: 0,
+      totalFanOutMs: 0,
+      totalFusionMs: 0,
       totalCostUsd: 0,
       thinReviewRunCount: 0,
     };

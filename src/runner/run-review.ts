@@ -577,6 +577,12 @@ async function emitCompletedRunMetrics(input: {
       contextBuildMs,
       riskAssessmentMs,
       coordinatorMs,
+      ...(coordinatorResult?.fanOutMs !== undefined
+        ? { fanOutMs: coordinatorResult.fanOutMs }
+        : {}),
+      ...(coordinatorResult?.fusionMs !== undefined
+        ? { fusionMs: coordinatorResult.fusionMs }
+        : {}),
     },
     ...(context.contextArtifacts !== undefined
       ? { contextArtifacts: context.contextArtifacts }

@@ -241,6 +241,7 @@ export class PiAgentRuntime implements AgentRuntime {
           }
         }),
       );
+      const fanOutMs = Date.now() - reviewerBudgetStartedAt;
       const reviewerResults = reviewerSettled.flatMap((settled) =>
         settled.status === "fulfilled" ? [settled.value.result] : [],
       );
@@ -280,7 +281,7 @@ export class PiAgentRuntime implements AgentRuntime {
             isDegradableReviewerFailureCategory(failure.errorClassification.category),
           );
         if (allContentFailures) {
-          return this.buildAllReviewersFailedResult(input, agentRunId, reviewerFailures);
+          return this.buildAllReviewersFailedResult(input, agentRunId, reviewerFailures, fanOutMs);
         }
 
         const firstFailure = reviewerSettled.find((settled) => settled.status === "rejected");
@@ -315,6 +316,7 @@ export class PiAgentRuntime implements AgentRuntime {
           summary,
           reviewerResults,
           coordinatorShortCircuited: true,
+          fanOutMs,
         };
       }
 
@@ -322,6 +324,7 @@ export class PiAgentRuntime implements AgentRuntime {
       const resolvedModel = this.modelArgs(input.model);
       const effectiveModel = resolvedModel.model?.model;
       let streamedEventCount = 0;
+      const fusionStartedAt = Date.now();
       const processResult = await this.processRunner.run({
         runId: input.runId,
         agentRunId,
@@ -340,6 +343,7 @@ export class PiAgentRuntime implements AgentRuntime {
         },
         ...resolvedModel,
       });
+      const fusionMs = Date.now() - fusionStartedAt;
       if (streamedEventCount === 0) {
         this.forwardPiEvents(input.runId, agentRunId, "coordinator", processResult.events);
       }
@@ -394,6 +398,8 @@ export class PiAgentRuntime implements AgentRuntime {
         ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
         structuredOutput,
         ...(effectiveModel !== undefined ? { effectiveModel } : {}),
+        fanOutMs,
+        fusionMs,
       };
     } finally {
       if (this.partialCoordinatorSnapshots.get(input.runId) === snapshot) {
@@ -410,6 +416,7 @@ export class PiAgentRuntime implements AgentRuntime {
     input: CoordinatorRunInput,
     agentRunId: string,
     reviewerFailures: ReviewerRunFailure[],
+    fanOutMs: number,
   ): CoordinatorRunResult {
     const base = summarizeReview(input.context, []);
     const failureLines = reviewerFailures
@@ -449,6 +456,9 @@ export class PiAgentRuntime implements AgentRuntime {
         reason: "all_reviewers_failed",
       },
       rawOutput: '{"partial":true,"reason":"all_reviewers_failed"}',
+      // Fan-out ran (every reviewer was dispatched, then failed) — record its span even on the
+      // degraded path; fusionMs stays undefined since synthesis never ran (#196).
+      fanOutMs,
     };
   }
 
@@ -579,6 +589,7 @@ export class PiAgentRuntime implements AgentRuntime {
           ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
         });
 
+        const durationMs = Date.now() - startedAt;
         return {
           runId: input.runId,
           agentRunId,
@@ -591,6 +602,7 @@ export class PiAgentRuntime implements AgentRuntime {
           retryCount,
           structuredOutput,
           ...(effectiveModel !== undefined ? { effectiveModel } : {}),
+          durationMs,
         };
       } catch (error) {
         const retryCount = attempt - 1;

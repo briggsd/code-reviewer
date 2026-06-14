@@ -130,6 +130,19 @@ at startup; the separate **`ai_review.run_metrics`** event (not a `run_event` su
 runtimes that resolve no real model), plus per-agent `effectiveModel` on its `agents` / `failures`
 entries. Use `effectiveModelIds` for per-model cost/token segmentation.
 
+**Latency decomposition (#196):** `ai_review.run_metrics.durationsMs` decomposes the otherwise
+opaque `coordinatorMs` (which wraps reviewer fan-out *and* coordinator fusion) into `fanOutMs`
+(first reviewer dispatched → all reviewers settled) and `fusionMs` (the post-fan-out synthesis
+call; absent on short-circuit / all-reviewers-failed runs that run no synthesis). Each `agents[]`
+entry also carries a per-agent `durationMs` (a reviewer's full wall-clock incl. retries; for the
+coordinator entry, its fusion call). All are Pi-only numbers (M008-safe). `telemetry:analyze`
+surfaces `fanOutMsPerRun` / `fusionMsPerRun` per tier — both averaged over *all* runs in the tier,
+so they are a per-run decomposition that composes against `coordinatorMs`, not a per-fan-out /
+per-synthesis average. Fan-out runs on every path, so `fanOutMsPerRun` only reads 0 for pre-#196
+events that lack the field; `fusionMsPerRun` additionally reads 0 for short-circuit /
+all-reviewers-failed runs (no synthesis ran). **Segment by date when mixing pre- and post-#196
+data**, or the historical runs deflate the averages.
+
 ### Acceptance mapping (run.correction)
 
 The `acceptanceByReviewer` field maps reviewer role identifiers (model-authored) to

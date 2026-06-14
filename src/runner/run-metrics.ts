@@ -37,6 +37,7 @@ export function createRunMetrics(input: {
                     ...(result.effectiveModel !== undefined
                       ? { effectiveModel: result.effectiveModel }
                       : {}),
+                    ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
                   },
                 ],
           ),
@@ -50,6 +51,9 @@ export function createRunMetrics(input: {
                   usage: input.coordinatorResult.usage,
                   ...(input.coordinatorResult.effectiveModel !== undefined
                     ? { effectiveModel: input.coordinatorResult.effectiveModel }
+                    : {}),
+                  ...(input.coordinatorResult.fusionMs !== undefined
+                    ? { durationMs: input.coordinatorResult.fusionMs }
                     : {}),
                 },
               ]),
@@ -200,6 +204,7 @@ export function createRunMetricsTelemetryEvent(input: {
       ...(agent.attemptCount !== undefined ? { attemptCount: agent.attemptCount } : {}),
       ...(agent.retryCount !== undefined ? { retryCount: agent.retryCount } : {}),
       ...(agent.effectiveModel !== undefined ? { effectiveModel: agent.effectiveModel } : {}),
+      ...(agent.durationMs !== undefined ? { durationMs: agent.durationMs } : {}),
     }));
   }
   if (input.metrics.failures !== undefined) {
