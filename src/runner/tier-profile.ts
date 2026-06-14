@@ -27,6 +27,14 @@ export interface TierProfile {
    * (forces supplied-artifact-only review).
    */
   readonly denyContextTools: boolean;
+  /**
+   * Default soft byte budget for patch content written to the context directory (#145).
+   * When the total post-pruning patch bytes would exceed this, the admission gate demotes
+   * the largest files to name+stat only rather than hard-failing. Overridable per-tier via
+   * config `patchBudgets`. Sized conservatively: trivial diffs are tiny; full-tier diffs
+   * can be large but have model capacity headroom.
+   */
+  readonly patchBudgetBytes: number;
 }
 
 const TIER_PROFILES: Readonly<Record<RiskTier, TierProfile>> = Object.freeze({
@@ -36,6 +44,7 @@ const TIER_PROFILES: Readonly<Record<RiskTier, TierProfile>> = Object.freeze({
     shortCircuitCoordinatorOnZeroFindings: true,
     timeoutScale: 0.25,
     denyContextTools: true,
+    patchBudgetBytes: 64_000,
   }),
   lite: Object.freeze({
     tier: "lite" as const,
@@ -43,6 +52,7 @@ const TIER_PROFILES: Readonly<Record<RiskTier, TierProfile>> = Object.freeze({
     shortCircuitCoordinatorOnZeroFindings: true,
     timeoutScale: 0.5,
     denyContextTools: true,
+    patchBudgetBytes: 512_000,
   }),
   full: Object.freeze({
     tier: "full" as const,
@@ -50,6 +60,7 @@ const TIER_PROFILES: Readonly<Record<RiskTier, TierProfile>> = Object.freeze({
     shortCircuitCoordinatorOnZeroFindings: false,
     timeoutScale: 1,
     denyContextTools: false,
+    patchBudgetBytes: 4_000_000,
   }),
 });
 

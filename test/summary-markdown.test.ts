@@ -871,3 +871,126 @@ describe("break-glass section in docs/architecture.md", () => {
     expect(arch).toContain("issue #22");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Partial-by-size block (#145)
+// ---------------------------------------------------------------------------
+
+describe("partial-by-size block (#145)", () => {
+  const basePartialBySize = {
+    admittedFileCount: 3,
+    droppedFileCount: 2,
+    originalBytes: 700_000,
+    admittedBytes: 500_000,
+    budgetBytes: 512_000,
+    droppedPaths: ["src/huge-a.ts", "src/huge-b.ts"],
+  };
+
+  test("renders partial-by-size block when partialBySize is present", () => {
+    const summary = makeSummary({ partialBySize: basePartialBySize });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).toContain("Partial review by size");
+    expect(markdown).toContain("3 of 5 changed files");
+    // Paths are escaped via escapeMarkdown; hyphens and dots mid-string are not escaped.
+    expect(markdown).toContain("src/huge-a.ts");
+    expect(markdown).toContain("src/huge-b.ts");
+  });
+
+  test("does NOT render partial-by-size block when partialBySize is absent", () => {
+    // No partialBySize → omit the field entirely (exactOptionalPropertyTypes).
+    const summary = makeSummary();
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).not.toContain("Partial review by size");
+    expect(markdown).not.toContain("reviewed by name only");
+  });
+
+  test("renders '…and N more' marker when droppedPaths exceeds 20", () => {
+    // Build 25 dropped paths — first 20 should appear, then the overflow marker.
+    const droppedPaths = Array.from({ length: 25 }, (_, i) => `src/file${i}.ts`);
+    const summary = makeSummary({
+      partialBySize: {
+        ...basePartialBySize,
+        droppedPaths,
+        droppedFileCount: 25,
+      },
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).toContain("…and 5 more");
+    // First 20 should be present; 21st (index 20) should NOT appear directly.
+    // Dots in paths are NOT escaped mid-string by escapeMarkdown.
+    expect(markdown).toContain("src/file0.ts");
+    expect(markdown).toContain("src/file19.ts");
+    // file20 through file24 should NOT appear as individual paths (collapsed into "and N more")
+    expect(markdown).not.toContain("src/file20.ts");
+  });
+
+  test("no '…and N more' marker when droppedPaths is exactly 20", () => {
+    const droppedPaths = Array.from({ length: 20 }, (_, i) => `src/file${i}.ts`);
+    const summary = makeSummary({
+      partialBySize: {
+        ...basePartialBySize,
+        droppedPaths,
+        droppedFileCount: 20,
+      },
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).not.toContain("…and");
+    expect(markdown).toContain("src/file19.ts");
+  });
+
+  test("paths in partial-by-size block are markdown-escaped (injection defense)", () => {
+    const summary = makeSummary({
+      partialBySize: {
+        ...basePartialBySize,
+        droppedPaths: ["src/file**bold**.ts", "src/file<img src=x>.ts"],
+      },
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // Raw metacharacters must not appear in the output.
+    expect(markdown).not.toContain("**bold**");
+    expect(markdown).not.toContain("<img src=x>");
+    // Escaped forms should be present.
+    expect(markdown).toContain("\\*\\*bold\\*\\*");
+    expect(markdown).toContain("\\<img");
+  });
+
+  test("budget and admitted byte values are shown in SI units in the header line", () => {
+    const summary = makeSummary({
+      partialBySize: {
+        admittedFileCount: 2,
+        droppedFileCount: 1,
+        originalBytes: 800_000,
+        admittedBytes: 200_000,
+        budgetBytes: 512_000,
+        droppedPaths: ["src/huge.ts"],
+      },
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // SI units (÷1000) so the display matches the round patchBudgets defaults/docs (#145, AI-review).
+    expect(markdown).toContain("200 KB"); // Math.round(200_000/1000)
+    expect(markdown).toContain("512 KB"); // Math.round(512_000/1000)
+  });
+
+  test("budgets ≥ 1 MB render in MB (SI)", () => {
+    const summary = makeSummary({
+      partialBySize: {
+        admittedFileCount: 1,
+        droppedFileCount: 5,
+        originalBytes: 10_000_000,
+        admittedBytes: 3_500_000,
+        budgetBytes: 4_000_000,
+        droppedPaths: ["src/huge.ts"],
+      },
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).toContain("3.5 MB"); // Math.round(3_500_000/100_000)/10
+    expect(markdown).toContain("4 MB"); // Math.round(4_000_000/100_000)/10
+  });
+});

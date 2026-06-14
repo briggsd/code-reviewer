@@ -16,6 +16,7 @@ import type {
 import {
   createRuntimeToolPolicy,
   decideCiOutcome,
+  getTierProfile,
   loadProjectReviewConfig,
   loadReviewFixture,
   normalizeReviewFixture,
@@ -26,6 +27,7 @@ import {
   TRUSTED_REVIEWER_DEFINITIONS,
 } from "../src/index.ts";
 import { normalizeAcknowledgements, normalizeReviewConfig } from "../src/runner/config.ts";
+import { decidePatchAdmission } from "../src/runner/patch-admission.ts";
 
 describe("normalizeAcknowledgements", () => {
   test("valid entry is kept with all fields", () => {
@@ -1407,3 +1409,56 @@ class RecordingRuntime implements AgentRuntime {
 
   async cancel(_runId: string): Promise<void> {}
 }
+
+// ---------------------------------------------------------------------------
+// patchBudgets config normalization (#145)
+// ---------------------------------------------------------------------------
+
+describe("patchBudgets config normalization (#145)", () => {
+  test("patchBudgets absent in both base and override → undefined (tier-profile defaults win)", () => {
+    const config = normalizeReviewConfig({});
+    expect(config.patchBudgets).toBeUndefined();
+  });
+
+  test("patchBudgets in override → merged into config", () => {
+    const config = normalizeReviewConfig({ patchBudgets: { lite: 100_000 } });
+    expect(config.patchBudgets?.lite).toBe(100_000);
+    expect(config.patchBudgets?.trivial).toBeUndefined();
+    expect(config.patchBudgets?.full).toBeUndefined();
+  });
+
+  test("patchBudgets override shallow-merges over base", () => {
+    const base = normalizeReviewConfig({ patchBudgets: { trivial: 10_000, lite: 200_000 } });
+    const merged = normalizeReviewConfig({ patchBudgets: { lite: 300_000 } }, base);
+    // lite is overridden, trivial is preserved from base.
+    expect(merged.patchBudgets?.lite).toBe(300_000);
+    expect(merged.patchBudgets?.trivial).toBe(10_000);
+    expect(merged.patchBudgets?.full).toBeUndefined();
+  });
+
+  test("patchBudgets all three tiers can be set", () => {
+    const config = normalizeReviewConfig({
+      patchBudgets: { trivial: 64_000, lite: 512_000, full: 4_000_000 },
+    });
+    expect(config.patchBudgets?.trivial).toBe(64_000);
+    expect(config.patchBudgets?.lite).toBe(512_000);
+    expect(config.patchBudgets?.full).toBe(4_000_000);
+  });
+
+  test("tier-profile patchBudgetBytes defaults match spec values", () => {
+    expect(getTierProfile("trivial").patchBudgetBytes).toBe(64_000);
+    expect(getTierProfile("lite").patchBudgetBytes).toBe(512_000);
+    expect(getTierProfile("full").patchBudgetBytes).toBe(4_000_000);
+  });
+
+  test("config override wins over tier-profile default in admission decision", () => {
+    // If we set lite budget to 1 byte (forcing demotion of any non-empty file), the
+    // decidePatchAdmission result should show degraded=true even for tiny patches.
+    const result = decidePatchAdmission({
+      files: [{ path: "src/a.ts", patchBytes: 50 }],
+      budgetBytes: 1,
+    });
+    expect(result.degraded).toBe(true);
+    expect(result.demotedPaths).toContain("src/a.ts");
+  });
+});

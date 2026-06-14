@@ -131,6 +131,16 @@ export interface ReviewConfig {
   // compliance reviewer prompt; it never becomes trusted runtime config (#23).
   compliancePolicy?: string[];
   acknowledgements?: Acknowledgement[];
+  /**
+   * Per-tier patch byte budgets (#145). Absent ⇒ tier-profile defaults are used. An adopter can
+   * lower or raise the budget for a specific tier. The admission gate demotes files gracefully
+   * (name+stat only) rather than hard-failing when the budget is exceeded.
+   */
+  patchBudgets?: {
+    trivial?: number;
+    lite?: number;
+    full?: number;
+  };
   extra: Record<string, JsonValue>;
 }
 
@@ -258,6 +268,20 @@ export interface ReviewSummary {
    * tracked in #214.
    */
   groundingWithheld?: Finding[];
+  /**
+   * Set when the diff exceeded the per-tier patch byte budget and some files were reviewed by
+   * name+stat only (#145). The run degrades gracefully — it is NOT a hard failure. Counts and
+   * identifiers only (M008 compliance); no patch content. `droppedPaths` is for rendering and
+   * is bounded by the publisher (first 20, with "…and N more").
+   */
+  partialBySize?: {
+    admittedFileCount: number;
+    droppedFileCount: number;
+    originalBytes: number;
+    admittedBytes: number;
+    budgetBytes: number;
+    droppedPaths: string[];
+  };
 }
 
 export interface PriorFindingState {

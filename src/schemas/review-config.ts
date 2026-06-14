@@ -142,6 +142,15 @@ export const reviewConfigSchema = {
         required: ["path", "mode", "reason"],
       },
     },
+    patchBudgets: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        trivial: { type: "number", minimum: 1 },
+        lite: { type: "number", minimum: 1 },
+        full: { type: "number", minimum: 1 },
+      },
+    },
     extra: {
       type: "object",
       additionalProperties: true,

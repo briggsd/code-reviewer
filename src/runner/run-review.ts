@@ -42,6 +42,7 @@ import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
 import type { IncrementalReviewPlan } from "./incremental-review.ts";
 import { narrowDiffToPaths } from "./incremental-review.ts";
 import { backfillFindingLocations } from "./location-backfill.ts";
+import type { AdmissionDecision } from "./patch-admission.ts";
 import { classifyReReviewFindings } from "./re-review.ts";
 import {
   findUnsupportedReviewerPolicyEntries,
@@ -178,6 +179,8 @@ async function buildReviewContext(input: {
   incremental: IncrementalReviewPlan | undefined;
   contextBuildMs: number;
   riskAssessmentMs: number;
+  /** Admission decision from the patch budget gate (#145). */
+  admissionDecision: AdmissionDecision;
 }> {
   const { fixture, options, clock, runId } = input;
   // Incremental re-review (#46): when the plan says so, narrow the diff to the
@@ -222,9 +225,14 @@ async function buildReviewContext(input: {
       : {}),
   };
 
+  // Compute the effective patch budget: config override (if any) wins over tier-profile default.
+  const tier = risk.tier;
+  const budgetBytes = fixture.config.patchBudgets?.[tier] ?? getTierProfile(tier).patchBudgetBytes;
+
   const contextArtifacts = await writeReviewContextArtifacts({
     context,
     generatedAt: clock().toISOString(),
+    budgetBytes,
   });
   context.diff = contextArtifacts.diff;
   context.contextArtifacts = contextArtifacts.artifacts;
@@ -261,6 +269,15 @@ async function buildReviewContext(input: {
         deletionHunksPruned: context.contextArtifacts.deletionHunksPruned,
         deletedFileBodiesPruned: context.contextArtifacts.deletedFileBodiesPruned,
       },
+      // Admission gate counts (#145, M008: counts + byte totals only, no patch content).
+      admission: {
+        budgetBytes: contextArtifacts.admission.budgetBytes,
+        originalBytes: contextArtifacts.admission.originalBytes,
+        admittedBytes: contextArtifacts.admission.admittedBytes,
+        admittedFileCount: contextArtifacts.admission.admittedPaths.size,
+        demotedFileCount: contextArtifacts.admission.demotedPaths.length,
+        degraded: contextArtifacts.admission.degraded,
+      },
       durationMs: contextBuildMs,
     },
   });
@@ -280,7 +297,14 @@ async function buildReviewContext(input: {
     },
   });
 
-  return { context, reviewedPaths, incremental, contextBuildMs, riskAssessmentMs };
+  return {
+    context,
+    reviewedPaths,
+    incremental,
+    contextBuildMs,
+    riskAssessmentMs,
+    admissionDecision: contextArtifacts.admission,
+  };
 }
 
 async function emitRunStartTelemetry(input: {
@@ -866,8 +890,14 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     },
   });
 
-  const { context, reviewedPaths, incremental, contextBuildMs, riskAssessmentMs } =
-    await buildReviewContext({ fixture, options, clock, runId });
+  const {
+    context,
+    reviewedPaths,
+    incremental,
+    contextBuildMs,
+    riskAssessmentMs,
+    admissionDecision,
+  } = await buildReviewContext({ fixture, options, clock, runId });
 
   await emitRunStartTelemetry({ options, context, runId, timestamp, clock });
 
@@ -893,10 +923,25 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       clock,
     });
 
+    // Attach partialBySize to the summary when the admission gate degraded (#145).
+    const fusedSummary: ReviewSummary = admissionDecision.degraded
+      ? {
+          ...fused.summary,
+          partialBySize: {
+            admittedFileCount: admissionDecision.admittedPaths.size,
+            droppedFileCount: admissionDecision.demotedPaths.length,
+            originalBytes: admissionDecision.originalBytes,
+            admittedBytes: admissionDecision.admittedBytes,
+            budgetBytes: admissionDecision.budgetBytes,
+            droppedPaths: admissionDecision.demotedPaths,
+          },
+        }
+      : fused.summary;
+
     await emitCompletedRunMetrics({
       options,
       context,
-      summary: fused.summary,
+      summary: fusedSummary,
       coordinatorResult: runtimeResult.coordinatorResult,
       startedAt,
       timestamp,
@@ -916,7 +961,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
 
     return {
       context,
-      summary: fused.summary,
+      summary: fusedSummary,
       ...(runtimeResult.coordinatorResult !== undefined
         ? { coordinatorResult: runtimeResult.coordinatorResult }
         : {}),

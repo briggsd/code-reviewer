@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { ChangeRef } from "../src/index.ts";
+import type { ChangeMetadata, ChangeRef } from "../src/index.ts";
 import { createPriorReviewStateFromMetadata, parseSummaryHiddenMetadata } from "../src/index.ts";
+import { createPublishHiddenMetadata } from "../src/publisher/publish-summary.ts";
 
 const ref: ChangeRef = {
   provider: "github",
@@ -210,5 +211,107 @@ describe("summary hidden metadata parsing", () => {
     expect(byId.get("fnd_toolong")?.finding.reviewer).toBe("unknown");
     expect(byId.get("fnd_nonstring")?.finding.reviewer).toBe("unknown");
     expect(byId.get("fnd_ctrl")?.finding.reviewer).toBe("unknown");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// schemaVersion 4 + partialBySize counts (#145)
+// ---------------------------------------------------------------------------
+
+const CHANGE: ChangeMetadata = {
+  provider: "github",
+  repository: { provider: "github", owner: "example", name: "demo", slug: "example/demo" },
+  changeId: "42",
+  headSha: "abc123",
+  title: "Test PR",
+  author: { username: "dev" },
+  labels: [],
+};
+
+describe("schemaVersion 4 hidden metadata (#145)", () => {
+  test("createPublishHiddenMetadata emits schemaVersion 4", () => {
+    const meta = createPublishHiddenMetadata("run-1", CHANGE);
+    expect(meta.schemaVersion).toBe(4);
+  });
+
+  test("partialBySize counts block is included when summary.partialBySize is present", () => {
+    const summary = {
+      decision: "approved" as const,
+      outcome: "pass" as const,
+      title: "AI review found no blocking issues",
+      body: "body",
+      findings: [],
+      risk: {
+        tier: "lite" as const,
+        reason: "test",
+        matchedRules: [],
+        sensitivePaths: [],
+        reviewedFileCount: 2,
+        ignoredFileCount: 0,
+      },
+      partialBySize: {
+        admittedFileCount: 1,
+        droppedFileCount: 1,
+        originalBytes: 700_000,
+        admittedBytes: 300_000,
+        budgetBytes: 512_000,
+        droppedPaths: ["src/huge.ts"],
+      },
+    };
+
+    const meta = createPublishHiddenMetadata("run-1", CHANGE, summary);
+
+    expect(meta.schemaVersion).toBe(4);
+    const partialBySize = meta.partialBySize as
+      | {
+          admittedFileCount: number;
+          droppedFileCount: number;
+          originalBytes: number;
+          admittedBytes: number;
+          budgetBytes: number;
+        }
+      | undefined;
+    expect(partialBySize).toBeDefined();
+    expect(partialBySize?.admittedFileCount).toBe(1);
+    expect(partialBySize?.droppedFileCount).toBe(1);
+    expect(partialBySize?.originalBytes).toBe(700_000);
+    expect(partialBySize?.admittedBytes).toBe(300_000);
+    expect(partialBySize?.budgetBytes).toBe(512_000);
+    // droppedPaths must NOT be present in metadata (counts+identifiers only, no content list).
+    expect((partialBySize as Record<string, unknown> | undefined)?.droppedPaths).toBeUndefined();
+  });
+
+  test("partialBySize is absent from metadata when summary.partialBySize is undefined", () => {
+    const meta = createPublishHiddenMetadata("run-1", CHANGE);
+    expect((meta as Record<string, unknown>).partialBySize).toBeUndefined();
+  });
+
+  test("old parsers (schemaVersion ≤ 3) parsing v4 metadata ignore unknown keys (backward compat)", () => {
+    // Simulate what an old parser sees: parse the v4 JSON and check it doesn't throw.
+    // parseSummaryHiddenMetadata is the real parser — it must succeed and return known fields.
+    const v4body = [
+      "<!-- ai-code-review-factory",
+      JSON.stringify({
+        schemaVersion: 4,
+        runId: "run-v4",
+        headSha: "abc123",
+        provider: "github",
+        repository: "example/demo",
+        changeId: "42",
+        findingIds: ["fnd_1"],
+        partialBySize: { admittedFileCount: 1, droppedFileCount: 1 },
+        unknownFuture: "ignored",
+      }),
+      "-->",
+    ].join("\n");
+
+    const parsed = parseSummaryHiddenMetadata(v4body);
+    expect(parsed).toBeDefined();
+    expect(parsed?.schemaVersion).toBe(4);
+    expect(parsed?.runId).toBe("run-v4");
+    expect(parsed?.findingIds).toEqual(["fnd_1"]);
+    // Unknown keys are tolerated (no error thrown); they appear in `raw`.
+    expect((parsed?.raw as Record<string, unknown>)?.partialBySize).toBeDefined();
+    expect((parsed?.raw as Record<string, unknown>)?.unknownFuture).toBe("ignored");
   });
 });

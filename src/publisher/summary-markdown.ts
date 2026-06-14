@@ -229,6 +229,49 @@ function formatReviewerGroup(reviewer: string, findings: Finding[]): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Partial-by-size block (#145)
+// ---------------------------------------------------------------------------
+
+/** Maximum number of dropped-file paths to render before adding "…and N more". */
+const PARTIAL_SIZE_PATH_CAP = 20;
+
+/**
+ * Format a byte count in SI units (KB = 1000 bytes, MB = 1_000_000) so the rendered
+ * value matches the round numbers the `patchBudgets` defaults and docs use (e.g. 64_000 →
+ * "64 KB", 4_000_000 → "4 MB"). Binary KiB (÷1024) would render "63 KB" for a 64 KB budget.
+ */
+function formatSiBytes(bytes: number): string {
+  if (bytes >= 1_000_000) {
+    return `${Math.round(bytes / 100_000) / 10} MB`;
+  }
+  return `${Math.round(bytes / 1000)} KB`;
+}
+
+function formatPartialBySize(partialBySize: NonNullable<ReviewSummary["partialBySize"]>): string[] {
+  const { admittedFileCount, droppedFileCount, admittedBytes, budgetBytes, droppedPaths } =
+    partialBySize;
+  const totalFileCount = admittedFileCount + droppedFileCount;
+
+  const lines: string[] = [
+    "---",
+    "",
+    `> ⚠️ **Partial review by size** — ${admittedFileCount} of ${totalFileCount} changed files were fully included (admitted ${formatSiBytes(admittedBytes)} of ${formatSiBytes(budgetBytes)} budget). The following files changed but were reviewed by name only (patch not included):`,
+    "",
+  ];
+
+  const capped = droppedPaths.slice(0, PARTIAL_SIZE_PATH_CAP);
+  const overflow = droppedPaths.length - capped.length;
+  for (const path of capped) {
+    lines.push(`- ${escapeMarkdown(path)}`);
+  }
+  if (overflow > 0) {
+    lines.push(`- …and ${overflow} more`);
+  }
+  lines.push("");
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
 // Low-confidence (grounding-demoted) block (#204, #207)
 // ---------------------------------------------------------------------------
 
@@ -308,6 +351,13 @@ export function formatReviewSummaryMarkdown(
   // Withheld (grounding-dropped) block (#204)
   if (summary.groundingWithheld !== undefined && summary.groundingWithheld.length > 0) {
     for (const line of formatWithheldGroup(summary.groundingWithheld)) {
+      lines.push(line);
+    }
+  }
+
+  // Partial-by-size block (#145): present only when the admission gate degraded.
+  if (summary.partialBySize !== undefined) {
+    for (const line of formatPartialBySize(summary.partialBySize)) {
       lines.push(line);
     }
   }

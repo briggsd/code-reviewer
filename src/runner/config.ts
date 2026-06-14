@@ -93,6 +93,18 @@ export function normalizeReviewConfig(
       ? { ...base.timeouts, ...(override.timeouts as unknown as ReviewConfig["timeouts"]) }
       : base.timeouts,
     modelRouting: mergeModelRouting(base.modelRouting, override.modelRouting),
+    // patchBudgets: shallow-merge override over base when present, mirrors timeouts precedent.
+    // Absent override → keep base (which may be undefined → tier-profile defaults win at runtime).
+    ...(isRecord(override.patchBudgets)
+      ? {
+          patchBudgets: {
+            ...(base.patchBudgets ?? {}),
+            ...(override.patchBudgets as ReviewConfig["patchBudgets"]),
+          },
+        }
+      : base.patchBudgets !== undefined
+        ? { patchBudgets: base.patchBudgets }
+        : {}),
     extra: isRecord(override.extra) ? (override.extra as ReviewConfig["extra"]) : base.extra,
   };
 }

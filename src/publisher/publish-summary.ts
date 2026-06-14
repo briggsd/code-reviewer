@@ -84,8 +84,24 @@ export function createPublishHiddenMetadata(
   }
   const hasFindingReviewers = Object.keys(findingReviewers).length > 0;
 
+  // partialBySize counts-only block (#145, schemaVersion 4+). Counts + byte totals only (M008).
+  // Old parsers (schemaVersion ≤ 3) ignore unknown keys — backward-compatible.
+  const partialBySize =
+    summary?.partialBySize !== undefined
+      ? {
+          admittedFileCount: summary.partialBySize.admittedFileCount,
+          droppedFileCount: summary.partialBySize.droppedFileCount,
+          originalBytes: summary.partialBySize.originalBytes,
+          admittedBytes: summary.partialBySize.admittedBytes,
+          budgetBytes: summary.partialBySize.budgetBytes,
+        }
+      : undefined;
+
   return {
-    schemaVersion: 3,
+    // Bumped 3 → 4 for the partialBySize counts block (#145). The bump is additive and
+    // backward-compatible: old parsers (schemaVersion ≤ 3) ignore unknown keys per the existing
+    // defensive-parse pattern (parseSummaryHiddenMetadata in summary-metadata.ts line ~40).
+    schemaVersion: 4,
     runId,
     headSha: change.headSha,
     provider: change.provider,
@@ -97,5 +113,6 @@ export function createPublishHiddenMetadata(
     // Comprehension-gate verdict (#26): additive, present only when the reviewer ran. v1 parsers
     // ignore unknown keys, so this stays backward-compatible with the existing metadata reader.
     ...(summary?.gateDecision !== undefined ? { gateDecision: summary.gateDecision } : {}),
+    ...(partialBySize !== undefined ? { partialBySize } : {}),
   };
 }

@@ -80,6 +80,10 @@ export function classifyReviewError(error: unknown): ReviewErrorClassification {
       "input is too long",
     ])
   ) {
+    // The patch-admission gate (#145) is the PRIMARY mitigation for oversized diffs: it demotes
+    // files gracefully before the model call, so normal large PRs never reach here. This
+    // context_overflow path is the SAFETY NET for genuine model-side overflows AFTER degradation —
+    // it is intentionally non-retryable (retrying would just overflow again).
     return nonRetryable("context_overflow", "prompt or context exceeded the model limit");
   }
 
