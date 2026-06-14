@@ -1,11 +1,16 @@
 {
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "graphTooltip": 1,
   "tags": ["ai-code-review", "telemetry"],
-  "time": { "from": "now-7d", "to": "now" },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
   "timezone": "",
-  "title": "AI Code Review — Telemetry",
+  "title": "AI Code Review \u2014 Telemetry",
   "uid": "ai-review-telemetry",
   "schemaVersion": 39,
   "version": 1,
@@ -24,13 +29,22 @@
         "name": "tier",
         "label": "Risk tier",
         "type": "query",
-        "datasource": { "type": "loki", "uid": "${datasource}" },
-        "query": { "label": "riskTier", "type": 1 },
+        "datasource": {
+          "type": "loki",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "label": "riskTier",
+          "type": 1
+        },
         "refresh": 2,
         "includeAll": true,
         "allValue": ".+",
         "multi": true,
-        "current": { "text": "All", "value": "$__all" }
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
       }
     ]
   },
@@ -39,25 +53,42 @@
       "type": "row",
       "title": "Run health & volume",
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "id": 100
     },
-
     {
       "id": 1,
       "type": "stat",
       "title": "Total runs",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
         "colorMode": "value",
         "graphMode": "none"
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} [$__range]))",
           "queryType": "instant"
         }
@@ -67,8 +98,16 @@
       "id": 2,
       "type": "stat",
       "title": "Completion rate",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
@@ -76,22 +115,36 @@
           "max": 1,
           "thresholds": {
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 0.9 },
-              { "color": "green", "value": 0.98 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.9
+              },
+              {
+                "color": "green",
+                "value": 0.98
+              }
             ]
           }
         }
       },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
         "colorMode": "value",
         "graphMode": "none"
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_event\"} | json | data_event=\"run.completed\" [$__range])) / sum(count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_event\"} | json | data_event=\"run.start\" [$__range]))",
           "queryType": "instant"
         }
@@ -101,8 +154,16 @@
       "id": 3,
       "type": "stat",
       "title": "Pass rate",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
@@ -110,22 +171,36 @@
           "max": 1,
           "thresholds": {
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 0.8 },
-              { "color": "green", "value": 0.95 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
             ]
           }
         }
       },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
         "colorMode": "value",
         "graphMode": "none"
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", outcome=\"pass\", riskTier=~\"$tier\"} [$__range])) / sum(count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} [$__range]))",
           "queryType": "instant"
         }
@@ -135,45 +210,83 @@
       "id": 4,
       "type": "stat",
       "title": "Break-glass overrides",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
       "fieldConfig": {
         "defaults": {
           "thresholds": {
-            "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }]
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
           }
         }
       },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
         "colorMode": "background",
         "graphMode": "none"
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_event\"} | json | data_event=\"run.override\" [$__range]))",
           "queryType": "instant"
         }
       ]
     },
-
     {
       "id": 5,
       "type": "timeseries",
       "title": "Runs over time by outcome",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
       "fieldConfig": {
         "defaults": {
-          "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" }, "fillOpacity": 60 }
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 60
+          }
         }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum by (outcome) (count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} [$__interval]))",
           "legendFormat": "{{outcome}}",
           "queryType": "range"
@@ -184,13 +297,29 @@
       "id": 6,
       "type": "barchart",
       "title": "Decisions",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 5 },
-      "options": { "xField": "decision", "legend": { "showLegend": false } },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 5
+      },
+      "options": {
+        "xField": "decision",
+        "legend": {
+          "showLegend": false
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum by (decision) (count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} [$__range]))",
           "legendFormat": "{{decision}}",
           "queryType": "instant",
@@ -198,20 +327,42 @@
         }
       ],
       "transformations": [
-        { "id": "labelsToFields", "options": { "mode": "columns", "valueLabel": "decision" } }
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns",
+            "valueLabel": "decision"
+          }
+        }
       ]
     },
     {
       "id": 7,
       "type": "barchart",
       "title": "Runs by tier",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 5 },
-      "options": { "xField": "riskTier", "legend": { "showLegend": false } },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 5
+      },
+      "options": {
+        "xField": "riskTier",
+        "legend": {
+          "showLegend": false
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum by (riskTier) (count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\"} [$__range]))",
           "legendFormat": "{{riskTier}}",
           "queryType": "instant",
@@ -219,34 +370,60 @@
         }
       ],
       "transformations": [
-        { "id": "labelsToFields", "options": { "mode": "columns", "valueLabel": "riskTier" } }
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns",
+            "valueLabel": "riskTier"
+          }
+        }
       ]
     },
-
     {
       "type": "row",
       "title": "Cost & tokens",
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
       "id": 101
     },
-
     {
       "id": 8,
       "type": "timeseries",
       "title": "Cost over time by tier (USD)",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
-          "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" }, "fillOpacity": 60 }
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 60
+          }
         }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum by (riskTier) (sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | unwrap data_tokens_estimatedCostUsd [$__interval]))",
           "legendFormat": "{{riskTier}}",
           "queryType": "range"
@@ -257,29 +434,52 @@
       "id": 9,
       "type": "timeseries",
       "title": "Tokens over time",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } }
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | unwrap data_tokens_outputTokens [$__interval]))",
           "legendFormat": "output",
           "queryType": "range"
         },
         {
           "refId": "B",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | unwrap data_tokens_cacheReadTokens [$__interval]))",
           "legendFormat": "cache read",
           "queryType": "range"
         },
         {
           "refId": "C",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | unwrap data_tokens_cacheWriteTokens [$__interval]))",
           "legendFormat": "cache write",
           "queryType": "range"
@@ -290,18 +490,36 @@
       "id": 10,
       "type": "stat",
       "title": "Total cost (USD)",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 22 },
-      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 } },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2
+        }
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
         "colorMode": "value",
         "graphMode": "none"
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | unwrap data_tokens_estimatedCostUsd [$__range]))",
           "queryType": "instant"
         }
@@ -311,43 +529,79 @@
       "id": 11,
       "type": "stat",
       "title": "Avg cost / run (USD)",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 22 },
-      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 3 } },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 3
+        }
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
         "colorMode": "value",
         "graphMode": "none"
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | unwrap data_tokens_estimatedCostUsd [$__range])) / sum(count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} [$__range]))",
           "queryType": "instant"
         }
       ]
     },
-
     {
       "type": "row",
       "title": "Latency by tier",
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 26 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
       "id": 102
     },
-
     {
       "id": 12,
       "type": "timeseries",
       "title": "Avg duration by tier",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
-      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 27
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "avg by (riskTier) (avg_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | unwrap data_durationMs [$__interval]))",
           "legendFormat": "{{riskTier}}",
           "queryType": "range"
@@ -358,14 +612,34 @@
       "id": 13,
       "type": "barchart",
       "title": "p95 duration by tier",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 27 },
-      "fieldConfig": { "defaults": { "unit": "ms" } },
-      "options": { "xField": "riskTier", "legend": { "showLegend": false } },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 27
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      },
+      "options": {
+        "xField": "riskTier",
+        "legend": {
+          "showLegend": false
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "quantile_over_time(0.95, {service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | unwrap data_durationMs [$__range]) by (riskTier)",
           "legendFormat": "{{riskTier}}",
           "queryType": "instant",
@@ -373,48 +647,80 @@
         }
       ],
       "transformations": [
-        { "id": "labelsToFields", "options": { "mode": "columns", "valueLabel": "riskTier" } }
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns",
+            "valueLabel": "riskTier"
+          }
+        }
       ]
     },
-
     {
       "type": "row",
       "title": "Review quality",
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
       "id": 103
     },
-
     {
       "id": 14,
       "type": "timeseries",
       "title": "Findings by severity",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" }, "fillOpacity": 60 }
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 60
+          }
         }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | unwrap data_findingsBySeverity_critical [$__interval]))",
           "legendFormat": "critical",
           "queryType": "range"
         },
         {
           "refId": "B",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | unwrap data_findingsBySeverity_warning [$__interval]))",
           "legendFormat": "warning",
           "queryType": "range"
         },
         {
           "refId": "C",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | unwrap data_findingsBySeverity_suggestion [$__interval]))",
           "legendFormat": "suggestion",
           "queryType": "range"
@@ -425,36 +731,62 @@
       "id": 15,
       "type": "timeseries",
       "title": "Correction signal (re-review)",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 36
+      },
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 50 } }
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 50
+          }
+        }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_event\"} | json | data_event=\"run.correction\" | unwrap data_newFindingCount [$__interval]))",
           "legendFormat": "new",
           "queryType": "range"
         },
         {
           "refId": "B",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_event\"} | json | data_event=\"run.correction\" | unwrap data_recurringFindingCount [$__interval]))",
           "legendFormat": "recurring",
           "queryType": "range"
         },
         {
           "refId": "C",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_event\"} | json | data_event=\"run.correction\" | unwrap data_fixedFindingCount [$__interval]))",
           "legendFormat": "fixed",
           "queryType": "range"
         },
         {
           "refId": "D",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_event\"} | json | data_event=\"run.correction\" | unwrap data_withheldFindingCount [$__interval]))",
           "legendFormat": "withheld",
           "queryType": "range"
@@ -465,8 +797,16 @@
       "id": 16,
       "type": "logs",
       "title": "Recent run_metrics (drilldown)",
-      "datasource": { "type": "loki", "uid": "${datasource}" },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 44 },
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
       "options": {
         "showTime": true,
         "wrapLogMessage": true,
@@ -478,9 +818,143 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${datasource}" },
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
           "expr": "{service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"}",
           "queryType": "range"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Re-review dynamics",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 54
+      },
+      "id": 104
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Findings by reviewer (real-Pi)",
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 55
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 60
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\"} | json | data_runtime=\"pi\" | unwrap data_findingsByReviewer_documentation [$__interval]))",
+          "legendFormat": "documentation",
+          "queryType": "range"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\"} | json | data_runtime=\"pi\" | unwrap data_findingsByReviewer_code_quality [$__interval]))",
+          "legendFormat": "code_quality",
+          "queryType": "range"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\"} | json | data_runtime=\"pi\" | unwrap data_findingsByReviewer_security [$__interval]))",
+          "legendFormat": "security",
+          "queryType": "range"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(sum_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\"} | json | data_runtime=\"pi\" | unwrap data_findingsByReviewer_performance [$__interval]))",
+          "legendFormat": "performance",
+          "queryType": "range"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "barchart",
+      "title": "Re-review rounds per PR (real-Pi, top 25)",
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 55
+      },
+      "options": {
+        "xField": "data_changeId",
+        "legend": {
+          "showLegend": false
+        },
+        "xTickLabelRotation": -45
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisLabel": "PR #"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "expr": "topk(25, sum by (data_changeId) (count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\"} | json | data_runtime=\"pi\" [$__range])))",
+          "legendFormat": "{{data_changeId}}",
+          "queryType": "instant",
+          "editorMode": "code"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns",
+            "valueLabel": "data_changeId"
+          }
         }
       ]
     }
