@@ -44,8 +44,10 @@ AI_REVIEW_GITLAB_TOKEN=... ai-code-review run \
 Two GitLab-specific constraints are deliberately out of scope for this experimental slice:
 
 - **Renamed files are not supported.** The position sets both `old_path` and `new_path` to the
-  finding's reported path, so a finding on a renamed file may be rejected by GitLab (a `failed`
-  outcome with a 422) or placed against the wrong path. Findings on non-renamed files are unaffected.
+  finding's reported path, so a finding on a renamed file may be rejected by GitLab with a 422 — in
+  which case the summary-fallback path (see _Summary fallback_ below) reclassifies it to `skipped`
+  with reason `summary_fallback_http_422` and the finding still appears in the summary comment —
+  or placed against the wrong path. Findings on non-renamed files are unaffected.
 - **Duplicate suppression reads only the first page of MR discussions.** On a merge request with
   many existing discussions (more than one API page), a previously posted inline comment beyond the
   first page may not be detected, so a duplicate could be posted on a subsequent run.
@@ -110,14 +112,38 @@ same author check guards the **summary**-comment dedup (`findExistingSummaryComm
 trusted for dedup — the worst case becomes a *duplicate* comment (the safe direction), never
 suppression. (System notes on GitLab are also skipped — they never carry our metadata.)
 
+## Summary fallback
+
+The readiness gate is a *pre-flight* check against our local patch reconstruction. The VCS API can
+still reject a coordinate we judged ready — a multi-line suggestion spanning unchanged lines, a
+context-line rule, or a force-push racing our fetch — returning an HTTP error at post time. Rather
+than lose the finding (architecture.md §9: _"publish the finding in the summary instead of failing
+the whole run"_), `publishReviewInlineFindings()` recovers:
+
+- A `failed` outcome whose adapter-supplied `httpStatus` is **422** (coordinate invalid) or **429**
+  (rate limit) is reclassified to `disposition: "skipped"` with reason `summary_fallback_http_<status>`.
+  A wholesale throw (e.g. the discussion/comment listing fails) with one of these statuses degrades
+  *all* ready findings the same way. The finding is not posted inline but still renders in the
+  summary comment, which always lists every finding.
+- **403 is deliberately not recovered.** On PR-comment endpoints a 403 is an authorization signal
+  (token scope, CODEOWNERS-only policy, fork restrictions) — a permanent misconfiguration. It keeps
+  its prior hard-failure behavior so a broken token surfaces in CI instead of silently degrading.
+- The status is read from a structured `httpStatus` field the adapter sets from the typed
+  `HttpRequestError` — not parsed from the human-readable error message — so the message wording is
+  free to change without breaking recovery.
+
 ## Trace output
 
 Inline publishing writes a `publisher.completed` trace event with:
 
 - `publisher: "inline"`,
 - attempted/posted/skipped/failed inline counts,
+- `summaryFallbackCount`, always present (`0` when none): findings reclassified from inline-`failed`
+  to summary fallback on this run — a subset of the skipped count. Use it to track the
+  inline-degradation rate over time; it is always emitted so a silent absence cannot hide a rising
+  rate.
 - `inlineFindings`, a deterministic per-finding list of `findingId`, `disposition`, provider comment IDs/URLs, and failure/skip reasons,
-- skipped inline reasons, including readiness-gate reasons such as `line_not_in_patch`.
+- skipped inline reasons, including readiness-gate reasons such as `line_not_in_patch` and post-failure fallbacks such as `summary_fallback_http_422`.
 
 Summary publishing still writes its own `publisher.completed` event and remains idempotent via the summary hidden metadata.
 

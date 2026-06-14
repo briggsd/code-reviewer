@@ -26,7 +26,7 @@ import {
 } from "../../publisher/summary-metadata.ts";
 import { breakGlassMatchesHead, GITHUB_TRUSTED_ASSOCIATIONS } from "../break-glass-marker.ts";
 import type { FetchLike } from "../shared/http-json-client.ts";
-import { HttpJsonClient } from "../shared/http-json-client.ts";
+import { HttpJsonClient, HttpRequestError } from "../shared/http-json-client.ts";
 
 export type { FetchLike } from "../shared/http-json-client.ts";
 
@@ -442,6 +442,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
           ...(finding.id !== undefined ? { findingId: finding.id } : {}),
           disposition: "failed",
           reason: error instanceof Error ? error.message : String(error),
+          ...(error instanceof HttpRequestError ? { httpStatus: error.status } : {}),
         });
       }
     }
@@ -452,6 +453,8 @@ export class GitHubVcsAdapter implements VcsAdapter {
       postedInlineCount: outcomes.filter((outcome) => outcome.disposition === "posted").length,
       skippedInlineCount: outcomes.filter((outcome) => outcome.disposition === "skipped").length,
       failedInlineCount: outcomes.filter((outcome) => outcome.disposition === "failed").length,
+      // Adapters report what happened; the publisher owns summary-fallback policy, so 0 here.
+      summaryFallbackCount: 0,
       findings: outcomes,
     };
   }

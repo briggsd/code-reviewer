@@ -7,6 +7,21 @@
 
 export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
+/**
+ * Thrown on a non-2xx response. Carries the numeric HTTP `status` so callers can branch on it
+ * structurally (e.g. the publisher's summary-fallback policy) instead of parsing the message
+ * string — the message format is for humans and must not be a machine contract.
+ */
+export class HttpRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "HttpRequestError";
+  }
+}
+
 export interface HttpJsonClientOptions {
   baseUrl: string;
   fetchImpl: FetchLike;
@@ -40,8 +55,9 @@ export class HttpJsonClient {
     });
 
     if (!response.ok) {
-      throw new Error(
+      throw new HttpRequestError(
         `${this.providerNoun} API request failed: ${response.status} ${response.statusText} for ${url}`,
+        response.status,
       );
     }
 
@@ -58,8 +74,9 @@ export class HttpJsonClient {
       });
 
       if (!response.ok) {
-        throw new Error(
+        throw new HttpRequestError(
           `${this.providerNoun} API request failed: ${response.status} ${response.statusText} for ${nextUrl}`,
+          response.status,
         );
       }
 

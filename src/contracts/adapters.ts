@@ -59,6 +59,12 @@ export interface PublishInlineFindingOutcome {
   reason?: string;
   providerCommentId?: string;
   url?: string;
+  /**
+   * HTTP status of the underlying VCS API failure, when the disposition is `failed` because of a
+   * non-2xx response. Set by the adapter (not parsed from `reason`) so the publisher can apply its
+   * summary-fallback policy structurally. Absent for non-HTTP failures and for posted/skipped.
+   */
+  httpStatus?: number;
 }
 
 export interface PublishInlineFindingsInput {
@@ -73,6 +79,15 @@ export interface PublishInlineFindingsResult {
   postedInlineCount: number;
   skippedInlineCount: number;
   failedInlineCount: number;
+  /**
+   * Findings re-routed to the summary body after a recoverable inline-publish failure
+   * (architecture.md:430). A subset of the skipped count — surfaced separately so callers can
+   * distinguish pre-flight-blocked findings from post-failure degradation without string-matching
+   * `reason`. Always set by the factory publisher; adapters (which do not apply fallback policy)
+   * report 0. OPTIONAL so adding it stays a non-breaking change for external VcsAdapter
+   * implementors — a regression in this shared contract degrades every adopter on upgrade.
+   */
+  summaryFallbackCount?: number;
   findings: PublishInlineFindingOutcome[];
 }
 

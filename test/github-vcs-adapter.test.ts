@@ -283,6 +283,7 @@ describe("GitHubVcsAdapter", () => {
       postedInlineCount: 1,
       skippedInlineCount: 0,
       failedInlineCount: 0,
+      summaryFallbackCount: 0,
       findings: [
         {
           findingId: "fnd_auth_missing_owner_check",
@@ -431,6 +432,7 @@ describe("GitHubVcsAdapter", () => {
       postedInlineCount: 0,
       skippedInlineCount: 1,
       failedInlineCount: 0,
+      summaryFallbackCount: 0,
       findings: [
         {
           findingId: "fnd_auth_missing_owner_check",

@@ -30,7 +30,7 @@ import {
   mapGitLabAccessLevel,
 } from "../break-glass-marker.ts";
 import type { FetchLike } from "../shared/http-json-client.ts";
-import { HttpJsonClient } from "../shared/http-json-client.ts";
+import { HttpJsonClient, HttpRequestError } from "../shared/http-json-client.ts";
 
 export type GitLabFetchLike = FetchLike;
 
@@ -444,6 +444,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
         postedInlineCount: 0,
         skippedInlineCount: input.findings.length,
         failedInlineCount: 0,
+        summaryFallbackCount: 0,
         findings: outcomes,
       };
     }
@@ -545,6 +546,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
           ...(finding.id !== undefined ? { findingId: finding.id } : {}),
           disposition: "failed",
           reason: error instanceof Error ? error.message : String(error),
+          ...(error instanceof HttpRequestError ? { httpStatus: error.status } : {}),
         });
       }
     }
@@ -555,6 +557,8 @@ export class GitLabVcsAdapter implements VcsAdapter {
       postedInlineCount: outcomes.filter((outcome) => outcome.disposition === "posted").length,
       skippedInlineCount: outcomes.filter((outcome) => outcome.disposition === "skipped").length,
       failedInlineCount: outcomes.filter((outcome) => outcome.disposition === "failed").length,
+      // Adapters report what happened; the publisher owns summary-fallback policy, so 0 here.
+      summaryFallbackCount: 0,
       findings: outcomes,
     };
   }

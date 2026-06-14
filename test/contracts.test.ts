@@ -141,6 +141,7 @@ describe("contract exports", () => {
       postedInlineCount: 1,
       skippedInlineCount: 1,
       failedInlineCount: 1,
+      summaryFallbackCount: 0,
       findings: [
         {
           findingId: "finding-posted",
