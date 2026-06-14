@@ -1,10 +1,19 @@
 import type { JsonValue } from "../contracts/common.ts";
 import type { TelemetryEvent } from "../contracts/telemetry.ts";
+import { NON_REAL_RUNTIME_KINDS } from "../runtime/runtime-kind.ts";
 import {
   type AgentTokenAggregate,
   type RunMetricsRollup,
   rollupRunMetrics,
 } from "./run-metrics-rollup.ts";
+
+/**
+ * Runtime kinds whose run-level telemetry is deterministic noise (0 tokens / 0 findings) and
+ * must never reach a remote collector or the fleet dataset (#194). Mirrors the analysis-side
+ * `NON_REAL_RUNTIME_KIND_SET` in run-metrics-analyze.ts so egress and analysis agree on what
+ * "real" means.
+ */
+const NON_REAL_RUNTIME_KIND_SET: ReadonlySet<string> = new Set(NON_REAL_RUNTIME_KINDS);
 
 export const ROLLUP_EXPORT_SCHEMA_VERSION = "ai-review.rollup_export.v1";
 
@@ -356,6 +365,11 @@ function shapeBoundRollup(rollup: RunMetricsRollup): {
  * security-critical patterns are never duplicated):
  *   • TYPE allowlist — returns `null` for any type not in
  *     `EXPORTABLE_EVENT_TYPES`, so its fields never leave the process.
+ *   • NON-REAL RUNTIME drop (#194) — a `run_metrics` event whose `runtime` is
+ *     a non-real kind (dummy / deterministic) returns `null`, so dry-run/test
+ *     noise never reaches a remote collector or the fleet dataset. run_event
+ *     subtypes carry no `runtime` and are not filtered here (their dummy orphans
+ *     are dropped downstream by runId-correlation in run-metrics-analyze).
  *   • KEY shape-bounding — every `data` Record key (recursively) must satisfy
  *     `AGGREGATE_KEY_PATTERN`; model-authored / free-text-shaped keys are
  *     DROPPED (the streaming analogue of folding into `__other__` — there is no
@@ -381,6 +395,20 @@ function shapeBoundRollup(rollup: RunMetricsRollup): {
  */
 export function projectEventForEgress(event: TelemetryEvent): TelemetryEvent | null {
   if (!(EXPORTABLE_EVENT_TYPES as readonly string[]).includes(event.type)) {
+    return null;
+  }
+
+  // #194: drop non-real-runtime run_metrics at the egress boundary so dummy/dry-run runs (the
+  // #131 CI smoke job — 0 tokens / 0 findings, ~half the dataset) never reach a remote collector
+  // or the fleet dataset and skew real-runtime aggregates (e.g. falsely firing thinReviewRate).
+  // The dry-run JOB is unaffected; only its remote telemetry is suppressed, and the local
+  // telemetry.jsonl still keeps dummy events for debugging (this is send-side only). Because
+  // fleet-ingest re-runs this projection on receive, the same drop applies "never trust the
+  // sender" on ingest. Only run_metrics carries `runtime`; run_event subtypes do not, and their
+  // dummy orphans are already ignored downstream by runId-correlation in run-metrics-analyze, so
+  // threading their runtime is out of this boundary's scope. Drop ONLY on an explicit non-real
+  // match — a missing/odd runtime falls through and ships, so real telemetry is never silently lost.
+  if (event.type === "ai_review.run_metrics" && isNonRealRuntimeRunMetrics(event)) {
     return null;
   }
 
@@ -429,4 +457,15 @@ function boundEgressData(record: Record<string, JsonValue>): Record<string, Json
 
 function isPlainJsonObject(value: JsonValue): value is Record<string, JsonValue> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * True when a run_metrics event's `runtime` is an explicit non-real kind (dummy / deterministic).
+ * Conservative by design: only a string value present in the non-real set returns true, so a
+ * run_metrics event with a missing or non-string runtime is NOT treated as non-real and still
+ * egresses — the boundary drops known noise, never real telemetry on absence.
+ */
+function isNonRealRuntimeRunMetrics(event: TelemetryEvent): boolean {
+  const runtime = event.data?.runtime;
+  return typeof runtime === "string" && NON_REAL_RUNTIME_KIND_SET.has(runtime);
 }

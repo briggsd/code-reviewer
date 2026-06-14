@@ -237,7 +237,12 @@ collector (e.g. a fleet-wide aggregation endpoint), configure an exporter. The r
 **default-off** (no exporter configured = byte-identical behavior), **fail-open** (a slow or
 failing endpoint never blocks or fails the review), and **counts-only** — every egressed event
 passes the same `rollup-export.ts` boundary (type allowlist + key/slug/envelope shape-bounding)
-before leaving the process.
+before leaving the process. The boundary also makes remote telemetry **real-runtime-only**: a
+`run_metrics` event whose `runtime` is a non-real kind (`dummy` / `deterministic`) is dropped
+(#194), so the #131 dry-run smoke job's deterministic 0-token noise never reaches a collector or
+the fleet dataset (the job still runs; only its remote telemetry is suppressed; local JSONL keeps
+it). The same projection runs on fleet ingest, so the drop also applies "never trust the sender"
+on receive.
 
 **Exporter env namespaces.** Each exporter owns an `AI_REVIEW_<NAME>_{URL,AUTHORIZATION,BASIC_AUTH}`
 namespace, so exporters are configured independently (no shared/ambiguous auth). Setting an

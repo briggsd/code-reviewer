@@ -186,6 +186,23 @@ describe("ingestFleetPayload — counts-only on receive", () => {
     expect(events).toHaveLength(0);
   });
 
+  test("#194 — drops runtime=dummy run_metrics on receive (never trust the sender), keeps real-Pi", () => {
+    // A hostile/buggy sender that did not filter its dummy run_metrics must not pollute the fleet
+    // dataset: the shared projectEventForEgress re-runs on receive and drops the non-real event.
+    const payload = [
+      runMetricsLine({ repository: "acme/repo-a", runId: "real-1" }),
+      runMetricsLine({ repository: "acme/repo-a", runId: "dummy-1", extra: { runtime: "dummy" } }),
+      runMetricsLine({ repository: "acme/repo-b", runId: "real-2" }),
+    ].join("\n");
+
+    const { events, summary } = ingestFleetPayload(payload);
+
+    expect(summary.acceptedCount).toBe(2);
+    expect(summary.rejectedEventCount).toBe(1);
+    expect(events.map((e) => e.runId)).toEqual(["real-1", "real-2"]);
+    expect(events.every((e) => e.data?.runtime === "pi")).toBe(true);
+  });
+
   test("rejects a malformed envelope (non-ISO timestamp) without landing it", () => {
     const bad = JSON.stringify({
       type: "ai_review.run_metrics",

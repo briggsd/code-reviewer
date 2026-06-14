@@ -254,7 +254,8 @@ Notes specific to GitHub Actions:
   suppression instead: **Secrets** are not provided to `pull_request` runs from forks (the
   credential resolves to empty there), but **Variables ARE visible** to fork PRs — so a URL
   stored as a Variable is not suppressed. Keep the job gated. Prefer the real (`--runtime pi`)
-  job so dummy dry-run events don't pollute the backend.
+  job; dummy `run_metrics` are also dropped at the egress boundary (#194), so they never reach the
+  backend even if telemetry were wired into a dry-run job.
 - For `pull_request` events GitHub uses the workflow file from the **base branch**, so a newly
   added mapping only takes effect for PRs opened **after** it merges to your default branch — it
   will not fire on the PR that adds it.
@@ -272,8 +273,10 @@ Rules to know when configuring:
 **Verify it's working.** Run any review with `--output-dir <dir>` and check the run's
 `<dir>/runs/<runId>/trace.jsonl` for `telemetry.remote_delivered` (or `telemetry.remote_failed`,
 status only) records — one per egressed event — then query your backend (for Loki:
-`{service="ai-code-review"}`; add `| json | runtime="pi"` to filter to real CI reviews vs
-`dummy`/local runs). Full reference, label scheme, counts-only guarantees, and the per-exporter
+`{service="ai-code-review"}`). Remote `run_metrics` are **real-only by default**: dummy/dry-run
+runs are dropped at the egress boundary (#194), so no `runtime` filter is needed to clean them —
+add `| json | runtime="pi"` only if you also query `run_event` subtypes (whose dummy orphans are
+not egress-filtered). Full reference, label scheme, counts-only guarantees, and the per-exporter
 namespace convention: **[Telemetry export](telemetry-export.md)**.
 
 ## Safety note

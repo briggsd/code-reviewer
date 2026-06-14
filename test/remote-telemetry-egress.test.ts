@@ -274,6 +274,59 @@ describe("projectEventForEgress (#50 counts-only boundary)", () => {
     expect(agents).toBeDefined();
     expect(agents?.[0]?.effectiveModel).toBe("claude-sonnet-4-6");
   });
+
+  test("#194 — drops a run_metrics event with runtime=dummy (returns null)", () => {
+    const event: TelemetryEvent = {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-13T12:00:00.000Z",
+      runId: "run-dummy",
+      data: { runtime: "dummy", riskTier: "full", repository: "acme/widgets", findingCount: 0 },
+    };
+    expect(projectEventForEgress(event)).toBeNull();
+  });
+
+  test("#194 — drops a run_metrics event with runtime=deterministic (returns null)", () => {
+    const event: TelemetryEvent = {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-13T12:00:00.000Z",
+      runId: "run-det",
+      data: { runtime: "deterministic", riskTier: "trivial" },
+    };
+    expect(projectEventForEgress(event)).toBeNull();
+  });
+
+  test("#194 — keeps a run_metrics event with runtime=pi (real runtime egresses)", () => {
+    const event: TelemetryEvent = {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-13T12:00:00.000Z",
+      runId: "run-pi",
+      data: { runtime: "pi", riskTier: "full", repository: "acme/widgets", findingCount: 2 },
+    };
+    const projected = projectEventForEgress(event);
+    expect(projected).not.toBeNull();
+    expect(projected?.data?.runtime).toBe("pi");
+  });
+
+  test("#194 — a run_metrics event with no runtime field is NOT dropped (conservative: never lose real telemetry)", () => {
+    // METRICS_EVENT carries no `runtime`; the boundary drops only an explicit non-real kind.
+    const projected = projectEventForEgress(METRICS_EVENT);
+    expect(projected).not.toBeNull();
+    expect(projected?.data?.riskTier).toBe("full");
+  });
+
+  test("#194 — the runtime drop targets run_metrics only; a run.start run_event is unaffected", () => {
+    // run_event subtypes carry no `runtime` field, so the dummy drop does not apply to them; they
+    // pass on type/shape rules alone (dummy orphans are filtered downstream by runId-correlation).
+    const event: TelemetryEvent = {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-13T12:00:00.000Z",
+      runId: "run-start-1",
+      data: { event: "run.start", riskTier: "full", modelIds: ["dummy-standard"] },
+    };
+    const projected = projectEventForEgress(event);
+    expect(projected).not.toBeNull();
+    expect(projected?.data?.event).toBe("run.start");
+  });
 });
 
 describe("TeeTelemetryTransport", () => {
