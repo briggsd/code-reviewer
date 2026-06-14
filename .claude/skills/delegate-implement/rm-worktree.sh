@@ -63,9 +63,12 @@ else
 fi
 
 if [[ -n "$DEL_BRANCH" ]]; then
+  # Idempotent: a fully-completed prior run already deleted the branch — re-running must not error.
+  if ! git -C "$MAIN" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+    echo "→ branch $BRANCH already gone"
   # Safe by default: `-d` refuses an unmerged branch so unpushed commits aren't lost. --force
   # upgrades to `-D`. Squash-merge isn't seen as merged by `-d`, hence the --force path.
-  if [[ -n "$FORCE" ]]; then
+  elif [[ -n "$FORCE" ]]; then
     git -C "$MAIN" branch -D "$BRANCH" && echo "✓ branch $BRANCH force-deleted"
   elif git -C "$MAIN" branch -d "$BRANCH" 2>/dev/null; then
     echo "✓ branch $BRANCH deleted"

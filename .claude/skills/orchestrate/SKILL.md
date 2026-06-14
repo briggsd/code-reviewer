@@ -72,9 +72,14 @@ State the recommended lane *and the one you're NOT starting*, with the reason. D
    - confirm the PR actually merged (`gh pr view <N> --json state,mergedAt`);
    - `git fetch && git merge --ff-only origin/main` to sync local main;
    - tear down the lane's worktree if the agent didn't —
-     `.claude/skills/delegate-implement/rm-worktree.sh <branch> --force --delete-branch`
-     (**`--force` because squash-merge isn't seen as merged by `git branch -d`**); then
-     `git worktree prune` for stale metadata;
+     `.claude/skills/delegate-implement/merge-worktree.sh <pr#>` handles **both** states in one
+     idempotent step: it merges (squash) if still open, else skips straight to remote-delete +
+     worktree/branch teardown (it refuses a dirty worktree unless `--force`). Use it for the
+     already-merged case too instead of a bare
+     `.claude/skills/delegate-implement/rm-worktree.sh <branch> --force --delete-branch` (which
+     still works — `--force` because a squash-merge isn't seen as merged by `git branch -d`).
+     **Never** `gh pr merge --delete-branch` from a worktree (it aborts on `'main' is already used
+     by worktree` and orphans the remote branch). Then `git worktree prune` for stale metadata;
    - **reassess the board** and surface what just unblocked (and what stays parked).
 
 ## Escalate up and down

@@ -42,7 +42,15 @@ worktree (scripts live under `.claude/`, the real tracked path):
 .claude/skills/delegate-implement/new-worktree.sh <backend>/<issue#>-<slug>   # e.g. sonnet/142-foo
 # → ../acrf-wt-<slug>, node_modules symlinked, prints the `export PATH …; cd …` line. Gate runs green.
 .claude/skills/delegate-implement/rm-worktree.sh <branch> [--force] [--delete-branch]   # teardown when merged
+.claude/skills/delegate-implement/merge-worktree.sh <pr#> [branch] [--force]   # land + clean up in one step
 ```
+**Landing a lane: use `merge-worktree.sh <pr#>`, never `gh pr merge --delete-branch`.** From inside
+a worktree the latter aborts mid-way (`fatal: 'main' is already used by worktree`) — it merges
+server-side but never deletes the remote branch, then teardown still needs `--force` because git
+doesn't see a squash-merge as merged. `merge-worktree.sh` runs the always-works sequence (green-gate
+the blocking check → `gh pr merge --squash` → explicit `push --delete` → force teardown), resolves
+the branch from the PR, and is safe to re-run after a partial failure. Run it from the main checkout
+(not from inside the lane worktree it's about to remove).
 The script pre-solves the frictions that otherwise fail the gate in a fresh worktree: no
 `node_modules` (symlinks the main checkout's), bun not on the non-interactive PATH (prints the
 `export`), and teardown that refuses to nuke real uncommitted work. Worktrees share `.git`, so
