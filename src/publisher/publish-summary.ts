@@ -57,7 +57,7 @@ export function createPublishHiddenMetadata(
       : undefined;
 
   // findingPaths: id → location.path for findings that have both a non-empty id and a path.
-  // Only included at schemaVersion 2; omitted entirely when empty.
+  // Only included at schemaVersion 2+; omitted entirely when empty.
   const findingPaths: Record<string, string> = {};
   if (summary !== undefined) {
     for (const finding of summary.findings) {
@@ -72,8 +72,20 @@ export function createPublishHiddenMetadata(
   }
   const hasFindingPaths = Object.keys(findingPaths).length > 0;
 
+  // findingReviewers: id → reviewer role for findings that have a non-empty id.
+  // Only included at schemaVersion 3; omitted entirely when empty.
+  const findingReviewers: Record<string, string> = {};
+  if (summary !== undefined) {
+    for (const finding of summary.findings) {
+      if (finding.id !== undefined && finding.id.length > 0) {
+        findingReviewers[finding.id] = finding.reviewer;
+      }
+    }
+  }
+  const hasFindingReviewers = Object.keys(findingReviewers).length > 0;
+
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     runId,
     headSha: change.headSha,
     provider: change.provider,
@@ -81,6 +93,7 @@ export function createPublishHiddenMetadata(
     changeId: change.changeId,
     ...(findingIds !== undefined ? { findingIds } : {}),
     ...(hasFindingPaths ? { findingPaths } : {}),
+    ...(hasFindingReviewers ? { findingReviewers } : {}),
     // Comprehension-gate verdict (#26): additive, present only when the reviewer ran. v1 parsers
     // ignore unknown keys, so this stays backward-compatible with the existing metadata reader.
     ...(summary?.gateDecision !== undefined ? { gateDecision: summary.gateDecision } : {}),

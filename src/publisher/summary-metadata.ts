@@ -18,6 +18,8 @@ export interface ParsedSummaryMetadata {
   findingIds: string[];
   /** schemaVersion 2+: id → location.path mapping for prior findings. */
   findingPaths?: Record<string, string>;
+  /** schemaVersion 3+: id → reviewer role for prior findings. */
+  findingReviewers?: Record<string, string>;
   raw: Record<string, JsonValue>;
 }
 
@@ -60,6 +62,24 @@ export function parseSummaryHiddenMetadata(
       }
     }
 
+    // Parse findingReviewers defensively. This is UNTRUSTED prior-comment content: it only
+    // influences re-review CLASSIFICATION / analytics (acceptanceByReviewer attribution) —
+    // it never affects the CI gate, decision, or outcome. Accept only non-empty string values
+    // with a safe reviewer-role shape (bounded length, no control chars). A rejected entry
+    // leaves that prior finding with reviewer "unknown", the safe direction. (schemaVersion 3+)
+    let findingReviewers: Record<string, string> | undefined;
+    if (isJsonObject(parsed.findingReviewers)) {
+      const filtered: Record<string, string> = {};
+      for (const [key, value] of Object.entries(parsed.findingReviewers)) {
+        if (typeof value === "string" && isSafeReviewerRole(value)) {
+          filtered[key] = value;
+        }
+      }
+      if (Object.keys(filtered).length > 0) {
+        findingReviewers = filtered;
+      }
+    }
+
     return {
       ...(typeof parsed.schemaVersion === "number" ? { schemaVersion: parsed.schemaVersion } : {}),
       ...(typeof parsed.runId === "string" ? { runId: parsed.runId } : {}),
@@ -71,6 +91,7 @@ export function parseSummaryHiddenMetadata(
         ? parsed.findingIds.filter((id): id is string => typeof id === "string" && id.length > 0)
         : [],
       ...(findingPaths !== undefined ? { findingPaths } : {}),
+      ...(findingReviewers !== undefined ? { findingReviewers } : {}),
       raw: parsed,
     };
   } catch {
@@ -91,7 +112,11 @@ export function createPriorReviewStateFromMetadata(
     findings: metadata.findingIds.map(
       (stableId): PriorFindingState => ({
         stableId,
-        finding: createPlaceholderFinding(stableId, metadata.findingPaths?.[stableId]),
+        finding: createPlaceholderFinding(
+          stableId,
+          metadata.findingPaths?.[stableId],
+          metadata.findingReviewers?.[stableId],
+        ),
         status: "open",
         lastSeenHeadSha,
       }),
@@ -99,10 +124,15 @@ export function createPriorReviewStateFromMetadata(
   };
 }
 
-function createPlaceholderFinding(stableId: string, path?: string): Finding {
+function createPlaceholderFinding(stableId: string, path?: string, reviewer?: string): Finding {
   return {
     id: stableId,
-    reviewer: "custom",
+    // Use the recovered reviewer role when available (schemaVersion 3+ metadata). Fall back to
+    // "unknown" (not "custom") so the unrecoverable-old-format bucket stays distinct from the
+    // real "custom" AgentRole an operator extension could legitimately emit. This aligns with
+    // deriveAcceptanceByReviewer (src/runner/run-events.ts) which also uses ?? "unknown" for an
+    // absent prior reviewer, keeping acceptanceByReviewer attribution honest.
+    reviewer: reviewer ?? "unknown",
     severity: "suggestion",
     category: "prior_state",
     title: `Prior finding ${stableId}`,
@@ -133,4 +163,19 @@ function isSafeMetadataPath(value: string): boolean {
     }
   }
   return !value.split("/").includes(".."); // no traversal segment
+}
+
+// A safe reviewer-role shape for untrusted findingReviewers values: non-empty, bounded
+// length (≤ 64), no control characters. Reviewer roles are stable low-cardinality identifiers
+// (e.g. "security", "custom", "coordinator") — same safety class as findingPaths.
+function isSafeReviewerRole(value: string): boolean {
+  if (value.length === 0 || value.length > 64) {
+    return false;
+  }
+  for (let i = 0; i < value.length; i += 1) {
+    if (value.charCodeAt(i) < 0x20) {
+      return false; // control character
+    }
+  }
+  return true;
 }

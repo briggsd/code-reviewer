@@ -122,4 +122,93 @@ describe("summary hidden metadata parsing", () => {
     expect(byId.get("fnd_traversal")?.finding.location).toBeUndefined();
     expect(byId.get("fnd_absolute")?.finding.location).toBeUndefined();
   });
+
+  test("findingReviewers (v3): recovered reviewer role is used; v2-style metadata falls back to 'unknown'", () => {
+    // v3 metadata WITH findingReviewers → placeholder gets the recovered role
+    const v3metadata = parseSummaryHiddenMetadata(
+      [
+        "<!-- ai-code-review-factory",
+        JSON.stringify({
+          schemaVersion: 3,
+          runId: "run-3",
+          headSha: "old-head",
+          findingIds: ["fnd_aaa", "fnd_bbb"],
+          findingReviewers: {
+            fnd_aaa: "security",
+            fnd_bbb: "custom",
+          },
+        }),
+        "-->",
+      ].join("\n"),
+    );
+    if (v3metadata === undefined) {
+      throw new Error("expected v3 metadata to parse");
+    }
+    expect(v3metadata.findingReviewers).toEqual({ fnd_aaa: "security", fnd_bbb: "custom" });
+
+    const v3state = createPriorReviewStateFromMetadata(v3metadata, ref);
+    const v3byId = new Map(v3state.findings.map((f) => [f.stableId, f]));
+    expect(v3byId.get("fnd_aaa")?.finding.reviewer).toBe("security");
+    expect(v3byId.get("fnd_bbb")?.finding.reviewer).toBe("custom");
+
+    // v2-style metadata (no findingReviewers) → placeholder reviewer falls back to "unknown"
+    const v2metadata = parseSummaryHiddenMetadata(
+      [
+        "<!-- ai-code-review-factory",
+        JSON.stringify({
+          schemaVersion: 2,
+          runId: "run-2b",
+          headSha: "old-head",
+          findingIds: ["fnd_ccc"],
+        }),
+        "-->",
+      ].join("\n"),
+    );
+    if (v2metadata === undefined) {
+      throw new Error("expected v2 metadata to parse");
+    }
+    expect(v2metadata.findingReviewers).toBeUndefined();
+
+    const v2state = createPriorReviewStateFromMetadata(v2metadata, ref);
+    expect(v2state.findings[0]?.finding.reviewer).toBe("unknown");
+  });
+
+  test("findingReviewers: defensive parsing drops invalid entries; valid ones survive", () => {
+    // Build a string that is 65 chars long (over the 64-char limit)
+    const tooLong = "a".repeat(65);
+    // Control character: \x01 (charCode 1 < 0x20)
+    const withControlChar = "secu\x01rity";
+    const metadata = parseSummaryHiddenMetadata(
+      [
+        "<!-- ai-code-review-factory",
+        JSON.stringify({
+          schemaVersion: 3,
+          runId: "run-def",
+          headSha: "old-head",
+          findingIds: ["fnd_valid", "fnd_toolong", "fnd_nonstring", "fnd_ctrl"],
+          findingReviewers: {
+            fnd_valid: "security",
+            fnd_toolong: tooLong,
+            fnd_nonstring: 42,
+            fnd_ctrl: withControlChar,
+          },
+        }),
+        "-->",
+      ].join("\n"),
+    );
+    if (metadata === undefined) {
+      throw new Error("expected metadata to parse");
+    }
+    // Only the valid entry survives the guard.
+    expect(metadata.findingReviewers).toEqual({ fnd_valid: "security" });
+
+    const state = createPriorReviewStateFromMetadata(metadata, ref);
+    const byId = new Map(state.findings.map((f) => [f.stableId, f]));
+    // Valid entry gets the recovered role.
+    expect(byId.get("fnd_valid")?.finding.reviewer).toBe("security");
+    // Dropped entries fall back to "unknown" — the safe direction.
+    expect(byId.get("fnd_toolong")?.finding.reviewer).toBe("unknown");
+    expect(byId.get("fnd_nonstring")?.finding.reviewer).toBe("unknown");
+    expect(byId.get("fnd_ctrl")?.finding.reviewer).toBe("unknown");
+  });
 });

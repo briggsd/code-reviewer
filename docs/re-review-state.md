@@ -115,6 +115,30 @@ To enable carry-forward classification across runs that rely only on summary met
 
 `findingPaths` maps each finding's stable ID to its `location.path`. Only findings with both a non-empty ID and a path appear. The field is omitted entirely when there are no such findings. On parsing, non-string values are filtered out defensively. Placeholder prior findings (`createPlaceholderFinding`) now set `location: { path }` from `findingPaths`, enabling correct carry-forward classification even when the full prior summary is unavailable.
 
+### `findingReviewers` metadata (schemaVersion 3)
+
+To fix `acceptanceByReviewer` attribution collapsing to a single bucket, the hidden metadata block now includes `findingReviewers` at schemaVersion 3:
+
+```json
+{
+  "schemaVersion": 3,
+  "runId": "run-123",
+  "headSha": "abc123",
+  "provider": "github",
+  "repository": "example/repo",
+  "changeId": "17",
+  "findingIds": ["fnd_0123456789abcdef"],
+  "findingPaths": {
+    "fnd_0123456789abcdef": "src/auth/accounts.ts"
+  },
+  "findingReviewers": {
+    "fnd_0123456789abcdef": "security"
+  }
+}
+```
+
+`findingReviewers` maps each finding's stable ID to its reviewer role (the `AgentRole | string` value from the finding). Only findings with a non-empty ID appear. The field is omitted entirely when there are no such findings. On parsing, only non-empty string values with bounded length (≤ 64) and no control characters are accepted; rejected entries fall back to `"unknown"` — a distinct bucket from the real `"custom"` AgentRole an operator extension could emit. Parsers built on schemaVersion ≤ 2 ignore the unknown `findingReviewers` key (backward-compatible additive field).
+
 ### `review.incremental` trace event
 
 Whenever `runReview` has an `incremental` plan (regardless of mode), it emits a `review.incremental` trace event at run completion:
@@ -146,11 +170,11 @@ The `run_metrics` telemetry event also includes an `incremental` block when the 
 
 ## Hidden summary metadata
 
-Published summary comments/notes include hidden metadata with `schemaVersion: 2` and `findingIds` (and optionally `findingPaths`). At schemaVersion 1 (legacy), `findingPaths` is absent and placeholder findings have no `location`; incremental re-review falls back to full review or carries forward all prior findings conservatively.
+Published summary comments/notes include hidden metadata with `schemaVersion: 3` and `findingIds` (and optionally `findingPaths` and `findingReviewers`). At schemaVersion 2 (legacy), `findingReviewers` is absent and placeholder findings use reviewer `"unknown"`; at schemaVersion 1 (legacy), `findingPaths` is also absent and placeholder findings have no `location`; incremental re-review falls back to full review or carries forward all prior findings conservatively. (The `schemaVersion: 2` example in the `findingPaths` section above shows the v2 shape for reference.)
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "runId": "run-123",
   "headSha": "abc123",
   "provider": "github",
@@ -159,6 +183,9 @@ Published summary comments/notes include hidden metadata with `schemaVersion: 2`
   "findingIds": ["fnd_0123456789abcdef"],
   "findingPaths": {
     "fnd_0123456789abcdef": "src/auth/accounts.ts"
+  },
+  "findingReviewers": {
+    "fnd_0123456789abcdef": "security"
   }
 }
 ```
