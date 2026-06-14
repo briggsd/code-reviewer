@@ -320,6 +320,130 @@ export const TRUSTED_REVIEWER_DEFINITIONS: ReviewerDefinition[] = [
   }),
 ];
 
+/**
+ * Result of loading an operator reviewer-definitions module by explicit path (M017 S03, #143).
+ * `definitions` is the operator's authored set; `replace` opts into full-replace mode (the
+ * operator set entirely supplants TRUSTED_REVIEWER_DEFINITIONS instead of merging by role).
+ */
+export interface OperatorReviewerExtension {
+  definitions: ReviewerDefinition[];
+  replace: boolean;
+}
+
+/**
+ * Merge operator reviewer definitions onto the trusted set per the M017 S01 decision-of-record
+ * (docs/operator-extension-seam.md): **merge-by-role, operator-wins**, with an explicit
+ * **full-replace** opt-in.
+ *
+ *   - default (merge): key on `role`, last-writer-wins → a new role appends (extend), a role that
+ *     collides with a built-in replaces it (swap). The operator never edits factory code.
+ *   - replace mode: the operator definitions entirely supplant the trusted set.
+ *
+ * The reserved `coordinator` role is rejected here so an operator reviewer can never shadow the
+ * fusion role (mirrors the guard in `defineReviewer`). `validateFinding` is unchanged; output
+ * labels are pinned downstream by `enforceReviewerRole`.
+ */
+export function mergeReviewerDefinitions(input: {
+  trusted?: readonly ReviewerDefinition[];
+  operator: readonly ReviewerDefinition[];
+  replace?: boolean;
+}): ReviewerDefinition[] {
+  const trusted = input.trusted ?? TRUSTED_REVIEWER_DEFINITIONS;
+
+  for (const definition of input.operator) {
+    if (definition.role === "coordinator") {
+      throw new Error(
+        'mergeReviewerDefinitions: operator reviewer role "coordinator" is reserved and cannot be redefined',
+      );
+    }
+  }
+
+  if (input.replace === true) {
+    return [...input.operator];
+  }
+
+  // Merge-by-role, operator-wins. Preserve trusted insertion order; operator-defined roles that
+  // collide replace the built-in in place, brand-new operator roles append after the trusted set.
+  const byRole = new Map<string, ReviewerDefinition>();
+  for (const definition of trusted) {
+    byRole.set(definition.role, definition);
+  }
+  const appended: ReviewerDefinition[] = [];
+  for (const definition of input.operator) {
+    if (byRole.has(definition.role)) {
+      byRole.set(definition.role, definition);
+    } else {
+      appended.push(definition);
+    }
+  }
+
+  const merged: ReviewerDefinition[] = [];
+  for (const definition of trusted) {
+    const current = byRole.get(definition.role);
+    if (current !== undefined) {
+      merged.push(current);
+    }
+  }
+  return [...merged, ...appended];
+}
+
+/**
+ * Validate that an arbitrary value is a usable `ReviewerDefinition` (the shape an operator module
+ * exports). Throws a clear, actionable error otherwise. This is a structural guard, not a trust
+ * boundary — the module itself is trusted (explicit operator load), but a malformed export should
+ * fail loudly rather than produce a degenerate prompt.
+ */
+export function assertReviewerDefinition(value: unknown, index: number): ReviewerDefinition {
+  const where = `operator reviewer definition at index ${index}`;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${where} must be an object`);
+  }
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.role !== "string" || obj.role.trim().length === 0) {
+    throw new Error(`${where} must have a non-empty string "role"`);
+  }
+  if (obj.role === "coordinator") {
+    throw new Error(`${where} uses reserved role "coordinator"`);
+  }
+  if (typeof obj.displayName !== "string" || obj.displayName.trim().length === 0) {
+    throw new Error(`${where} (role "${obj.role}") must have a non-empty "displayName"`);
+  }
+  if (obj.source !== "trusted_operator") {
+    throw new Error(`${where} (role "${obj.role}") must have source "trusted_operator"`);
+  }
+  if (typeof obj.version !== "string" || obj.version.trim().length === 0) {
+    throw new Error(`${where} (role "${obj.role}") must have a non-empty "version"`);
+  }
+  if (typeof obj.summary !== "string" || obj.summary.trim().length === 0) {
+    throw new Error(`${where} (role "${obj.role}") must have a non-empty "summary"`);
+  }
+  const guidance = obj.guidance;
+  if (typeof guidance !== "object" || guidance === null || Array.isArray(guidance)) {
+    throw new Error(`${where} (role "${obj.role}") must have a "guidance" object`);
+  }
+  const g = guidance as Record<string, unknown>;
+  // sharedMandatoryRules carries the anti-prompt-injection rules (treat reviewed-repo content as
+  // untrusted data). defineReviewer always injects them, but a raw operator export could bypass
+  // that and ship an empty array, silently omitting the defence from the reviewer system prompt.
+  // Require it non-empty at the load boundary so the seam cannot weaken design principle #6.
+  if (!Array.isArray(g.sharedMandatoryRules) || g.sharedMandatoryRules.length === 0) {
+    throw new Error(
+      `${where} (role "${obj.role}") must have a non-empty "guidance.sharedMandatoryRules" (the anti-prompt-injection rules); author it with defineReviewer/createReviewerDefinition`,
+    );
+  }
+  if (!Array.isArray(g.allowedSeverities) || g.allowedSeverities.length === 0) {
+    throw new Error(
+      `${where} (role "${obj.role}") must have a non-empty "guidance.allowedSeverities" array`,
+    );
+  }
+  for (const field of ["flag", "doNotFlag", "severityCalibration", "outputExpectations"] as const) {
+    if (!Array.isArray(g[field])) {
+      throw new Error(`${where} (role "${obj.role}") must have an array "guidance.${field}"`);
+    }
+  }
+  return value as ReviewerDefinition;
+}
+
 export interface UnsupportedReviewerPolicyEntry {
   role: string;
   policy: ReviewConfig["reviewerPolicy"][string];

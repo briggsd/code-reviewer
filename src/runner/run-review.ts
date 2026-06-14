@@ -12,6 +12,7 @@ import type {
   ReviewContext,
   ReviewDecision,
   ReviewerContextReferences,
+  ReviewerDefinition,
   ReviewerRunInput,
   ReviewRunMetrics,
   ReviewStateStore,
@@ -81,6 +82,14 @@ export interface RunReviewOptions {
    * computes this from the adapter's getChangedPathsSince + decideIncrementalReview.
    */
   incremental?: IncrementalReviewPlan;
+  /**
+   * Reviewer definitions in effect for this run (M017 S03, #143 — operator-extension seam).
+   * When absent, the runner uses TRUSTED_REVIEWER_DEFINITIONS. When an operator loads custom
+   * reviewers (CLI `--reviewers <path>`), the CLI passes the **merged** set here
+   * (merge-by-role/operator-wins, or operator-only in full-replace mode). Reviewed-repo content
+   * never reaches this — it is explicit operator load only.
+   */
+  reviewerDefinitions?: readonly ReviewerDefinition[];
 }
 
 export interface RunReviewResult {
@@ -140,6 +149,9 @@ export async function runReviewFromChange(
       ? { breakGlassOverride: options.breakGlassOverride }
       : {}),
     ...(options.incremental !== undefined ? { incremental: options.incremental } : {}),
+    ...(options.reviewerDefinitions !== undefined
+      ? { reviewerDefinitions: options.reviewerDefinitions }
+      : {}),
   });
 }
 
@@ -193,6 +205,9 @@ async function buildReviewContext(input: {
     risk,
     config: fixture.config,
     ...(fixture.priorState !== undefined ? { priorState: fixture.priorState } : {}),
+    ...(options.reviewerDefinitions !== undefined
+      ? { reviewerDefinitions: options.reviewerDefinitions }
+      : {}),
   };
 
   const contextArtifacts = await writeReviewContextArtifacts({
@@ -269,6 +284,9 @@ async function emitRunStartTelemetry(input: {
   const selectedReviewerDefs = selectTrustedReviewerDefinitions({
     config: context.config,
     risk: context.risk,
+    ...(context.reviewerDefinitions !== undefined
+      ? { definitions: context.reviewerDefinitions }
+      : {}),
   });
   const selectedReviewerRoles = selectedReviewerDefs.map((d) => d.role);
   const modelIds = [
@@ -307,6 +325,9 @@ async function emitRunStartTelemetry(input: {
 
   for (const unsupportedReviewer of findUnsupportedReviewerPolicyEntries({
     config: context.config,
+    ...(context.reviewerDefinitions !== undefined
+      ? { definitions: context.reviewerDefinitions }
+      : {}),
   })) {
     await emitTrace(options.traceSink, {
       type: "agent.skipped",
@@ -1068,25 +1089,29 @@ function createCoordinatorRunInput(context: ReviewContext): CoordinatorRunInput 
 function createReviewerRunInputs(context: ReviewContext): ReviewerRunInput[] {
   const timeouts = getEffectiveTimeouts(context);
 
-  return selectTrustedReviewerDefinitions({ config: context.config, risk: context.risk }).map(
-    (reviewerDefinition) => {
-      const assignedFiles = context.diff.files.map((file) => file.path);
+  return selectTrustedReviewerDefinitions({
+    config: context.config,
+    risk: context.risk,
+    ...(context.reviewerDefinitions !== undefined
+      ? { definitions: context.reviewerDefinitions }
+      : {}),
+  }).map((reviewerDefinition) => {
+    const assignedFiles = context.diff.files.map((file) => file.path);
 
-      return {
-        runId: context.runId,
-        role: reviewerDefinition.role,
-        prompt: `Review the change as the ${reviewerDefinition.role} reviewer.`,
-        context,
-        model: selectModel(context, reviewerDefinition.role),
-        toolPolicy: createRuntimeToolPolicy(context.safetyMode, context.risk.tier),
-        timeoutMs: timeouts.reviewerMs,
-        outputSchemaName: "reviewer",
-        assignedFiles,
-        contextReferences: createReviewerContextReferences(context, assignedFiles),
-        reviewerDefinition,
-      };
-    },
-  );
+    return {
+      runId: context.runId,
+      role: reviewerDefinition.role,
+      prompt: `Review the change as the ${reviewerDefinition.role} reviewer.`,
+      context,
+      model: selectModel(context, reviewerDefinition.role),
+      toolPolicy: createRuntimeToolPolicy(context.safetyMode, context.risk.tier),
+      timeoutMs: timeouts.reviewerMs,
+      outputSchemaName: "reviewer",
+      assignedFiles,
+      contextReferences: createReviewerContextReferences(context, assignedFiles),
+      reviewerDefinition,
+    };
+  });
 }
 
 function createReviewerContextReferences(

@@ -19,6 +19,7 @@ import type {
   TimeoutPolicy,
   TokenUsage,
 } from "./common.ts";
+import type { ReviewerDefinition } from "./runtime.ts";
 
 export interface ChangeRef {
   provider: ProviderKind;
@@ -148,6 +149,14 @@ export interface ReviewContext {
   config: ReviewConfig;
   contextArtifacts?: ReviewContextArtifacts;
   priorState?: PriorReviewState;
+  /**
+   * The reviewer definitions in effect for this run (M017 S03, #143). When absent, the runner
+   * falls back to the factory's TRUSTED_REVIEWER_DEFINITIONS. When an operator loads custom
+   * reviewers via `--reviewers <path>`, this carries the **merged** set (merge-by-role,
+   * operator-wins, or operator-only in full-replace mode). `reviewerPolicy` still independently
+   * gates which of these roles run at the current tier.
+   */
+  reviewerDefinitions?: readonly ReviewerDefinition[];
 }
 
 export interface FindingLocation {

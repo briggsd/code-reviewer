@@ -3,7 +3,7 @@
 import { join } from "node:path";
 import { finalizeCiExit } from "./cli/ci-exit.ts";
 import { ReviewProgressReporter } from "./cli/review-progress-reporter.ts";
-import { parseRunPublishOptions } from "./cli/run-options.ts";
+import { parseReviewersOption, parseRunPublishOptions } from "./cli/run-options.ts";
 import { resolveRemoteEndpoint } from "./cli/telemetry-auth.ts";
 import type {
   BreakGlassOverride,
@@ -16,6 +16,7 @@ import type {
   PriorReviewState,
   ResolvedBaseConfig,
   ReviewConfig,
+  ReviewerDefinition,
   ReviewFixture,
   RuntimeEventSubscription,
   TelemetryEvent,
@@ -40,8 +41,10 @@ import {
   JsonlTraceSink,
   LocalCiAdapter,
   loadGitDiffChange,
+  loadOperatorReviewerDefinitions,
   loadProjectReviewConfig,
   loadReviewFixture,
+  mergeReviewerDefinitions,
   NonBlockingTelemetrySink,
   PiAgentRuntime,
   publishReviewInlineFindings,
@@ -168,6 +171,15 @@ async function runCommand(args: string[]): Promise<void> {
   const ciExit = hasFlag(args, "--ci-exit");
   const redactTrace = hasFlag(args, "--redact-trace");
   const publishOptions = parseRunPublishOptions(args);
+
+  // Operator-extension seam (M017 S03, #143): an operator (the trusted party in their own CI) may
+  // supply custom reviewer definitions by an explicit `--reviewers <path>` they control. The module
+  // is merged onto the factory's trusted set (merge-by-role/operator-wins, or full-replace when the
+  // module opts in). This is explicit operator load, never reviewed-repo discovery — fork-safety
+  // (docs/fork-safety.md) is unchanged: a reviewed repo cannot smuggle a reviewer in.
+  const reviewersPath = parseReviewersOption(args);
+  const reviewerDefinitions =
+    reviewersPath === undefined ? undefined : await loadMergedReviewerDefinitions(reviewersPath);
   if (runtimeName !== undefined && runtimeName !== "dummy" && runtimeName !== "pi") {
     throw new Error(`unsupported runtime: ${runtimeName}`);
   }
@@ -272,6 +284,7 @@ async function runCommand(args: string[]): Promise<void> {
             ...(telemetrySink !== undefined ? { telemetrySink } : {}),
             ...(runtime !== undefined ? { runtime } : {}),
             ...(jobKind !== undefined ? { jobKind } : {}),
+            ...(reviewerDefinitions !== undefined ? { reviewerDefinitions } : {}),
           })
         : await runReviewFromChange({
             runId,
@@ -291,6 +304,7 @@ async function runCommand(args: string[]): Promise<void> {
               ? { breakGlassOverride: source.breakGlassOverride }
               : {}),
             ...(source.incremental !== undefined ? { incremental: source.incremental } : {}),
+            ...(reviewerDefinitions !== undefined ? { reviewerDefinitions } : {}),
           });
 
     if (publishOptions.publishInline) {
@@ -526,6 +540,20 @@ function resolvePiApiKey(raw: string): string {
   return raw;
 }
 
+// Load an operator reviewer-definitions module by explicit path and merge it onto the factory's
+// trusted set (M017 S03, #143). Default merge is by-role/operator-wins; the module opts into
+// full-replace by exporting `{ definitions, replace: true }`. The reserved `coordinator` role is
+// rejected in mergeReviewerDefinitions.
+async function loadMergedReviewerDefinitions(
+  reviewersPath: string,
+): Promise<readonly ReviewerDefinition[]> {
+  const extension = await loadOperatorReviewerDefinitions(reviewersPath);
+  return mergeReviewerDefinitions({
+    operator: extension.definitions,
+    replace: extension.replace,
+  });
+}
+
 // Default progress on for an interactive terminal or a CI job (so the job log shows liveness),
 // off for a plain piped/non-TTY context to avoid noise. `--progress` / `--no-progress` override.
 function decideProgressEnabled(args: string[]): boolean {
@@ -573,10 +601,13 @@ function printHelp(): void {
     "      [--pi-api-key <key|env:NAME>] [--progress|--no-progress]   (pi auth precedence: --pi-api-key > stored OAuth > env key)",
   );
   console.log(
+    "      [--reviewers <path>]   Operator-supplied reviewer definitions module (explicit load; applies to all run forms; merge-by-role/operator-wins, or full-replace via { definitions, replace:true })",
+  );
+  console.log(
     "  run --git-diff [--base <ref>] [--change-id <id>] [--config <path>] [--seed-fixture <path>]",
   );
   console.log(
-    "      [--runtime dummy|pi] [--output-dir <path>] [--format json|markdown] [--ci-exit] [--redact-trace]",
+    "      [--runtime dummy|pi] [--output-dir <path>] [--format json|markdown] [--ci-exit] [--redact-trace] [--reviewers <path>]",
   );
   console.log(
     "      [--job-kind <string>] [--pi-provider <name> --pi-model <id>] [--pi-api-key <key|env:NAME>] [--progress|--no-progress]",
@@ -596,7 +627,7 @@ function printHelp(): void {
     "      [--output-dir <path>] [--format json|markdown] [--publish-summary] [--publish-inline] [--ci-exit] [--redact-trace]",
   );
   console.log(
-    "      [--job-kind <string>] [--pi-provider <name> --pi-model <id>] [--pi-api-key <key|env:NAME>] [--progress|--no-progress]",
+    "      [--job-kind <string>] [--pi-provider <name> --pi-model <id>] [--pi-api-key <key|env:NAME>] [--reviewers <path>] [--progress|--no-progress]",
   );
   console.log("                                       Run deterministic local review");
 }

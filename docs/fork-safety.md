@@ -59,6 +59,28 @@ The invariant for CI is: **reviewed-repo Pi resources stay disabled by default**
 
 The distinction is *discovery* vs *explicit load*, not "no extensions at all." The Pi adapter passes `--no-extensions` (which turns off reviewed-repo extension **discovery**) and **separately** loads exactly one trusted, factory-owned extension by explicit path: `--extension <…>/scripts/pi-extensions/submit-findings-extension.ts` (M015 S03, #126). The repo-relative source location is shown here for reference; the literal CLI argument is an **absolute** path resolved from the installed module location at runtime, so that is what appears in a `ps` / `/proc/<pid>/cmdline` listing. Pi's loader honors an explicit `-e`/`--extension` path even under `--no-extensions`, so this loads the factory's two trusted structured-output tools — `submit_findings` (reviewer) and `submit_review` (coordinator, M015 S04, #127) — without re-opening discovery of repo-local extensions. The file is shipped with the package and never read from the reviewed repo, so it stays on the trusted-operator side of the boundary. Reviewer and coordinator output is still re-validated through `validateFinding` / `parseCoordinatorToolArgs` after delivery (Pi output is untrusted regardless of delivery channel).
 
+### Operator reviewer extensions (`--reviewers <path>`)
+
+Operators may register their own reviewer definitions without forking the core (M017 S03, #143).
+This reuses the **discovery-vs-explicit-load** distinction verbatim: just like the one factory-owned
+Pi extension above, an operator reviewer module is loaded only from an **explicit, operator-supplied
+path** (`ai-code-review run … --reviewers <path>`), resolved in the trusted operator's own CI. It is
+**never auto-discovered from the reviewed repo**, so a reviewed repository cannot smuggle a reviewer
+in — there is no discovery path to honor, only the operator's explicit flag. The module is authored
+against the public `defineReviewer`/`createReviewerDefinition` factory (the `ai-code-review-factory`
+package root export).
+
+The loaded definitions are **merged onto the factory's trusted set, operator-wins by role**: a new
+role appends (extend), a role colliding with a built-in replaces it (swap), and a module that exports
+`{ definitions, replace: true }` fully replaces the trusted set. The reserved `coordinator` role is
+rejected, so an operator reviewer can never shadow the fusion role. Because operator definitions are
+loaded by the trusted operator, they sit on the **trusted-operator side** of the boundary, the same
+tier as `TRUSTED_REVIEWER_DEFINITIONS` — but a reviewer's *output* is still model-authored and
+untrusted, re-validated through `validateFinding` and pinned to its dispatched role by
+`enforceReviewerRole` exactly as for the built-in reviewers (a custom reviewer cannot self-label its
+findings as another role). See `docs/operator-extension-seam.md` for the full design and the
+merge/role-union decisions.
+
 Project config may select policy within the supported schema, but it is not a permission boundary and it does not make reviewed-repo content trusted. Use a separate maintainer-approved privileged mode if a job intentionally wants to load repository-local agent resources.
 
 ### Reviewer-label enforcement
