@@ -286,3 +286,50 @@ so this is defense-in-depth rather than the sole guard.
 
 Vendor-specific exporters (e.g. a Loki push-API body shape) are a later second adapter that
 composes the same generic HTTP core via its `formatRequest` hook — out of #51's scope.
+
+## Own-fleet fan-in (#136, receive-side)
+
+The receive counterpart of the #51 send side. The factory owner runs a fleet of repos that each
+POST counts-only `run_metrics` (the #51 transport); fleet fan-in **accepts** those payloads and
+folds them into the **same dataset the quality report reads**, so the hypothesis queue reflects the
+whole owner fleet — not just this repo's PRs.
+
+`ingestFleetPayload` (in `src/state/fleet-ingest.ts`) is the pure ingestion function; the
+`bun run telemetry:ingest` CLI (`scripts/telemetry-ingest.ts`) authenticates, calls it, and appends
+the accepted events to the fleet dataset JSONL (`.ai-review-fleet/telemetry.jsonl` by default).
+
+That dataset is the JSONL store the quality/analyze pipeline consumes: it carries the same
+`ai_review.run_metrics` events `analyzeRunMetrics` / `buildQualityReport` read, so feeding it through
+those functions pools the fleet's runs into the hypothesis-queue segments. Note: the current
+`telemetry:quality` / `telemetry:analyze` CLIs collect events from CI artifacts via `gh`
+(`collectTelemetryEvents`) and do **not** yet take a local-dataset path — wiring the fleet JSONL into
+those collectors is a thin follow-up; the receive/aggregate boundary this slice owns is complete.
+
+### Boundaries (load-bearing)
+
+1. **Own-fleet only — authenticated by a single shared secret.** `AI_REVIEW_FLEET_INGEST_SECRET`
+   holds the factory-side secret; the sender presents it via `AI_REVIEW_FLEET_INGEST_SECRET_PRESENTED`,
+   compared **timing-safely**. Both are read from the **environment only** — there is deliberately no
+   `--secret` CLI flag, so the credential never lands in the process table, shell history, or CI logs.
+   One shared secret
+   authenticates the whole owner fleet by design (same owner, same trust domain); rotation revokes
+   the fleet at once. **Open third-party contribution to the factory signal is explicitly out of
+   scope** — a hostile sender could skew quality hypotheses (the poisoning vector). Adopters who
+   want their own telemetry point #51 at *their own* private backend; that path never reaches the
+   factory.
+
+2. **Counts-only enforced ON RECEIVE — never trust the sender to have filtered.** Every received
+   event is re-run through the send-side boundary (`projectEventForEgress`: type allowlist + key
+   shape-bounding); a non-exportable type or malformed envelope is **rejected entirely** (its
+   fields never land). Fleet fan-in additionally closes the **value-level** gap that
+   `projectEventForEgress` documents-but-defers: any string value in a `run_metrics` `data` block
+   that is not an allowlisted, shape-conforming stable identifier (`runtime`, `repository`,
+   `riskTier`, `decision`, `outcome`, `changeId`, `headSha`) is **dropped on receive**. So a payload
+   carrying stray non-count fields (finding bodies, diff text, prompt fragments, secrets — M008/#50)
+   is shape-bound away before it reaches the dataset. The CLI prints a counts-only summary
+   (`acceptedCount` / `rejectedEventCount` / `shapeBoundEventCount` / `malformedLineCount` /
+   shape-bounded `repositories`) — never the rejected content.
+
+3. **Fail-open / non-blocking (inherited).** Ingestion is decoupled from any repo's review: an
+   ingestion outage never blocks or fails a review. The module is pure (no network, no clock); the
+   CLI owns I/O and lifecycle, mirroring the `rollup-export.ts` ↔ scripts split.
