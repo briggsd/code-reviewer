@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  AgentRuntime,
+  CoordinatorRunInput,
+  CoordinatorRunResult,
   Finding,
   PriorReviewState,
+  ReviewerRunInput,
+  ReviewerRunResult,
   RuntimeEvent,
+  RuntimeEventSubscription,
   TelemetryEvent,
   TelemetryFlushResult,
   TelemetrySink,
@@ -14,6 +20,7 @@ import {
   loadReviewFixture,
   runReview,
 } from "../src/index.ts";
+import { summarizeReview } from "../src/runner/run-review.ts";
 
 // ---------------------------------------------------------------------------
 // Minimal in-test sinks (mirrors state.test.ts pattern)
@@ -338,5 +345,190 @@ describe("evidence grounding spine integration", () => {
     expect(markdown).toContain("### ⚠️ Withheld (ungrounded this run)");
     expect(markdown).toContain("Fabricated critical");
     expect(markdown).toContain("Fabricated warning");
+  });
+
+  // -------------------------------------------------------------------------
+  // #206: sentinel-body stub runtime tests — body trust channel
+  // -------------------------------------------------------------------------
+
+  /**
+   * Stub AgentRuntime that returns a fixed coordinator result whose `summary.body`
+   * contains a recognizable sentinel string. The stub's findings intentionally use
+   * fabricated quotedCode so grounding withholds them — proving the sentinel prose
+   * from the pre-grounding body is NOT carried into the authoritative summary body.
+   */
+  class SentinelBodyRuntime implements AgentRuntime {
+    readonly name = "sentinel-body";
+
+    constructor(private readonly findings: Finding[]) {}
+
+    async runCoordinator(input: CoordinatorRunInput): Promise<CoordinatorRunResult> {
+      // Build a base summary from the coordinator's view (all findings, pre-grounding),
+      // then override `body` with a sentinel to prove #206 strips it.
+      const baseSummary = summarizeReview(input.context, this.findings);
+      return {
+        runId: input.runId,
+        agentRunId: `${input.runId}:coordinator`,
+        summary: {
+          ...baseSummary,
+          findings: this.findings,
+          body: "SENTINEL_PROSE: the SQL-injection finding in auth.ts is critical",
+        },
+        reviewerResults: [],
+        rawOutput: "{}",
+      };
+    }
+
+    async runReviewer(input: ReviewerRunInput): Promise<ReviewerRunResult> {
+      return {
+        runId: input.runId,
+        agentRunId: `${input.runId}:${input.role}`,
+        role: input.role,
+        findings: [],
+        rawOutput: '{"findings":[]}',
+      };
+    }
+
+    streamEvents(
+      _runId: string,
+      _onEvent: (event: RuntimeEvent) => void,
+    ): RuntimeEventSubscription {
+      return { unsubscribe: () => {} };
+    }
+
+    async cancel(_runId: string): Promise<void> {}
+  }
+
+  test("#206 all-withheld: body is deterministic (no sentinel prose), contains grounded markers and withheld note, #204 block preserved", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const telemetrySink = new RecordingTelemetrySink();
+    const traceSink = new RecordingTraceSink();
+
+    // Both findings use fabricated quotedCode → grounding withholds both.
+    const fabricated1: Finding = {
+      reviewer: "security",
+      severity: "critical",
+      category: "auth",
+      title: "Fabricated SQL injection",
+      body: "body",
+      confidence: "high",
+      evidence: ["fabricated evidence"],
+      recommendation: "fix it",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["return db.accounts.deleteEverything();"],
+    };
+    const fabricated2: Finding = {
+      reviewer: "code_quality",
+      severity: "warning",
+      category: "correctness",
+      title: "Fabricated warning",
+      body: "body",
+      confidence: "medium",
+      evidence: ["fabricated evidence 2"],
+      recommendation: "fix it too",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["db.dropTable('users');"],
+    };
+
+    // Self-guard: fabricated quotes must NOT be in the fixture diff
+    const fixturePatches = fixture.diff.files.map((f) => f.patch ?? "").join("\n");
+    expect(fixturePatches).not.toContain("deleteEverything");
+    expect(fixturePatches).not.toContain("dropTable");
+
+    const runtime = new SentinelBodyRuntime([fabricated1, fabricated2]);
+    const result = await runReview({
+      fixture,
+      runtime,
+      clock: createIncrementingClock("2026-06-14T01:00:00.000Z"),
+      telemetrySink,
+      traceSink,
+    });
+
+    const { summary } = result;
+
+    // (1) No findings survived grounding
+    expect(summary.findings).toHaveLength(0);
+
+    // (2) Core #206 assertion: sentinel prose is gone from the authoritative body
+    expect(summary.body).not.toContain("SENTINEL_PROSE");
+
+    // (3) Body is deterministic — contains the createSummaryBody markers
+    expect(summary.body).toContain("Risk tier:");
+    expect(summary.body).toContain("Findings: 0");
+
+    // (4) Withheld transparency note is still appended
+    expect(summary.body).toContain("finding(s) withheld");
+
+    // (5) #204 block is preserved in rendered markdown
+    const markdown = formatReviewSummaryMarkdown(summary);
+    expect(markdown).toContain("### ⚠️ Withheld (ungrounded this run)");
+    expect(markdown).toContain("No findings survived grounding.");
+  });
+
+  test("#206 partial-drop: surviving finding count correct, sentinel not in body, #204 block present", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const telemetrySink = new RecordingTelemetrySink();
+    const traceSink = new RecordingTraceSink();
+
+    // grounded: quotedCode IS in the auth-pr diff (passes grounding)
+    const grounded: Finding = {
+      reviewer: "security",
+      severity: "warning",
+      category: "auth",
+      title: "Grounded partial-drop finding",
+      body: "body",
+      confidence: "high",
+      evidence: ["some evidence"],
+      recommendation: "fix it",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["return db.accounts.findById(accountId);"],
+    };
+    // fabricated: quotedCode NOT in the diff (dropped by grounding)
+    const fabricated: Finding = {
+      reviewer: "code_quality",
+      severity: "critical",
+      category: "correctness",
+      title: "Fabricated partial-drop finding",
+      body: "body",
+      confidence: "high",
+      evidence: ["fabricated evidence"],
+      recommendation: "fix it",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["db.dropTable('users');"],
+    };
+
+    // Self-guard
+    const fixturePatches = fixture.diff.files.map((f) => f.patch ?? "").join("\n");
+    expect(fixturePatches).toContain("return db.accounts.findById(accountId);");
+    expect(fixturePatches).not.toContain("dropTable");
+
+    const runtime = new SentinelBodyRuntime([grounded, fabricated]);
+    const result = await runReview({
+      fixture,
+      runtime,
+      clock: createIncrementingClock("2026-06-14T01:01:00.000Z"),
+      telemetrySink,
+      traceSink,
+    });
+
+    const { summary } = result;
+
+    // (1) Exactly 1 finding survived (the grounded one)
+    expect(summary.findings).toHaveLength(1);
+    expect(summary.findings[0]?.title).toBe("Grounded partial-drop finding");
+
+    // (2) Core #206 assertion: sentinel not in body
+    expect(summary.body).not.toContain("SENTINEL_PROSE");
+
+    // (3) Body reflects grounded count (1), not pre-grounding count (2)
+    expect(summary.body).toContain("Findings: 1");
+
+    // (4) Withheld transparency note is still appended
+    expect(summary.body).toContain("finding(s) withheld");
+
+    // (5) Rendered markdown shows surviving finding and #204 withheld block
+    const markdown = formatReviewSummaryMarkdown(summary);
+    expect(markdown).toContain("Grounded partial-drop finding");
+    expect(markdown).toContain("### ⚠️ Withheld (ungrounded this run)");
   });
 });

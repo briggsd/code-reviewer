@@ -387,7 +387,13 @@ async function fuseAndDecide(input: {
       // The displayed finding set changed (some withheld), so refresh the title — its count must
       // reflect the findings now shown, not the coordinator's pre-grounding count.
       title: createSummaryTitle(decision, grounding.grounded),
-      body: `${runtimeResult.summary.body}\n\n_${groundingDroppedCount} finding(s) withheld: the code they cited could not be found in the changed files._`,
+      // #206: the coordinator wrote `.body` over its PRE-grounding finding set, so reusing it here
+      // can narrate findings that no longer survived — and that prose is model-authored (injection-
+      // influenceable via untrusted diff content, principle 6). Derive the body deterministically
+      // from the GROUNDED set instead (the createSummaryTitle sibling) so the authoritative summary
+      // cannot carry withheld-finding narration. Withheld findings stay visible only in the labeled
+      // #204 block.
+      body: `${createSummaryBody(context, grounding.grounded)}\n\n_${groundingDroppedCount} finding(s) withheld: the code they cited could not be found in the changed files._`,
       groundingWithheld: grounding.dropped,
     };
     await emitTrace(options.traceSink, {
