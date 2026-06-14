@@ -12,6 +12,9 @@
   "bugs": {
     "url": "https://github.com/briggsd/ai-code-review-factory/issues"
   },
+  "exports": {
+    ".": "./src/public.ts"
+  },
   "bin": {
     "ai-code-review": "./src/cli.ts"
   },

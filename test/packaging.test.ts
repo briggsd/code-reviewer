@@ -14,6 +14,7 @@ interface PackageJson {
   bugs?: {
     url?: string;
   };
+  exports?: Record<string, string>;
   bin?: Record<string, string>;
   files?: string[];
   scripts?: Record<string, string>;
@@ -107,6 +108,15 @@ describe("package distribution metadata", () => {
     expect(releaseReadiness).toContain(
       "Immutable internal tarball URL for the Fortis/self-managed GitLab beta",
     );
+  });
+
+  test("exports package root to src/public.ts and keeps private:true", async () => {
+    const manifest = JSON.parse(await readFile("package.json", "utf8")) as PackageJson;
+
+    // Package-metadata shape only; the public-surface resolve/file-existence lock
+    // lives in test/public-api.test.ts (which also imports the exported symbols).
+    expect(manifest.exports?.["."]).toBe("./src/public.ts");
+    expect(manifest.private).toBe(true);
   });
 
   test("ships runtime assets without test or workflow internals", async () => {

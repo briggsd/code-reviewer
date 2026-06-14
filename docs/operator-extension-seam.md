@@ -164,9 +164,12 @@ needed to make free-form roles safe; the seam inherits the existing identity gua
 
 ## What this note settles for S02/S03
 
-- **S02 (#175)** commits the public `ReviewerDefinition` contract + a `defineReviewer` helper behind
-  a stable `package.json` `exports` surface — the role field is documented as **free-form**
-  (operator-keyed), `coordinator` reserved.
+- **S02 (#175)** commits the public API surface: the package root import (`ai-code-review-factory`,
+  mapped via `package.json` `"exports": { ".": "./src/public.ts" }`) exposes the functions
+  `defineReviewer` / `createReviewerDefinition` (alias) and the types `ReviewerDefinition`,
+  `DefineReviewerInput` (the `defineReviewer` argument shape), and `Severity` (referenced by
+  `allowedSeverities`). Role is free-form (operator-keyed); only `"coordinator"` is reserved.
+  `private: true` is unchanged.
 - **S03 (#143)** wires the loader: parse/validate operator `ReviewerDefinition[]` from an explicit
   path, apply the **merge-by-role, operator-wins** rule (with an explicit **full-replace** mode),
   guard the reserved `coordinator` role, and pass the merged set into
