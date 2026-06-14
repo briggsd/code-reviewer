@@ -125,7 +125,7 @@ Legend: ✓ parity · ◐ partial · ✗ gap · ★ we exceed the source · ⟂ 
 | Re-review / incremental | prior-findings aware; fixed/unfixed/resolved | `re-review.ts` (new/recurring/fixed/withheld/carried_forward) + `incremental-review.ts` (#46) + GitLab (#115) | ✓ |
 | Conversational replies | "I disagree" → coordinator argues back | acknowledgements (#69, base-branch acks) — **no interactive argue-back** | ✗ |
 | Diff filtering | lockfiles/minified/generated + migration exemption | `diff-filter.ts` + `// @generated` markers (#24, PR #123) | ◐ (verify migration exemption) |
-| Circuit breaker / failback chains | Hystrix per-tier, provider health, cross-gen failback | `error-classifier.ts` classifies retryable/terminal; retry-reserve — **no breaker / health states / failback chains** | ✗ |
+| Circuit breaker / failback chains | Hystrix per-tier, provider health, cross-gen failback | within-run cross-provider failback + provider-health degradation (`provider-health.ts` + `selectModelChain`, #137 S04); **no** cross-run/durable breaker or cooldown probe (deliberately — short-lived CI process) | ◐ |
 | Dynamic model routing | KV provider-disable in ~5 s, per-reviewer override | static `modelRouting` + `selectModel`; thinking caps (#45/#53) — **no runtime health switch** | ◐ |
 | Inactivity kill / heartbeat | 60-s kill + 30-s heartbeat | heartbeat events + progress reporter (#41) — inactivity-kill less explicit | ◐ |
 | Cost / cache telemetry | real $/token, 85.7% cache hit | `TokenUsage` carries `estimatedCostUsd`/`cacheReadTokens`; **populated only when provider supplies it** (bytes/4 elsewhere) | ◐ |
@@ -152,10 +152,14 @@ diff filtering, prompt-injection boundary handling.
   architecture boundaries**, **explicit fail-open/closed policy**, and the **comprehension gate**.
 
 **Gap backlog (candidate future work — source has it, we don't):**
-1. **Circuit breaker + cross-generation model failback chains + provider-health states** — the
-   biggest *reliability* gap. Their breaker (open/half-open, 2-min cooldown, `opus→opus-prev`
-   failback, coordinator hot-swap) has no analogue here; `error-classifier.ts` only labels
-   retryable/terminal. High-value for a published package on moving providers.
+1. **Circuit breaker + cross-generation model failback chains + provider-health states** —
+   *partially closed by #137 S04.* Cross-provider failback (`selectModelChain`) + within-run
+   provider-health degradation (`provider-health.ts`) now ship; a multi-candidate `modelRouting`
+   gets an implicit failback chain, and a failback-eligible failure degrades a provider for the
+   rest of the run. **Still missing** (deliberately deferred — the runner is a short-lived CI
+   process, not a long-lived service): the durable cross-run breaker (open/half-open, 2-min
+   cooldown probe) and coordinator hot-swap. The within-run scope captured the reliability value;
+   cross-run persistence remains candidate future work.
 2. **Dynamic runtime model/provider routing** (disable a provider in seconds without a deploy) —
    pairs with (1); ties to M015's runtime/provider thinking.
 3. **AGENTS.md-updates reviewer** (agentic) — partially covered mechanically by `docs:check`;

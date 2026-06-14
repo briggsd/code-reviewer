@@ -1,5 +1,16 @@
 import type { ReviewErrorClassification } from "../contracts/index.ts";
 
+/**
+ * Returns true when a failure classification signals a provider-health problem where switching to
+ * a different provider may succeed. Covers rate-limit (429) and transient service failures
+ * (502/503/504/overloaded). Intentionally excludes `timeout` and `truncated` — those indicate a
+ * slow or oversized response that provider B won't fix — and all non-retryable categories, where
+ * a failback hop would not help. Does NOT add new category values to the union.
+ */
+export function isFailbackEligible(c: ReviewErrorClassification): boolean {
+  return c.category === "rate_limited" || c.category === "retryable_transient";
+}
+
 export function classifyReviewError(error: unknown): ReviewErrorClassification {
   const text = collectErrorText(error).toLowerCase();
   const status = collectHttpStatus(error);

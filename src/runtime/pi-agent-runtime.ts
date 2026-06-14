@@ -16,7 +16,7 @@ import type {
   ThinkingLevel,
   TokenUsage,
 } from "../contracts/index.ts";
-import { classifyReviewError } from "../runner/error-classifier.ts";
+import { classifyReviewError, isFailbackEligible } from "../runner/error-classifier.ts";
 import {
   getEffectiveTimeouts,
   scaleTimeoutForRiskTier,
@@ -225,16 +225,25 @@ export class PiAgentRuntime implements AgentRuntime {
               result,
             };
           } catch (error) {
-            const effectiveModel = this.modelArgs(reviewer.model).model?.model;
+            // Prefer the last attempted model from failback annotation (if present); fall back to
+            // the configured model (#137). effectiveModel tracks per-model error-rate attribution.
+            const annotated = readRetryMetadata(error);
+            const lastAttempted = annotated.attemptedModels?.[annotated.attemptedModels.length - 1];
+            const effectiveModel =
+              lastAttempted?.model ?? this.modelArgs(reviewer.model).model?.model;
+            const effectiveProvider =
+              lastAttempted?.provider ?? this.modelArgs(reviewer.model).model?.provider;
             const failure = createReviewerFailure(
               input.runId,
               `${input.runId}:pi:${reviewer.role}`,
               reviewer.role,
               error,
             );
-            snapshot.reviewerFailures.push(
-              effectiveModel !== undefined ? { ...failure, effectiveModel } : failure,
-            );
+            snapshot.reviewerFailures.push({
+              ...failure,
+              ...(effectiveModel !== undefined ? { effectiveModel } : {}),
+              ...(effectiveProvider !== undefined ? { effectiveProvider } : {}),
+            });
             throw error;
           } finally {
             this.reviewerBudgetStarts.delete(reviewer);
@@ -255,14 +264,26 @@ export class PiAgentRuntime implements AgentRuntime {
           return [];
         }
 
-        const effectiveModel = this.modelArgs(reviewer.model).model?.model;
+        // Prefer the last attempted model from failback annotation (if present); fall back to the
+        // configured model (#137). effectiveModel tracks per-model error-rate attribution.
+        const annotated = readRetryMetadata(settled.reason);
+        const lastAttempted = annotated.attemptedModels?.[annotated.attemptedModels.length - 1];
+        const effectiveModel = lastAttempted?.model ?? this.modelArgs(reviewer.model).model?.model;
+        const effectiveProvider =
+          lastAttempted?.provider ?? this.modelArgs(reviewer.model).model?.provider;
         const failure = createReviewerFailure(
           input.runId,
           `${input.runId}:pi:${reviewer.role}`,
           reviewer.role,
           settled.reason,
         );
-        return [effectiveModel !== undefined ? { ...failure, effectiveModel } : failure];
+        return [
+          {
+            ...failure,
+            ...(effectiveModel !== undefined ? { effectiveModel } : {}),
+            ...(effectiveProvider !== undefined ? { effectiveProvider } : {}),
+          },
+        ];
       });
       snapshot.reviewerResults = reviewerResults;
       snapshot.reviewerFailures = reviewerFailures;
@@ -321,7 +342,17 @@ export class PiAgentRuntime implements AgentRuntime {
       }
 
       const coordinatorPrompt = buildCoordinatorPrompt(input, reviewerResults, reviewerFailures);
-      const resolvedModel = this.modelArgs(input.model);
+      // Failback (#137): the coordinator's synthesis runs AFTER the reviewer fan-out, so respect
+      // provider health here too — a provider degraded during fan-out is skipped for synthesis.
+      // When every chain provider is degraded, selectStart returns undefined and we fall back to
+      // input.model as a best-effort (a degraded provider may still be transiently usable, and a
+      // synthesis on a shaky provider beats no review at all). This only respects degraded state at
+      // start; full coordinator failback-on-failure (a hop loop like runReviewer's) is a follow-up.
+      const coordinatorModel =
+        input.failbackChain !== undefined && input.providerHealth !== undefined
+          ? (input.providerHealth.selectStart(input.failbackChain) ?? input.model)
+          : input.model;
+      const resolvedModel = this.modelArgs(coordinatorModel);
       const effectiveModel = resolvedModel.model?.model;
       let streamedEventCount = 0;
       const fusionStartedAt = Date.now();
@@ -505,13 +536,39 @@ export class PiAgentRuntime implements AgentRuntime {
       maxAttempts,
     });
 
+    // Failback (#137): when the run input carries a chain + registry, seed currentModel from
+    // selectStart so already-degraded providers are skipped on the first attempt. Falls back to
+    // input.model when no chain/registry is present (dummy runtime, existing tests, etc.).
+    let currentModel: {
+      provider: string;
+      model: string;
+      thinking?: import("../contracts/index.ts").ThinkingLevel;
+    } =
+      input.failbackChain !== undefined && input.providerHealth !== undefined
+        ? (input.providerHealth.selectStart(input.failbackChain) ?? input.model)
+        : input.model;
+
+    // Track attempted provider+model pairs for telemetry (counts/identifiers only, M008).
+    const attemptedModels: Array<{ provider: string; model: string }> = [];
+    let totalHopCount = 0;
+
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         let streamedEventCount = 0;
         const prompt = buildReviewerPrompt(input);
         const promptMetrics = createReviewerPromptMetrics(input, prompt);
-        const resolvedModel = this.modelArgs(input.model);
+        const resolvedModel = this.modelArgs(currentModel);
         const effectiveModel = resolvedModel.model?.model;
+        const effectiveProvider = resolvedModel.model?.provider;
+
+        // Record this attempt's provider+model (identifiers only, M008).
+        if (resolvedModel.model !== undefined) {
+          attemptedModels.push({
+            provider: resolvedModel.model.provider,
+            model: resolvedModel.model.model,
+          });
+        }
+
         const processResult = await this.processRunner.run({
           runId: input.runId,
           agentRunId,
@@ -602,6 +659,9 @@ export class PiAgentRuntime implements AgentRuntime {
           retryCount,
           structuredOutput,
           ...(effectiveModel !== undefined ? { effectiveModel } : {}),
+          ...(effectiveProvider !== undefined ? { effectiveProvider } : {}),
+          ...(totalHopCount > 0 ? { failbackHopCount: totalHopCount } : {}),
+          ...(attemptedModels.length > 0 ? { attemptedModels } : {}),
           durationMs,
         };
       } catch (error) {
@@ -617,8 +677,12 @@ export class PiAgentRuntime implements AgentRuntime {
             retryCount,
           },
         );
+
+        // Compute the reserve gate FIRST — a failback hop is just another attempt and MUST be
+        // subject to the same unchanged wall-clock reserve (Seam 1), and must not run when no
+        // attempt remains (`attempt >= maxAttempts`). shouldRetryReviewerFailure encodes both.
         const effectiveTimeouts = getEffectiveTimeouts(input.context);
-        const willRetry = shouldRetryReviewerFailure({
+        const reserveAllowsRetry = shouldRetryReviewerFailure({
           classification: failure.errorClassification,
           attempt,
           maxAttempts,
@@ -634,6 +698,47 @@ export class PiAgentRuntime implements AgentRuntime {
             input.context.risk.tier,
           ),
         });
+
+        // Failback (#137): atomically record the failure and decide whether to hop to a different
+        // provider. A hop consumes one of the existing maxAttempts — there is NO attempts×chainLength
+        // blowup — and is GATED on reserveAllowsRetry so it can never run another attempt the reserve
+        // gate would have refused, nor on the final attempt (where no attempt remains to use it).
+        let failbackExhausted = false;
+        if (input.failbackChain !== undefined && input.providerHealth !== undefined) {
+          const decision = input.providerHealth.recordFailureAndSelectNext({
+            failed: currentModel,
+            classification: failure.errorClassification,
+            chain: input.failbackChain,
+          });
+
+          if (
+            isFailbackEligible(failure.errorClassification) &&
+            decision.next !== undefined &&
+            reserveAllowsRetry
+          ) {
+            // Hop to the next provider — the loop continues, having passed the reserve gate.
+            // (willRetry below is true here: a hop only happens when reserveAllowsRetry holds.)
+            currentModel = decision.next;
+            totalHopCount += decision.hopCount;
+          } else if (
+            isFailbackEligible(failure.errorClassification) &&
+            decision.exhausted &&
+            input.failbackChain.length > 1
+          ) {
+            // Failback-eligible and chain exhausted after attempting MULTIPLE providers — do not
+            // pointlessly retry the same overloaded model. Flag it; we throw after the agent.failed
+            // event (always emit the event before throwing). When the chain has only one provider,
+            // fall through to the existing same-model retry: "exhausted" just means "the one
+            // configured provider failed", which is what the retry loop handled before failback.
+            failbackExhausted = true;
+          }
+          // Non-failback-eligible or single-provider exhaustion: fall through to the existing
+          // same-model retry logic below.
+        }
+
+        // didFailback ⟹ reserveAllowsRetry (the hop is gated on it), so willRetry covers both the
+        // failback hop and the same-model retry; no separate didFailback term is needed.
+        const willRetry = !failbackExhausted && reserveAllowsRetry;
         this.emitAgentEvent("agent.failed", input.runId, agentRunId, input.role, {
           errorName: failure.errorName,
           errorMessage: failure.errorMessage,
@@ -645,12 +750,16 @@ export class PiAgentRuntime implements AgentRuntime {
           maxAttempts,
           retryCount,
           willRetry,
+          ...(failbackExhausted ? { failbackExhausted: true } : {}),
         });
 
         if (!willRetry) {
           annotateRetryMetadata(error, {
             attemptCount: attempt,
             retryCount,
+            ...(failbackExhausted ? { failbackExhausted: true } : {}),
+            ...(totalHopCount > 0 ? { failbackHopCount: totalHopCount } : {}),
+            ...(attemptedModels.length > 0 ? { attemptedModels } : {}),
           });
           throw error;
         }
@@ -932,12 +1041,25 @@ function createReviewerFailure(
       ? { attemptCount: retryMetadata.attemptCount }
       : {}),
     ...(retryMetadata.retryCount !== undefined ? { retryCount: retryMetadata.retryCount } : {}),
+    ...(retryMetadata.failbackExhausted === true ? { failbackExhausted: true } : {}),
+    ...(retryMetadata.failbackHopCount !== undefined
+      ? { failbackHopCount: retryMetadata.failbackHopCount }
+      : {}),
+    ...(retryMetadata.attemptedModels !== undefined
+      ? { attemptedModels: retryMetadata.attemptedModels }
+      : {}),
   };
 }
 
 interface RetryMetadata {
   attemptCount?: number;
   retryCount?: number;
+  /** Pi only (#137): set true when all failback-chain providers were exhausted before final throw. */
+  failbackExhausted?: boolean;
+  /** Pi only (#137): total cross-provider hop count before final failure. */
+  failbackHopCount?: number;
+  /** Pi only (#137): ordered provider+model pairs attempted before final failure. */
+  attemptedModels?: ReadonlyArray<{ provider: string; model: string }>;
 }
 
 function defaultHeartbeatIntervalMs(timeoutMs: number): number {
@@ -985,14 +1107,19 @@ function shouldRetryReviewerFailure(input: {
 
 export { shouldRetryReviewerFailure };
 
-function annotateRetryMetadata(error: unknown, metadata: Required<RetryMetadata>): void {
+function annotateRetryMetadata(error: unknown, metadata: RetryMetadata): void {
   if (typeof error !== "object" || error === null) {
     return;
   }
 
   const target = error as Record<string, unknown>;
-  target.aiReviewAttemptCount = metadata.attemptCount;
-  target.aiReviewRetryCount = metadata.retryCount;
+  if (metadata.attemptCount !== undefined) target.aiReviewAttemptCount = metadata.attemptCount;
+  if (metadata.retryCount !== undefined) target.aiReviewRetryCount = metadata.retryCount;
+  if (metadata.failbackExhausted === true) target.aiReviewFailbackExhausted = true;
+  if (metadata.failbackHopCount !== undefined)
+    target.aiReviewFailbackHopCount = metadata.failbackHopCount;
+  if (metadata.attemptedModels !== undefined)
+    target.aiReviewAttemptedModels = metadata.attemptedModels;
 }
 
 function readRetryMetadata(error: unknown): RetryMetadata {
@@ -1007,6 +1134,18 @@ function readRetryMetadata(error: unknown): RetryMetadata {
       : {}),
     ...(typeof record.aiReviewRetryCount === "number"
       ? { retryCount: record.aiReviewRetryCount }
+      : {}),
+    ...(record.aiReviewFailbackExhausted === true ? { failbackExhausted: true } : {}),
+    ...(typeof record.aiReviewFailbackHopCount === "number"
+      ? { failbackHopCount: record.aiReviewFailbackHopCount }
+      : {}),
+    ...(Array.isArray(record.aiReviewAttemptedModels)
+      ? {
+          attemptedModels: record.aiReviewAttemptedModels as ReadonlyArray<{
+            provider: string;
+            model: string;
+          }>,
+        }
       : {}),
   };
 }

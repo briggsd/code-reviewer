@@ -321,6 +321,12 @@ export interface ReviewRunAgentMetrics {
   retryCount?: number;
   effectiveModel?: string;
   durationMs?: number;
+  /** Pi only (#137): number of cross-provider failback hops taken before a successful attempt. */
+  failbackHopCount?: number;
+  /** Pi only (#137): ordered provider+model pairs attempted (including any failback hops). Identifiers only (M008). */
+  attemptedModels?: ReadonlyArray<{ provider: string; model: string }>;
+  /** Pi only (#137): provider that ultimately succeeded after any failback hops. */
+  effectiveProvider?: string;
 }
 
 export interface ReviewRunTokenMetrics extends TokenUsage {
@@ -338,6 +344,14 @@ export interface ReviewRunAgentFailureMetrics {
   retryCount?: number;
   /** Pi only (#189): the model the failed reviewer was invoked on — for per-model error-rate attribution. */
   effectiveModel?: string;
+  /** Pi only (#137): true when all providers in the failback chain were exhausted before final failure. */
+  failbackExhausted?: boolean;
+  /** Pi only (#137): number of cross-provider failback hops taken before the final failure. */
+  failbackHopCount?: number;
+  /** Pi only (#137): ordered provider+model pairs attempted before failure. Identifiers only (M008). */
+  attemptedModels?: ReadonlyArray<{ provider: string; model: string }>;
+  /** Pi only (#137): the last provider attempted before failure. */
+  effectiveProvider?: string;
 }
 
 export interface ReviewRunContextMetrics {

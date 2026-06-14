@@ -8,7 +8,7 @@ import type {
   RiskAssessment,
 } from "../src/index.ts";
 import { normalizeReviewConfig } from "../src/runner/config.ts";
-import { selectModel } from "../src/runner/run-review.ts";
+import { selectModel, selectModelChain } from "../src/runner/run-review.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -573,5 +573,145 @@ describe("selectModel — tier thinking does not bleed onto top-level fallback (
     expect(result.provider).toBe("anthropic");
     expect(result.model).toBe("claude-sec");
     expect(result.thinking).toBe("medium");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. selectModelChain (#137 S04)
+// ---------------------------------------------------------------------------
+
+describe("selectModelChain — chain ordering and selectModel head identity", () => {
+  test("chain[0] === selectModel result (head identity)", () => {
+    const ctx = makeContext({
+      tier: "full",
+      modelRouting: {
+        default: sel("anthropic", "claude-default"),
+        roles: { security: sel("openai", "gpt-4") },
+      },
+    });
+    const chain = selectModelChain(ctx, "security");
+    expect(chain[0]).toEqual(selectModel(ctx, "security"));
+  });
+
+  test("ordering: tier-role → tier-default → role → default", () => {
+    const ctx = makeContext({
+      tier: "full",
+      modelRouting: {
+        default: sel("anthropic", "claude-default"),
+        roles: { security: sel("openai", "gpt-4") },
+        byTier: {
+          full: {
+            default: sel("google", "gemini"),
+            roles: { security: sel("mistral", "mistral-large") },
+          },
+        },
+      },
+    });
+    const chain = selectModelChain(ctx, "security");
+    // Order: tier-role(mistral), tier-default(google), role(openai), default(anthropic)
+    expect(chain[0]?.provider).toBe("mistral");
+    expect(chain[1]?.provider).toBe("google");
+    expect(chain[2]?.provider).toBe("openai");
+    expect(chain[3]?.provider).toBe("anthropic");
+  });
+
+  test("disabled providers are excluded from the chain", () => {
+    const ctx = makeContext({
+      tier: "full",
+      modelRouting: {
+        default: sel("anthropic", "claude-default"),
+        roles: {
+          security: sel("openai", "gpt-4"),
+        },
+      },
+      disabledProviders: ["openai"],
+    });
+    const chain = selectModelChain(ctx, "security");
+    expect(chain.every((c) => c.provider.toLowerCase() !== "openai")).toBe(true);
+    expect(chain[0]?.provider).toBe("anthropic");
+  });
+
+  test("deduplication: same provider+model appears only once (first occurrence wins)", () => {
+    const ctx = makeContext({
+      tier: "full",
+      modelRouting: {
+        // role and default both point to the same model.
+        default: sel("anthropic", "claude-sonnet"),
+        roles: { security: sel("anthropic", "claude-sonnet") },
+      },
+    });
+    const chain = selectModelChain(ctx, "security");
+    expect(chain).toHaveLength(1);
+    expect(chain[0]?.provider).toBe("anthropic");
+    expect(chain[0]?.model).toBe("claude-sonnet");
+  });
+
+  test("thinking is resolved for EVERY chain element, not just the head", () => {
+    const ctx = makeContext({
+      tier: "full",
+      modelRouting: {
+        default: { provider: "anthropic", model: "claude-default", thinking: "high" },
+        roles: {
+          // security omits thinking → should inherit from default.
+          security: sel("anthropic", "claude-sec"),
+        },
+        // byTier: omitted — no tier routing, so both entries are top-level.
+      },
+    });
+    const chain = selectModelChain(ctx, "security");
+    // chain[0] = roles.security (no thinking → inherits "high")
+    // chain[1] = default (has thinking: "high" already)
+    expect(chain[0]?.thinking).toBe("high");
+    expect(chain[1]?.thinking).toBe("high");
+  });
+
+  test("thinking inheritance: tier-scoped element inherits tier default, not top default", () => {
+    const ctx = makeContext({
+      tier: "full",
+      modelRouting: {
+        default: { provider: "anthropic", model: "claude-default", thinking: "medium" },
+        roles: {},
+        byTier: {
+          full: {
+            default: { provider: "google", model: "gemini", thinking: "high" },
+            roles: { security: sel("google", "gemini-sec") }, // no thinking — should get "high"
+          },
+        },
+      },
+    });
+    const chain = selectModelChain(ctx, "security");
+    // chain[0] = tier-roles.security — tier-scoped → inherits tier-default's "high"
+    // chain[1] = tier-default (google/gemini) — already "high"
+    // chain[2] = top-level default (anthropic) — "medium"
+    expect(chain[0]?.thinking).toBe("high");
+    expect(chain[1]?.thinking).toBe("high");
+    expect(chain[2]?.thinking).toBe("medium");
+  });
+
+  test("throws the same error as selectModel when all candidates are disabled", () => {
+    const ctx = makeContext({
+      tier: "full",
+      modelRouting: {
+        default: sel("anthropic", "claude-default"),
+        roles: {},
+      },
+      disabledProviders: ["anthropic"],
+    });
+    expect(() => selectModelChain(ctx, "security")).toThrow(
+      /selectModel.*no model.*operator-disabled/,
+    );
+  });
+
+  test("chain with a single entry (no byTier, single default)", () => {
+    const ctx = makeContext({
+      tier: "full",
+      modelRouting: {
+        default: sel("anthropic", "claude-default"),
+        roles: {},
+      },
+    });
+    const chain = selectModelChain(ctx, "security");
+    expect(chain).toHaveLength(1);
+    expect(chain[0]?.provider).toBe("anthropic");
   });
 });

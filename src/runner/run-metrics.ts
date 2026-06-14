@@ -38,6 +38,15 @@ export function createRunMetrics(input: {
                       ? { effectiveModel: result.effectiveModel }
                       : {}),
                     ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
+                    ...(result.failbackHopCount !== undefined
+                      ? { failbackHopCount: result.failbackHopCount }
+                      : {}),
+                    ...(result.attemptedModels !== undefined
+                      ? { attemptedModels: result.attemptedModels }
+                      : {}),
+                    ...(result.effectiveProvider !== undefined
+                      ? { effectiveProvider: result.effectiveProvider }
+                      : {}),
                   },
                 ],
           ),
@@ -70,6 +79,16 @@ export function createRunMetrics(input: {
       ...(failure.attemptCount !== undefined ? { attemptCount: failure.attemptCount } : {}),
       ...(failure.retryCount !== undefined ? { retryCount: failure.retryCount } : {}),
       ...(failure.effectiveModel !== undefined ? { effectiveModel: failure.effectiveModel } : {}),
+      ...(failure.failbackExhausted === true ? { failbackExhausted: true } : {}),
+      ...(failure.failbackHopCount !== undefined
+        ? { failbackHopCount: failure.failbackHopCount }
+        : {}),
+      ...(failure.attemptedModels !== undefined
+        ? { attemptedModels: failure.attemptedModels }
+        : {}),
+      ...(failure.effectiveProvider !== undefined
+        ? { effectiveProvider: failure.effectiveProvider }
+        : {}),
     })) ?? [];
 
   // Counts-only structured-output tally (M015 S05, #128): how many Pi agents delivered via the
@@ -96,13 +115,17 @@ export function createRunMetrics(input: {
   // reviewerFailures, and the coordinatorResult directly (NOT from agentMetrics, which excludes
   // agents without usage). Failed reviewers still invoked a real model, so they must contribute
   // or per-model attribution silently undercounts runs with transient provider failures.
+  // Also collect from attemptedModels (#137): when failback occurs, earlier providers in the
+  // chain that were tried before the final result/failure must still be counted.
   const effectiveModelSet = new Set<string>();
   if (input.coordinatorResult !== undefined) {
     for (const reviewer of input.coordinatorResult.reviewerResults) {
       if (reviewer.effectiveModel !== undefined) effectiveModelSet.add(reviewer.effectiveModel);
+      for (const m of reviewer.attemptedModels ?? []) effectiveModelSet.add(m.model);
     }
     for (const failure of input.coordinatorResult.reviewerFailures ?? []) {
       if (failure.effectiveModel !== undefined) effectiveModelSet.add(failure.effectiveModel);
+      for (const m of failure.attemptedModels ?? []) effectiveModelSet.add(m.model);
     }
     if (input.coordinatorResult.effectiveModel !== undefined) {
       effectiveModelSet.add(input.coordinatorResult.effectiveModel);
@@ -205,6 +228,18 @@ export function createRunMetricsTelemetryEvent(input: {
       ...(agent.retryCount !== undefined ? { retryCount: agent.retryCount } : {}),
       ...(agent.effectiveModel !== undefined ? { effectiveModel: agent.effectiveModel } : {}),
       ...(agent.durationMs !== undefined ? { durationMs: agent.durationMs } : {}),
+      ...(agent.failbackHopCount !== undefined ? { failbackHopCount: agent.failbackHopCount } : {}),
+      ...(agent.effectiveProvider !== undefined
+        ? { effectiveProvider: agent.effectiveProvider }
+        : {}),
+      ...(agent.attemptedModels !== undefined
+        ? {
+            attemptedModels: agent.attemptedModels.map((m) => ({
+              provider: m.provider,
+              model: m.model,
+            })),
+          }
+        : {}),
     }));
   }
   if (input.metrics.failures !== undefined) {
@@ -219,6 +254,21 @@ export function createRunMetricsTelemetryEvent(input: {
       ...(failure.attemptCount !== undefined ? { attemptCount: failure.attemptCount } : {}),
       ...(failure.retryCount !== undefined ? { retryCount: failure.retryCount } : {}),
       ...(failure.effectiveModel !== undefined ? { effectiveModel: failure.effectiveModel } : {}),
+      ...(failure.failbackExhausted === true ? { failbackExhausted: true } : {}),
+      ...(failure.failbackHopCount !== undefined
+        ? { failbackHopCount: failure.failbackHopCount }
+        : {}),
+      ...(failure.effectiveProvider !== undefined
+        ? { effectiveProvider: failure.effectiveProvider }
+        : {}),
+      ...(failure.attemptedModels !== undefined
+        ? {
+            attemptedModels: failure.attemptedModels.map((m) => ({
+              provider: m.provider,
+              model: m.model,
+            })),
+          }
+        : {}),
     }));
   }
   if (input.summary?.reReview !== undefined) {

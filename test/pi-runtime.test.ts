@@ -1107,22 +1107,31 @@ describe("PiAgentRuntime", () => {
       (f) => f.role === "security",
     );
     expect(securityFailure).toBeDefined();
-    // The failed reviewer carries the model it was invoked on
-    expect(securityFailure?.effectiveModel).toBe("claude-opus-4");
+    // With failback (#137): security tried claude-opus-4 first (503), then failed over to
+    // dummy/dummy-standard (resolved to claude-sonnet-4-6) which also failed (503), exhausting
+    // the chain. effectiveModel = last model attempted; attemptedModels carries both.
+    expect(securityFailure?.effectiveModel).toBe("claude-sonnet-4-6");
+    expect(securityFailure?.failbackExhausted).toBe(true);
+    expect(securityFailure?.attemptedModels).toHaveLength(2);
+    expect(securityFailure?.attemptedModels?.[0]?.model).toBe("claude-opus-4");
+    expect(securityFailure?.attemptedModels?.[1]?.model).toBe("claude-sonnet-4-6");
 
     const metricsEvent = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
     const ids = metricsEvent?.data?.effectiveModelIds as string[] | undefined;
-    // The failed reviewer's model is present (only the failure path can have contributed it)...
+    // Both attempted models appear in effectiveModelIds — the primary (claude-opus-4 via
+    // attemptedModels) and the fallback/final (claude-sonnet-4-6 via effectiveModel).
     expect(ids).toContain("claude-opus-4");
-    // ...alongside the succeeding reviewers'/coordinator's resolved default.
+    // claude-sonnet-4-6 appears both from the failback attempt on security and from other reviewers.
     expect(ids).toContain("claude-sonnet-4-6");
 
-    // The per-failure metrics entry also carries the model (per-model error-rate attribution).
+    // The per-failure metrics entry carries the failback fields for per-model attribution.
     const failureEntries = metricsEvent?.data?.failures as
       | Array<Record<string, unknown>>
       | undefined;
     const securityFailureMetric = failureEntries?.find((f) => f.role === "security");
-    expect(securityFailureMetric?.effectiveModel).toBe("claude-opus-4");
+    // effectiveModel = last model attempted (claude-sonnet-4-6 after dummy→defaultModel swap)
+    expect(securityFailureMetric?.effectiveModel).toBe("claude-sonnet-4-6");
+    expect(securityFailureMetric?.failbackExhausted).toBe(true);
   });
 
   test("Test G — all-reviewers-failed (#120 degrade) path: effectiveModelIds comes solely from failures, no coordinator entry (#189)", async () => {
@@ -3760,5 +3769,454 @@ describe("PiAgentRuntime prose-fallback hardening (M015 S05, #128)", () => {
     // The overall result is a clean pass, not a failure.
     expect(result.summary.decision).toBe("approved");
     expect(result.summary.outcome).toBe("pass");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-provider failback (#137 S04)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fails on `anthropic` provider, succeeds on `openai` provider (second chain entry).
+ * Simulates a 503 on the first call, then succeeds on the second.
+ */
+class FailbackSuccessPiProcessRunner implements PiProcessRunner {
+  readonly calls: PiProcessRunInput[] = [];
+  private anthropicCallCount = 0;
+
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    this.calls.push(input);
+
+    // Fail the first call when using the anthropic model (provider is embedded in the model arg).
+    if (input.model?.provider === "anthropic" && input.role === "security") {
+      this.anthropicCallCount += 1;
+      if (this.anthropicCallCount <= 1) {
+        throw new Error("503 service unavailable: anthropic overloaded");
+      }
+    }
+
+    // Success path.
+    const output =
+      input.role === "coordinator"
+        ? {
+            decision: "approved",
+            outcome: "pass",
+            title: "AI review approved",
+            body: "No significant concerns.",
+            findings: [],
+            risk: {
+              tier: "lite",
+              reason: "Low-risk change.",
+              matchedRules: [],
+              sensitivePaths: [],
+              reviewedFileCount: 1,
+              ignoredFileCount: 0,
+            },
+          }
+        : { findings: [] };
+    const finalText = JSON.stringify(output);
+
+    return {
+      finalText,
+      events: [
+        { type: "agent_start" },
+        {
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: finalText }],
+            usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: { total: 0.001 } },
+          },
+        },
+        { type: "agent_end", messages: [] },
+      ],
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        estimatedCostUsd: 0.001,
+      },
+      rawOutput: "",
+    };
+  }
+}
+
+/**
+ * Security reviewer always fails regardless of provider — used to test chain-exhaustion producing
+ * a FAILURE result, not a silent zero-finding success. Other reviewers succeed.
+ */
+class SecurityAlwaysFailsPiProcessRunner implements PiProcessRunner {
+  readonly calls: PiProcessRunInput[] = [];
+
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    this.calls.push(input);
+    if (input.role === "security") {
+      throw new Error("503 service unavailable: all providers overloaded");
+    }
+    const output =
+      input.role === "coordinator"
+        ? {
+            decision: "approved_with_comments",
+            outcome: "pass",
+            title: "AI review — security reviewer failed",
+            body: "Security reviewer failed but other reviewers succeeded.",
+            findings: [],
+            risk: {
+              tier: "lite",
+              reason: "Low-risk change.",
+              matchedRules: [],
+              sensitivePaths: [],
+              reviewedFileCount: 1,
+              ignoredFileCount: 0,
+            },
+          }
+        : { findings: [] };
+    const finalText = JSON.stringify(output);
+    return {
+      finalText,
+      events: [
+        { type: "agent_start" },
+        {
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: finalText }],
+            usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: { total: 0.001 } },
+          },
+        },
+        { type: "agent_end", messages: [] },
+      ],
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        estimatedCostUsd: 0.001,
+      },
+      rawOutput: "",
+    };
+  }
+}
+
+/**
+ * Fails with a timeout on the first call (non-failback-eligible). Should stay on the same model.
+ */
+class TimeoutOnFirstCallPiProcessRunner implements PiProcessRunner {
+  readonly calls: PiProcessRunInput[] = [];
+  private firstSecurityCall = true;
+
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    this.calls.push(input);
+    if (input.role === "security" && this.firstSecurityCall) {
+      this.firstSecurityCall = false;
+      throw new Error("timed out waiting for reviewer response");
+    }
+    const output =
+      input.role === "coordinator"
+        ? {
+            decision: "approved",
+            outcome: "pass",
+            title: "AI review approved",
+            body: "No concerns.",
+            findings: [],
+            risk: {
+              tier: "lite",
+              reason: "Low-risk.",
+              matchedRules: [],
+              sensitivePaths: [],
+              reviewedFileCount: 1,
+              ignoredFileCount: 0,
+            },
+          }
+        : { findings: [] };
+    const finalText = JSON.stringify(output);
+    return {
+      finalText,
+      events: [
+        { type: "agent_start" },
+        {
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: finalText }],
+            usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: { total: 0.001 } },
+          },
+        },
+        { type: "agent_end", messages: [] },
+      ],
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        estimatedCostUsd: 0.001,
+      },
+      rawOutput: "",
+    };
+  }
+}
+
+describe("PiAgentRuntime — cross-provider failback (#137 S04)", () => {
+  test("retryable_transient failure on attempt 1 → attempt 2 runs on next chain provider", async () => {
+    // Two providers in the routing so selectModelChain produces a 2-entry chain.
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    fixture.config.modelRouting = {
+      default: { provider: "openai", model: "gpt-4" },
+      roles: { security: { provider: "anthropic", model: "claude-sonnet" } },
+    };
+
+    const runner = new FailbackSuccessPiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-sonnet" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+      reviewerRetryPolicy: { maxAttempts: 3 },
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const securityCalls = runner.calls.filter((c) => c.role === "security");
+    // Attempt 1 on anthropic (fails 503), attempt 2 on openai (succeeds).
+    expect(securityCalls).toHaveLength(2);
+
+    // Total process calls ≤ maxAttempts (no blowup).
+    expect(securityCalls.length).toBeLessThanOrEqual(3);
+
+    // Attempt 1 used anthropic, attempt 2 used openai.
+    expect(securityCalls[0]?.model?.provider).toBe("anthropic");
+    expect(securityCalls[1]?.model?.provider).toBe("openai");
+
+    // Reviewer succeeded — no failures.
+    expect(result.coordinatorResult?.reviewerFailures).toBeUndefined();
+
+    // Failback telemetry: effectiveProvider = openai (the one that succeeded).
+    const securityResult = result.coordinatorResult?.reviewerResults.find(
+      (r) => r.role === "security",
+    );
+    expect(securityResult).toBeDefined();
+    expect(securityResult?.effectiveProvider).toBe("openai");
+    expect(securityResult?.failbackHopCount).toBeGreaterThan(0);
+    expect(securityResult?.attemptedModels).toHaveLength(2);
+    expect(securityResult?.attemptedModels?.[0]?.provider).toBe("anthropic");
+    expect(securityResult?.attemptedModels?.[1]?.provider).toBe("openai");
+  });
+
+  test("timeout failure stays on the same model (non-failback-eligible)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    fixture.config.modelRouting = {
+      default: { provider: "openai", model: "gpt-4" },
+      roles: { security: { provider: "anthropic", model: "claude-sonnet" } },
+    };
+
+    const runner = new TimeoutOnFirstCallPiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-sonnet" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+      reviewerRetryPolicy: { maxAttempts: 2 },
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const securityCalls = runner.calls.filter((c) => c.role === "security");
+    // Both calls should be on the SAME provider (anthropic) — timeout does not trigger failback.
+    expect(securityCalls).toHaveLength(2);
+    expect(securityCalls[0]?.model?.provider).toBe("anthropic");
+    expect(securityCalls[1]?.model?.provider).toBe("anthropic");
+
+    // No failback hop: the reviewer eventually succeeded on the same model.
+    const securityResult = result.coordinatorResult?.reviewerResults.find(
+      (r) => r.role === "security",
+    );
+    expect(securityResult).toBeDefined();
+    // No failback hop count (or 0 if set).
+    expect(securityResult?.failbackHopCount ?? 0).toBe(0);
+  });
+
+  test("exhausted chain produces a reviewer FAILURE with failbackExhausted:true, not a silent success", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    fixture.config.modelRouting = {
+      // Two providers in the chain — security tries both and fails both → exhausted.
+      default: { provider: "openai", model: "gpt-4" },
+      roles: { security: { provider: "anthropic", model: "claude-sonnet" } },
+    };
+
+    const runner = new SecurityAlwaysFailsPiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-sonnet" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+      reviewerRetryPolicy: { maxAttempts: 3 },
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    // Security ended as a failure (not a result) — chain exhausted, not silently zero findings.
+    expect(result.coordinatorResult?.reviewerResults.map((r) => r.role)).not.toContain("security");
+    const securityFailure = result.coordinatorResult?.reviewerFailures?.find(
+      (f) => f.role === "security",
+    );
+    expect(securityFailure).toBeDefined();
+    expect(securityFailure?.failbackExhausted).toBe(true);
+
+    // Total security calls ≤ maxAttempts (no blowup). With 2-provider chain and maxAttempts=3,
+    // we make at most 2 calls (one per provider before exhaustion).
+    const securityCalls = runner.calls.filter((c) => c.role === "security");
+    expect(securityCalls.length).toBeLessThanOrEqual(3);
+
+    // Both attempted providers are recorded.
+    expect(securityFailure?.attemptedModels?.length).toBeGreaterThan(0);
+  });
+
+  test("failback fields survive into run_metrics (counts/identifiers only, M008)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    fixture.config.modelRouting = {
+      default: { provider: "openai", model: "gpt-4" },
+      roles: { security: { provider: "anthropic", model: "claude-sonnet" } },
+    };
+
+    const runner = new FailbackSuccessPiProcessRunner();
+    const telemetrySink = new (class implements TelemetrySink {
+      readonly events: TelemetryEvent[] = [];
+      emit(event: TelemetryEvent): void {
+        this.events.push(event);
+      }
+      async flush(): Promise<TelemetryFlushResult> {
+        return { deliveredCount: 0, failedCount: 0, droppedCount: 0, pendingCount: 0 };
+      }
+      async close(): Promise<TelemetryFlushResult> {
+        return this.flush();
+      }
+    })();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-sonnet" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+      reviewerRetryPolicy: { maxAttempts: 3 },
+    });
+
+    await runReview({
+      fixture,
+      runtime,
+      telemetrySink,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const metricsEvent = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
+    expect(metricsEvent).toBeDefined();
+
+    // effectiveModelIds includes both attempted providers' models.
+    const ids = metricsEvent?.data?.effectiveModelIds as string[] | undefined;
+    expect(ids).toBeDefined();
+    // The anthropic model (first attempt, failed) and openai model (second attempt, succeeded).
+    expect(ids).toContain("claude-sonnet");
+    expect(ids).toContain("gpt-4");
+
+    // Agent metrics for the security reviewer carry failback fields.
+    const agents = metricsEvent?.data?.agents as Array<Record<string, unknown>> | undefined;
+    const securityAgentMetrics = agents?.find((a) => a.role === "security");
+    expect(securityAgentMetrics).toBeDefined();
+    // effectiveProvider should be openai (the one that succeeded).
+    expect(securityAgentMetrics?.effectiveProvider).toBe("openai");
+    // F5 regression: the ordered attemptedModels (provider+model identifiers) must survive into the
+    // EMITTED telemetry event, not just the in-memory metrics — #212 reads the failback chain here.
+    expect(securityAgentMetrics?.attemptedModels).toEqual([
+      { provider: "anthropic", model: "claude-sonnet" },
+      { provider: "openai", model: "gpt-4" },
+    ]);
+  });
+
+  test("a hop selected on the final attempt degrades to a CLEAN classified failure, not the generic loop-exhausted error", async () => {
+    // Regression for the reserve-gate-bypass / final-attempt-hop defect: with a 3-provider chain
+    // and maxAttempts=2, the model on the LAST attempt still has a non-degraded successor in the
+    // chain. The hop MUST be gated on the reserve (no attempt remains) — otherwise the loop falls
+    // through to `throw new Error("retry loop exhausted unexpectedly")`, which classifies as
+    // `unknown` and loses the real retryable_transient classification + attemptedModels that #212
+    // relies on. The chain is tier-independent (byTier on every tier) so the test doesn't depend on
+    // how auth-pr.json classifies. selectModelChain precedence → [tier-role B, role A, default C].
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const securityB = { roles: { security: { provider: "providerb", model: "model-b" } } };
+    fixture.config.modelRouting = {
+      default: { provider: "providerc", model: "model-c" },
+      roles: { security: { provider: "providera", model: "model-a" } },
+      byTier: { trivial: securityB, lite: securityB, full: securityB },
+    };
+
+    const runner = new SecurityAlwaysFailsPiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "providerb", model: "model-b" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+      reviewerRetryPolicy: { maxAttempts: 2 },
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    // Exactly maxAttempts (2) security calls: B then A. C is never reached — the final-attempt hop
+    // is correctly gated off, so there is no third call and no attempts×chain blowup.
+    const securityCalls = runner.calls.filter((c) => c.role === "security");
+    expect(securityCalls).toHaveLength(2);
+    expect(securityCalls[0]?.model?.provider).toBe("providerb");
+    expect(securityCalls[1]?.model?.provider).toBe("providera");
+
+    const securityFailure = result.coordinatorResult?.reviewerFailures?.find(
+      (f) => f.role === "security",
+    );
+    expect(securityFailure).toBeDefined();
+    // The CLEAN classification of the real provider error survives — NOT the generic "unknown".
+    expect(securityFailure?.errorClassification.category).toBe("retryable_transient");
+    // The misleading internal error must never surface as the reviewer's failure.
+    expect(securityFailure?.errorMessage).not.toContain("retry loop exhausted unexpectedly");
+    // Both attempted providers are recorded for #212 attribution.
+    expect(securityFailure?.attemptedModels?.map((m) => m.provider)).toEqual([
+      "providerb",
+      "providera",
+    ]);
+  });
+
+  test("coordinator synthesis skips a provider degraded during the reviewer fan-out (F2)", async () => {
+    // security on anthropic 503s → anthropic degraded → security fails over to openai. The
+    // coordinator runs AFTER fan-out with its own chain [anthropic, openai]; selectStart must skip
+    // the now-degraded anthropic and synthesize on openai — not blindly use chain[0].
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    fixture.config.modelRouting = {
+      default: { provider: "openai", model: "gpt-4" },
+      roles: {
+        security: { provider: "anthropic", model: "claude-sonnet" },
+        coordinator: { provider: "anthropic", model: "claude-opus" },
+      },
+    };
+
+    const runner = new FailbackSuccessPiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-sonnet" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+      reviewerRetryPolicy: { maxAttempts: 3 },
+    });
+
+    await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    const coordinatorCall = runner.calls.find((c) => c.role === "coordinator");
+    expect(coordinatorCall).toBeDefined();
+    // Without the F2 fix the coordinator would run on anthropic (chain[0], degraded during fan-out).
+    expect(coordinatorCall?.model?.provider).toBe("openai");
   });
 });

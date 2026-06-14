@@ -11,6 +11,7 @@ export * from "./incremental-review.ts";
 export * from "./operator-reviewers.ts";
 export * from "./patch-admission.ts";
 export * from "./path-match.ts";
+export * from "./provider-health.ts";
 export * from "./re-review.ts";
 export * from "./reviewer-definitions.ts";
 export * from "./risk-classifier.ts";

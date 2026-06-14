@@ -8,6 +8,7 @@ import type {
   Finding,
   ModelSelection,
   PriorReviewState,
+  ProviderHealthRegistry,
   ReviewConfig,
   ReviewContext,
   ReviewDecision,
@@ -43,6 +44,7 @@ import type { IncrementalReviewPlan } from "./incremental-review.ts";
 import { narrowDiffToPaths } from "./incremental-review.ts";
 import { backfillFindingLocations } from "./location-backfill.ts";
 import type { AdmissionDecision } from "./patch-admission.ts";
+import { InMemoryProviderHealthRegistry } from "./provider-health.ts";
 import { classifyReReviewFindings } from "./re-review.ts";
 import {
   findUnsupportedReviewerPolicyEntries,
@@ -1145,21 +1147,31 @@ function runDeterministicFakeReviewers(fakeFindings: Finding[]): Finding[] {
 
 function createCoordinatorRunInput(context: ReviewContext): CoordinatorRunInput {
   const shortCircuit = getTierProfile(context.risk.tier).shortCircuitCoordinatorOnZeroFindings;
+  // Construct ONE ProviderHealthRegistry per run, shared across coordinator + all reviewers (#137).
+  // In-memory only — reset between runs by construction (short-lived CI process).
+  const providerHealth: ProviderHealthRegistry = new InMemoryProviderHealthRegistry();
+  // Build the failback chain ONCE; the primary model is its head (selectModel would rebuild it).
+  const coordinatorChain = selectModelChain(context, "coordinator");
   return {
     runId: context.runId,
     role: "coordinator",
     prompt: "Coordinate deterministic code review reviewers and consolidate their findings.",
     context,
-    model: selectModel(context, "coordinator"),
+    model: coordinatorChain[0] as ModelSelection,
+    failbackChain: coordinatorChain,
+    providerHealth,
     toolPolicy: createRuntimeToolPolicy(context.safetyMode, context.risk.tier),
     timeoutMs: getEffectiveTimeouts(context).coordinatorMs,
     outputSchemaName: "coordinator",
-    selectedReviewers: createReviewerRunInputs(context),
+    selectedReviewers: createReviewerRunInputs(context, providerHealth),
     ...(shortCircuit ? { shortCircuitOnZeroFindings: true } : {}),
   };
 }
 
-function createReviewerRunInputs(context: ReviewContext): ReviewerRunInput[] {
+function createReviewerRunInputs(
+  context: ReviewContext,
+  providerHealth: ProviderHealthRegistry,
+): ReviewerRunInput[] {
   const timeouts = getEffectiveTimeouts(context);
 
   return selectTrustedReviewerDefinitions({
@@ -1170,13 +1182,17 @@ function createReviewerRunInputs(context: ReviewContext): ReviewerRunInput[] {
       : {}),
   }).map((reviewerDefinition) => {
     const assignedFiles = context.diff.files.map((file) => file.path);
+    // Build the failback chain ONCE; the primary model is its head (selectModel would rebuild it).
+    const failbackChain = selectModelChain(context, reviewerDefinition.role);
 
     return {
       runId: context.runId,
       role: reviewerDefinition.role,
       prompt: `Review the change as the ${reviewerDefinition.role} reviewer.`,
       context,
-      model: selectModel(context, reviewerDefinition.role),
+      model: failbackChain[0] as ModelSelection,
+      failbackChain,
+      providerHealth,
       toolPolicy: createRuntimeToolPolicy(context.safetyMode, context.risk.tier),
       timeoutMs: timeouts.reviewerMs,
       outputSchemaName: "reviewer",
@@ -1207,7 +1223,19 @@ function createReviewerContextReferences(
   };
 }
 
-export function selectModel(context: ReviewContext, role: string): ModelSelection {
+/**
+ * Returns the ordered list of eligible ModelSelection candidates for a given role (#137 S04).
+ * Applies operator-disabled provider filtering and deduplication by provider+model.
+ * Thinking inheritance is resolved for EVERY element in the chain (not just the head) so that
+ * failback elements carry the correct thinking bound without re-running the inheritance logic.
+ *
+ * The chain ordering is: per-tier role → per-tier default → role → default (same precedence as
+ * selectModel). Candidates whose provider is operator-disabled are excluded; duplicates
+ * (same provider+model) are deduplicated, keeping the first occurrence (most specific wins).
+ *
+ * Throws the same error as selectModel when the resulting chain is empty.
+ */
+export function selectModelChain(context: ReviewContext, role: string): ModelSelection[] {
   const routing = context.config.modelRouting;
   const tier = context.risk.tier;
   // Case-insensitive disable test: provider names are matched loosely so an operator setting
@@ -1219,9 +1247,8 @@ export function selectModel(context: ReviewContext, role: string): ModelSelectio
   const tierRouting = routing.byTier?.[tier];
 
   // Precedence, most specific first: per-tier role → per-tier default → role → default (#138).
-  // tierCandidates are tracked separately so thinking-inheritance can tell whether the SELECTED
-  // candidate is itself tier-scoped. Undefined entries are skipped; routing.default is always
-  // present so the combined list is non-empty.
+  // tierCandidates are tracked separately so thinking-inheritance can tell whether a candidate
+  // is tier-scoped. Undefined entries are skipped; routing.default is always present.
   const tierCandidates = [tierRouting?.roles?.[role], tierRouting?.default].filter(
     (c): c is ModelSelection => c !== undefined,
   );
@@ -1231,13 +1258,14 @@ export function selectModel(context: ReviewContext, role: string): ModelSelectio
   const candidates = [...tierCandidates, ...topCandidates];
 
   // Operator provider-disable (#138): skip candidates whose provider was disabled via the trusted
-  // AI_REVIEW_DISABLED_PROVIDERS env (never reviewed-repo config); fall through to the next
-  // configured candidate. #137 (S04) layers real cross-provider failback + circuit-breaker here.
-  // Track the index (not the object) so tier-vs-top classification below is by position, never by
-  // reference identity — robust even if the same ModelSelection object is aliased across slots.
-  const selectedIndex = candidates.findIndex((c) => !isDisabled(c.provider));
-  const selected = candidates[selectedIndex];
-  if (selected === undefined) {
+  // AI_REVIEW_DISABLED_PROVIDERS env (never reviewed-repo config). #137 (S04) layers real
+  // cross-provider failback + circuit-breaker here. Track the index (not the object) so
+  // tier-vs-top classification is by position, never by reference identity.
+  const enabledCandidates = candidates
+    .map((c, index) => ({ c, index }))
+    .filter(({ c }) => !isDisabled(c.provider));
+
+  if (enabledCandidates.length === 0) {
     throw new Error(
       `selectModel: no model for role "${role}" at tier "${tier}" — every configured candidate ` +
         `uses an operator-disabled provider (${disabled
@@ -1248,20 +1276,42 @@ export function selectModel(context: ReviewContext, role: string): ModelSelectio
   }
 
   // `thinking` is a task-level reasoning bound, not part of model identity. We resolve its
-  // inheritance here, in the runtime-agnostic orchestration layer, so the convergence guard
-  // (#45) applies consistently for every agent runtime (pi, opencode, ...) — each adapter just
-  // translates the already-resolved value. A candidate that omits `thinking` inherits the tier
-  // default's `thinking` ONLY when the SELECTED candidate is itself tier-scoped — otherwise (e.g.
-  // provider-disable fell through to a top-level role) it inherits the top-level default, so a
-  // skipped tier default's bound never bleeds onto a top-level fallback (#138). Model identity
-  // (provider/model/tier) stays object-level.
-  const selectedIsTierScoped = selectedIndex < tierCandidates.length;
-  const inheritedThinking =
-    (selectedIsTierScoped ? tierRouting?.default?.thinking : undefined) ?? routing.default.thinking;
-  if (selected.thinking === undefined && inheritedThinking !== undefined) {
-    return { ...selected, thinking: inheritedThinking };
+  // inheritance here for EVERY chain element (not just the head) so failback elements carry
+  // the correct bound. A candidate that omits `thinking` inherits the tier default's `thinking`
+  // ONLY when the candidate is itself tier-scoped — otherwise it inherits the top-level default,
+  // so a skipped tier default's bound never bleeds onto a top-level fallback (#138).
+  const chain: ModelSelection[] = [];
+  const seen = new Set<string>();
+  for (const { c, index } of enabledCandidates) {
+    const isTierScoped = index < tierCandidates.length;
+    const inheritedThinking =
+      (isTierScoped ? tierRouting?.default?.thinking : undefined) ?? routing.default.thinking;
+    const resolved: ModelSelection =
+      c.thinking === undefined && inheritedThinking !== undefined
+        ? { ...c, thinking: inheritedThinking }
+        : c;
+
+    // Deduplicate by provider+model (keep first occurrence — most specific wins).
+    const dedupeKey = `${resolved.provider.toLowerCase()}:${resolved.model}`;
+    if (!seen.has(dedupeKey)) {
+      seen.add(dedupeKey);
+      chain.push(resolved);
+    }
   }
-  return selected;
+
+  return chain;
+}
+
+/**
+ * Select the primary model for a role (#138). Returns the head of selectModelChain, which is the
+ * most specific non-disabled candidate. Preserves the existing throw behavior when the chain is
+ * empty (same message, same callers).
+ */
+export function selectModel(context: ReviewContext, role: string): ModelSelection {
+  // selectModelChain throws when the chain is empty, preserving existing behavior.
+  const chain = selectModelChain(context, role);
+  // chain is guaranteed non-empty by selectModelChain's throw guard.
+  return chain[0] as ModelSelection;
 }
 
 export function getEffectiveTimeouts(context: ReviewContext): ReviewConfig["timeouts"] {
