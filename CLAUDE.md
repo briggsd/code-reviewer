@@ -23,7 +23,10 @@ inherits**: a regression in the factory's reviewers degrades all downstream repo
 Full design: **docs/architecture.md**. Project purpose & status: **README.md**.
 
 ## Workflow
-- use the delegate-implement skill when working on selected issues
+- use the delegate-implement skill when working on an issue — to preserve the coordinator's
+  working context (hand the file-heavy typing to an implementer against a tight spec; you review
+  the diff). A small/well-scoped issue is the *ideal* input for the duo, not a reason to skip it;
+  go inline only after explicitly checking with the user.
 - open PR and work through findings from the ai-review
 - merge in
 - **Running agents in parallel? One git worktree per agent — never share this checkout.**
