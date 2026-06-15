@@ -11,5 +11,7 @@ telemetry-rollup.json
 
 # Session-local working state — never tracked (handoff lives on the machine, not in history)
 continue.md
-# Local agent tooling (Claude Code hooks/skills config) — machine-local, not part of the project
+# Local agent tooling (Claude Code / Codex skills + config) — partial overlays that depend on
+# globally-installed skills, so they don't work standalone for others; machine-local, not tracked
 .claude/
+.agents/
