@@ -145,10 +145,16 @@ Details + diagram: **docs/architecture.md**.
   milestone. Completed milestones get an `M0xx-SUMMARY.md` design/decision record (history
   GitHub doesn't capture well). `docs/milestones/M013-ROADMAP.md` is the reference example
   of this format.
-- **`continue.md`** (repo root, **local/untracked — gitignored on purpose**) is the
-  session-to-session handoff: last action, next action, open threads, and an explicit
-  **Do not** list. Read it first; update it before you stop. It is machine-local working
-  state — never commit it.
+- **`continue.md`** (repo root, **local/untracked — gitignored on purpose**) is the *thin*
+  session-to-session handoff: last action, next action, open threads, active lanes. Read it
+  first; update it before you stop. It is machine-local working state — never commit it. Keep
+  it lean: **don't log completed status** (that's GitHub + `git`/`gh` — derive it each turn,
+  never copy it in), and don't accumulate per-milestone history (that's the `M0xx-SUMMARY.md`
+  records). Both are the recurring bloat sources.
+- **`docs/decision-guardrails.md`** is the committed, shared home for durable "do not revert X"
+  technical invariants (egress boundary, markdown-escape, JSON-repair, holdout discipline, tier
+  policy, …). It lives in git — versioned, shared across concurrent coordinators, not clobbered.
+  Read it before changing a load-bearing seam; add to it when a shipped decision needs guarding.
 
 ## Conventions & known gotchas
 
