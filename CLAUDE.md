@@ -94,7 +94,9 @@ src/
   schemas/                     # review-config + review-output JSON schemas
   docs-check/                  # pure docs-freshness rules (dead-ref + staleness; CLI = scripts/check-docs.ts)
 test/                          # bun:test specs (~32)   examples/fixtures/ # PR/MR fixtures
-docs/                          # canonical design docs (see README "Documents" index)
+docs/                          # canonical docs (see README "Documents" index)
+  user/                        #   adopter-facing setup, config, CI, safety, operations docs
+  developer/                   #   factory-internal architecture, extension, eval, telemetry docs
   milestones/                  #   M0xx-ROADMAP/-SUMMARY: sequential milestone plans + completion notes
 continue.md                    # session handoff — LOCAL/UNTRACKED (gitignored), machine-only
 ```
