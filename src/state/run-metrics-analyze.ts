@@ -101,6 +101,16 @@ export interface RunEventsAnalysis {
   directional: true;
 }
 
+interface ProseFindingDropAnalysis {
+  droppedFindingCount: number;
+  producedFindingCount: number;
+}
+
+interface SupplementalEventsAnalysis {
+  runEvents?: RunEventsAnalysis;
+  proseDrops: ProseFindingDropAnalysis;
+}
+
 export interface RunMetricsAnalysis {
   runCount: number;
   /** Runs whose run_metrics carried >=1 reviewer-kind failure (#212). */
@@ -136,6 +146,33 @@ export interface RunMetricsAnalysis {
      * runCount, which is the run-level sample size for groundingDropRunRate (#207).
      */
     groundingProducedFindingCount: number;
+    /**
+     * File-level: ignored/filtered files ÷ total changed files seen by risk classification
+     * (reviewed + ignored). 0 when no file-count denominator is available.
+     */
+    diffFilterDropRate: number;
+    /** Denominator behind diffFilterDropRate: reviewedFileCount + ignoredFileCount. */
+    diffFilterFileCount: number;
+    /**
+     * Run-level: fraction of runs carrying patch-admission counts whose admission gate degraded
+     * at least one file to name+stat-only.
+     */
+    patchAdmissionDegradedRate: number;
+    /** Denominator behind patchAdmissionDegradedRate: runs with admission count data. */
+    patchAdmissionSampleRunCount: number;
+    /**
+     * Run-level: fraction of runs carrying deletion-pruning counts with any hunk/file body pruned.
+     */
+    deletionPruningRate: number;
+    /** Denominator behind deletionPruningRate: runs with deletion-pruning count data. */
+    deletionPruningSampleRunCount: number;
+    /**
+     * Finding-level: prose-parser dropped findings ÷ total prose-parser produced findings
+     * (surviving + dropped), pooled across agent.output events for real run_metrics runIds.
+     */
+    proseFindingDropRate: number;
+    /** Denominator behind proseFindingDropRate: surviving + dropped prose findings. */
+    proseProducedFindingCount: number;
     /** Fraction of runs whose event carried a non-empty locationBackfill block. */
     locationBackfillRunRate: number;
     /** Fraction of runs whose event carried a non-empty acknowledgements block. */
@@ -181,6 +218,9 @@ interface RunMetricsEventData extends Record<string, JsonValue> {
   findingsByReviewer?: Record<string, JsonValue>;
   tokens?: Record<string, JsonValue>;
   grounding?: Record<string, JsonValue>;
+  context?: Record<string, JsonValue>;
+  contextArtifacts?: Record<string, JsonValue>;
+  ignoredFileCount?: number;
   locationBackfill?: Record<string, JsonValue>;
   acknowledgements?: Record<string, JsonValue>;
   structuredOutput?: Record<string, JsonValue>;
@@ -196,6 +236,14 @@ interface RunEventData extends Record<string, JsonValue> {
 }
 
 type RunEvent = TelemetryEvent & { data: RunEventData };
+
+interface AgentOutputEventData extends Record<string, JsonValue> {
+  findingCount?: number;
+  droppedFindingCount?: number;
+  structuredOutput?: boolean;
+}
+
+type AgentOutputEvent = TelemetryEvent & { data: AgentOutputEventData };
 
 interface AccumulatedAcceptance {
   accepted: number;
@@ -278,6 +326,12 @@ function accumulateOptionalBlocks(
   counters: {
     groundingRunCount: number;
     groundingDemotedTotal: number;
+    ignoredFileTotal: number;
+    totalFileCount: number;
+    patchAdmissionDegradedRunCount: number;
+    patchAdmissionSampleRunCount: number;
+    deletionPruningRunCount: number;
+    deletionPruningSampleRunCount: number;
     locationBackfillRunCount: number;
     acknowledgementRunCount: number;
     structuredOutputStructuredCount: number;
@@ -320,6 +374,52 @@ function accumulateOptionalBlocks(
     counters.structuredOutputStructuredCount +=
       asNumber(structuredOutputBlock.structuredCount) ?? 0;
     counters.structuredOutputTotalCount += asNumber(structuredOutputBlock.totalCount) ?? 0;
+  }
+
+  const ignoredFileCount = asNumber(data.ignoredFileCount);
+  const reviewedFileCount = asNumber(data.reviewedFileCount);
+  const totalFileCount = ignoredFileCount + reviewedFileCount;
+  if (totalFileCount > 0) {
+    counters.ignoredFileTotal += ignoredFileCount;
+    counters.totalFileCount += totalFileCount;
+  }
+
+  const contextBlock = data.context;
+  const contextArtifactsBlock = data.contextArtifacts;
+  const admissionBlock =
+    contextBlock !== undefined && isPlainObject(contextBlock.admission)
+      ? contextBlock.admission
+      : isPlainObject(data.admission)
+        ? data.admission
+        : undefined;
+  if (admissionBlock !== undefined) {
+    const demotedFileCount = asNumber(admissionBlock.demotedFileCount);
+    const degraded = admissionBlock.degraded === true || demotedFileCount > 0;
+    counters.patchAdmissionSampleRunCount += 1;
+    if (degraded) {
+      counters.patchAdmissionDegradedRunCount += 1;
+    }
+  }
+
+  const deletionSource =
+    contextArtifactsBlock !== undefined
+      ? contextArtifactsBlock
+      : contextBlock !== undefined
+        ? contextBlock
+        : undefined;
+  if (
+    deletionSource !== undefined &&
+    (deletionSource.deletionHunksPruned !== undefined ||
+      deletionSource.deletedFileBodiesPruned !== undefined)
+  ) {
+    counters.deletionPruningSampleRunCount += 1;
+    if (
+      asNumber(deletionSource.deletionHunksPruned) +
+        asNumber(deletionSource.deletedFileBodiesPruned) >
+      0
+    ) {
+      counters.deletionPruningRunCount += 1;
+    }
   }
 }
 
@@ -460,6 +560,12 @@ export function analyzeRunMetrics(
   const optionalBlockCounters = {
     groundingRunCount: 0,
     groundingDemotedTotal: 0,
+    ignoredFileTotal: 0,
+    totalFileCount: 0,
+    patchAdmissionDegradedRunCount: 0,
+    patchAdmissionSampleRunCount: 0,
+    deletionPruningRunCount: 0,
+    deletionPruningSampleRunCount: 0,
     locationBackfillRunCount: 0,
     acknowledgementRunCount: 0,
     structuredOutputStructuredCount: 0,
@@ -553,8 +659,8 @@ export function analyzeRunMetrics(
   // Overall (fleet-wide) cache-hit rate: pool totals across all tiers
   const overallCacheHitRate = computeFleetCacheHitRate(tierAccumulators);
 
-  // S06: run_event analysis — filter to run_event events, match to real runs
-  const runEventAnalysis = buildRunEventsAnalysis(events, realRunIds);
+  // S06 / #227: scan non-run_metrics events once, matching them to real-runtime run IDs.
+  const supplementalEventsAnalysis = buildSupplementalEventsAnalysis(events, realRunIds);
 
   // Build stable-key-sorted reviewerFailureCountByRole record (#212), mirroring overrideCountByTier
   const reviewerFailureCountByRole: Record<string, number> = {};
@@ -565,6 +671,12 @@ export function analyzeRunMetrics(
   const {
     groundingRunCount,
     groundingDemotedTotal,
+    ignoredFileTotal,
+    totalFileCount,
+    patchAdmissionDegradedRunCount,
+    patchAdmissionSampleRunCount,
+    deletionPruningRunCount,
+    deletionPruningSampleRunCount,
     locationBackfillRunCount,
     acknowledgementRunCount,
     structuredOutputStructuredCount,
@@ -590,6 +702,24 @@ export function analyzeRunMetrics(
           ? 0
           : groundingDemotedTotal / (totalFindings + groundingDemotedTotal),
       groundingProducedFindingCount: totalFindings + groundingDemotedTotal,
+      diffFilterDropRate: totalFileCount === 0 ? 0 : ignoredFileTotal / totalFileCount,
+      diffFilterFileCount: totalFileCount,
+      patchAdmissionDegradedRate:
+        patchAdmissionSampleRunCount === 0
+          ? 0
+          : patchAdmissionDegradedRunCount / patchAdmissionSampleRunCount,
+      patchAdmissionSampleRunCount,
+      deletionPruningRate:
+        deletionPruningSampleRunCount === 0
+          ? 0
+          : deletionPruningRunCount / deletionPruningSampleRunCount,
+      deletionPruningSampleRunCount,
+      proseFindingDropRate:
+        supplementalEventsAnalysis.proseDrops.producedFindingCount === 0
+          ? 0
+          : supplementalEventsAnalysis.proseDrops.droppedFindingCount /
+            supplementalEventsAnalysis.proseDrops.producedFindingCount,
+      proseProducedFindingCount: supplementalEventsAnalysis.proseDrops.producedFindingCount,
       locationBackfillRunRate: runCount === 0 ? 0 : locationBackfillRunCount / runCount,
       acknowledgementRunRate: runCount === 0 ? 0 : acknowledgementRunCount / runCount,
       thinReviewRate: nonTrivialRunCount === 0 ? 0 : thinReviewRunCount / nonTrivialRunCount,
@@ -606,31 +736,23 @@ export function analyzeRunMetrics(
           },
         }
       : {}),
-    ...(runEventAnalysis !== undefined ? { runEvents: runEventAnalysis } : {}),
+    ...(supplementalEventsAnalysis.runEvents !== undefined
+      ? { runEvents: supplementalEventsAnalysis.runEvents }
+      : {}),
   };
 }
 
-function buildRunEventsAnalysis(
+function buildSupplementalEventsAnalysis(
   events: readonly TelemetryEvent[],
   realRunIds: ReadonlySet<string>,
-): RunEventsAnalysis | undefined {
-  const runEvents = events.filter(isRunEvent);
-  if (runEvents.length === 0) {
-    return undefined;
-  }
-
-  // Filter to events whose runId belongs to a real-runtime run_metrics run.
-  // Orphan run_events (from dummy/test runs with no matching run_metrics) are ignored.
-  const matchedEvents = runEvents.filter((e) => e.runId !== undefined && realRunIds.has(e.runId));
-
-  if (matchedEvents.length === 0) {
-    return undefined;
-  }
-
+): SupplementalEventsAnalysis {
   let startCount = 0;
   let completedCount = 0;
   let correctionCount = 0;
   let overrideCount = 0;
+  let matchedRunEventCount = 0;
+  let proseDroppedFindingCount = 0;
+  let proseProducedFindingCount = 0;
 
   // For acceptance: accumulate across correction events
   const acceptanceByReviewer = new Map<string, AccumulatedAcceptance>();
@@ -638,7 +760,32 @@ function buildRunEventsAnalysis(
   const overrideCountByTierMap = new Map<string, number>();
   let correctionRunCount = 0;
 
-  for (const event of matchedEvents) {
+  for (const event of events) {
+    if (event.runId === undefined || !realRunIds.has(event.runId)) {
+      continue;
+    }
+
+    if (isAgentOutputEvent(event)) {
+      if (event.data.structuredOutput !== false) {
+        continue;
+      }
+
+      const dropped = asNumber(event.data.droppedFindingCount);
+      const surviving = asNumber(event.data.findingCount);
+      const produced = dropped + surviving;
+      if (produced <= 0) {
+        continue;
+      }
+      proseDroppedFindingCount += dropped;
+      proseProducedFindingCount += produced;
+      continue;
+    }
+
+    if (!isRunEvent(event)) {
+      continue;
+    }
+    matchedRunEventCount += 1;
+
     const eventSubtype = event.data.event;
     if (eventSubtype === "run.start") {
       startCount += 1;
@@ -707,17 +854,27 @@ function buildRunEventsAnalysis(
   }
 
   return {
-    startCount,
-    completedCount,
-    correctionCount,
-    completionRate,
-    overrideCount,
-    overrideRate,
-    overrideCountByTier,
-    acceptanceByReviewer: buildAcceptanceRecord(acceptanceByReviewer),
-    acceptanceByTier: buildAcceptanceRecord(acceptanceByTier),
-    correctionRunCount,
-    directional: true,
+    ...(matchedRunEventCount > 0
+      ? {
+          runEvents: {
+            startCount,
+            completedCount,
+            correctionCount,
+            completionRate,
+            overrideCount,
+            overrideRate,
+            overrideCountByTier,
+            acceptanceByReviewer: buildAcceptanceRecord(acceptanceByReviewer),
+            acceptanceByTier: buildAcceptanceRecord(acceptanceByTier),
+            correctionRunCount,
+            directional: true,
+          },
+        }
+      : {}),
+    proseDrops: {
+      droppedFindingCount: proseDroppedFindingCount,
+      producedFindingCount: proseProducedFindingCount,
+    },
   };
 }
 
@@ -877,6 +1034,18 @@ function formatRatesSection(analysis: RunMetricsAnalysis): string[] {
   lines.push(
     `  groundingWithholdFindingRate ${(r.groundingWithholdFindingRate * 100).toFixed(1)}% (n=${r.groundingProducedFindingCount})`,
   );
+  lines.push(
+    `  diffFilterDropRate       ${(r.diffFilterDropRate * 100).toFixed(1)}% (n=${r.diffFilterFileCount})`,
+  );
+  lines.push(
+    `  patchAdmissionDegradedRate ${(r.patchAdmissionDegradedRate * 100).toFixed(1)}% (n=${r.patchAdmissionSampleRunCount})`,
+  );
+  lines.push(
+    `  deletionPruningRate      ${(r.deletionPruningRate * 100).toFixed(1)}% (n=${r.deletionPruningSampleRunCount})`,
+  );
+  lines.push(
+    `  proseFindingDropRate     ${(r.proseFindingDropRate * 100).toFixed(1)}% (n=${r.proseProducedFindingCount})`,
+  );
   lines.push(`  locationBackfillRunRate   ${(r.locationBackfillRunRate * 100).toFixed(1)}%`);
   lines.push(`  acknowledgementRunRate    ${(r.acknowledgementRunRate * 100).toFixed(1)}%`);
   lines.push(`  thinReviewRate            ${(r.thinReviewRate * 100).toFixed(1)}%`);
@@ -1028,6 +1197,13 @@ function isRunMetricsEvent(event: TelemetryEvent): event is RunMetricsEvent {
   }
   const runtime = event.data.runtime;
   return typeof runtime === "string" && !NON_REAL_RUNTIME_KIND_SET.has(runtime);
+}
+
+function isAgentOutputEvent(event: TelemetryEvent): event is AgentOutputEvent {
+  if (event.type !== "agent.output") {
+    return false;
+  }
+  return isPlainObject(event.data);
 }
 
 function incrementMap(map: Map<string, number>, key: string, amount: number): void {

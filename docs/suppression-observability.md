@@ -49,9 +49,9 @@ three requirements. Citations reference the source at M020 S01 time (branch `mai
 | Gate | What it suppresses | Drop-rate signal | Visible-on-drop | Regression case |
 |---|---|---|---|---|
 | Evidence grounding | Findings whose `quotedCode` is not found in the diff-hunk corpus (demoted to low-confidence, non-blocking) | **Has** | **Has** | **Has (unit)** |
-| Diff filter | Files excluded from review (binary, lockfile, vendored, generated, ignored-path) | **Has (trace only)** | **Has (trace)** | **Has (unit)** |
-| Patch admission | Files demoted to name+stat-only when total patch bytes exceed the per-tier budget | **Has (trace only)** | **Has** | **Has (unit)** |
-| Deletion-hunk pruning | Pure-deletion-only hunks removed from review context | **Has (trace only)** | **Has (trace)** | **Has (unit)** |
+| Diff filter | Files excluded from review (binary, lockfile, vendored, generated, ignored-path) | **Has** | **Has (trace)** | **Has (unit)** |
+| Patch admission | Files demoted to name+stat-only when total patch bytes exceed the per-tier budget | **Has** | **Has** | **Has (unit)** |
+| Deletion-hunk pruning | Pure-deletion-only hunks removed from review context | **Has** | **Has (trace)** | **Has (unit)** |
 | Inline-readiness gates | Findings blocked from inline write-back (fallback to summary) | **Gap** | **Gap** | **Has (unit)** |
 | Reviewer-failure handling | Findings from failed reviewers excluded; degraded-summary path | **Has** | **Has** | **Has (integration)** |
 | Structured-output validation (prose path) | Individual invalid findings dropped with count reported | **Has** | **Has** | **Has (unit)** |
@@ -101,11 +101,9 @@ diff by reason: `binary`, `lockfile`, `vendored`, `generated` (path-glob or cont
 Sensitive paths short-circuit and are never filtered.
 
 **Drop-rate signal.** `ignoredFileCount` (total) and `ignoredByReason` (breakdown) are written
-into the `context.built` JSONL trace in `src/runner/run-review.ts` (lines 260-261). Both also
-appear in `run_metrics` via `src/runner/run-metrics.ts` (lines 208 and 260). However, there is
-**no `telemetry:quality` segment** with a climbing-rate threshold for filter drop rate — the
-count reaches the trace and run_metrics, but no quality hypothesis fires if the filter rate
-climbs. This is a **gap** (see Gaps section).
+into the `context.built` JSONL trace. `ignoredFileCount` and `reviewedFileCount` also appear in
+`run_metrics`; `telemetry:quality` tracks `diffFilterDropRate` as a file-level rate
+(`ignoredFileCount / (ignoredFileCount + reviewedFileCount)`) with `maxDiffFilterDropRate`.
 
 **Visible-on-drop.** The `context.built` trace in `src/runner/run-review.ts` (lines 260-263)
 lists each ignored file by path and reason (capped at 100). Path-level visibility is trace-only;
@@ -127,12 +125,11 @@ smaller test fixture / snapshot / generated-data file; low-signal bulk is demote
 Files that exceed the budget are demoted to name+stat-only (`demotedPaths`). The decision is
 graceful degradation — the run continues with `degraded: true` and a clearly-marked summary notice.
 
-**Drop-rate signal.** The `admission` block appears in the `context.built` trace in
-`src/runner/run-review.ts` (with counts and byte totals, including counts-only
-`lowSignalDemotedFileCount` for #218 demotions). Admission counts are NOT currently surfaced in
-the `run_metrics` telemetry rollup (`src/runner/run-metrics.ts`), and there is **no
-`telemetry:quality` climbing-rate threshold** for admission-degraded rate — same gap as diff
-filter.
+**Drop-rate signal.** The `admission` block appears in the `context.built` trace with counts and
+byte totals, including counts-only `lowSignalDemotedFileCount` for #218 demotions. Admission
+counts also appear in `run_metrics`; `telemetry:quality` tracks `patchAdmissionDegradedRate` as
+the fraction of measured runs whose admission gate degraded at least one file, with
+`maxPatchAdmissionDegradedRate`.
 
 **Visible-on-drop.** (a) Summary comment: when `admissionDecision.degraded` is true,
 `formatPartialBySize` in `src/publisher/summary-markdown.ts` (lines 250-272) renders a "Partial
@@ -153,10 +150,9 @@ full. Files whose every hunk is pruned away have their patch body omitted entire
 (`patch: undefined`) and are written as name-only entries in the context artifacts.
 
 **Drop-rate signal.** `deletionHunksPruned` and `deletedFileBodiesPruned` counts are written
-into the `context.built` trace in `src/runner/run-review.ts` (lines 271-272) and into the
-`contextArtifacts` section of `run_metrics`. There is **no `telemetry:quality` segment** with a
-climbing-rate threshold for deletion-pruning drop rate — gap (same pattern as diff filter and
-patch admission).
+into the `context.built` trace. When deletion-pruning counts are present in `run_metrics`,
+`telemetry:quality` tracks `deletionPruningRate` as the fraction of measured runs with any
+deletion-pruning activity, with `maxDeletionPruningRate`.
 
 **Visible-on-drop.** The pruned-hunk counts appear in the `context.built` trace
 (`contextArtifacts.deletionHunksPruned`, `deletedFileBodiesPruned`). Deleted-body files still
@@ -225,10 +221,10 @@ trace: each failed reviewer emits an `agent.failed` event.
 are dropped while their valid siblings survive, and `droppedFindingCount` records the partial
 drop.
 
-**Drop-rate signal.** `droppedFindingCount` is emitted in the `agent.output` trace event in
-`src/runtime/pi-agent-runtime.ts` (line 627, only when > 0). The signal is observable in the
-trace but does not yet have a dedicated `telemetry:quality` segment — the count reaches the
-event stream but is not aggregated into a climbing-rate threshold.
+**Drop-rate signal.** `droppedFindingCount` is emitted in the `agent.output` trace event (only
+when > 0). `telemetry:quality` tracks `proseFindingDropRate` from counts-only prose-path
+`agent.output` events (`droppedFindingCount / (findingCount + droppedFindingCount)`) with
+`maxProseFindingDropRate`.
 
 **Visible-on-drop.** The `agent.output` event carries `droppedFindingCount` so an operator
 inspecting the trace can see how many findings were dropped by the prose parser. The surviving
@@ -273,31 +269,13 @@ be added.
 The inventory above surfaces the following gaps not yet tracked as issues. The coordinator
 will triage which to file:
 
-1. **Diff filter — no `telemetry:quality` climbing-rate segment.** The filter drop count
-   reaches traces and `run_metrics` but there is no quality-report threshold that fires when
-   the filtered-file-rate climbs. A segment analogous to `groundingDropRate` would give
-   operators an early signal that a project-local filter rule or content-marker change is
-   over-suppressing. (Not tracked as its own issue yet.)
-
-2. **Patch admission — no `telemetry:quality` segment.** Same pattern: `admissionDecision.degraded`
-   and `demotedFileCount` are in `run_metrics` but no quality hypothesis fires on a climbing
-   admission-degraded rate. (Not tracked yet.)
-
-3. **Deletion-hunk pruning — no `telemetry:quality` segment.** `deletionHunksPruned` reaches
-   the trace and `run_metrics` context but has no quality hypothesis. (Not tracked yet.)
-
-4. **Inline-readiness — no drop-rate signal and no visible-on-drop artifact.** This is the
+1. **Inline-readiness — no drop-rate signal and no visible-on-drop artifact.** This is the
    most complete gap: blocked-finding count is neither in `run_metrics` nor in the PR comment.
    A PR author cannot tell which of their findings were "blocked from inline" vs "rendered in
    summary by design." (Issue #222 tracks the false-absence / completeness fix; the drop-rate
    signal and visible-on-drop for the gate itself are a separate follow-up.)
 
-5. **Prose-path `droppedFindingCount` — no `telemetry:quality` segment.** The count reaches
-   `agent.output` events but is not aggregated into a quality-report climbing-rate threshold.
-   An operator cannot tell from `telemetry:quality` whether the per-finding drop rate on the
-   prose parse path is climbing. (Not tracked as its own issue yet.)
-
-6. **Evidence grounding — no eval scenario for valid-finding survival.** The unit tests assert
+2. **Evidence grounding — no eval scenario for valid-finding survival.** The unit tests assert
    the correct grounding and drop behavior, but there is no eval scenario (in `evals/scenarios/`)
    asserting that a valid finding survives the full run's grounding step. This is tracked in #214
    (full-file-corpus promoter); the regression case should be added alongside or before that issue.

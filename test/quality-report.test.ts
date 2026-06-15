@@ -20,6 +20,14 @@ function makeAnalysis(overrides: AnalysisOverride): RunMetricsAnalysis {
     groundingDropRunRate: 0,
     groundingWithholdFindingRate: 0,
     groundingProducedFindingCount: 0,
+    diffFilterDropRate: 0,
+    diffFilterFileCount: 0,
+    patchAdmissionDegradedRate: 0,
+    patchAdmissionSampleRunCount: 0,
+    deletionPruningRate: 0,
+    deletionPruningSampleRunCount: 0,
+    proseFindingDropRate: 0,
+    proseProducedFindingCount: 0,
     locationBackfillRunRate: 0,
     acknowledgementRunRate: 0,
     thinReviewRate: 0,
@@ -139,6 +147,133 @@ describe("buildQualityReport — overall breach logic", () => {
     const report = buildQualityReport(analysis);
     expect(report.runCount).toBe(0);
     expect(report.hypotheses).toHaveLength(0);
+  });
+});
+
+// ─── Suppression quality signals (#224-#227) ─────────────────────────────────
+
+describe("buildQualityReport — suppression quality signals (#224-#227)", () => {
+  test("diffFilterDropRate breach uses file-level sample size (#224)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        diffFilterDropRate: 0.6,
+        diffFilterFileCount: 50,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "diffFilterDropRate");
+    expect(h).toBeDefined();
+    expect(h?.direction).toBe("above");
+    expect(h?.value).toBeCloseTo(0.6, 5);
+    expect(h?.threshold).toBeCloseTo(0.5, 5);
+    expect(h?.sampleSize).toBe(50);
+  });
+
+  test("diffFilterDropRate with no file denominator is no-data, not a breach (#224)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        diffFilterDropRate: 1,
+        diffFilterFileCount: 0,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "diffFilterDropRate")).toBeUndefined();
+  });
+
+  test("patchAdmissionDegradedRate breach uses measured admission runs (#225)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        patchAdmissionDegradedRate: 0.3,
+        patchAdmissionSampleRunCount: 10,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "patchAdmissionDegradedRate");
+    expect(h).toBeDefined();
+    expect(h?.direction).toBe("above");
+    expect(h?.threshold).toBeCloseTo(0.2, 5);
+    expect(h?.sampleSize).toBe(10);
+  });
+
+  test("patchAdmissionDegradedRate at threshold boundary is not a breach (#225)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        patchAdmissionDegradedRate: 0.2,
+        patchAdmissionSampleRunCount: 10,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    expect(
+      report.hypotheses.find((x) => x.metric === "patchAdmissionDegradedRate"),
+    ).toBeUndefined();
+  });
+
+  test("deletionPruningRate breach uses measured pruning runs (#226)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        deletionPruningRate: 0.4,
+        deletionPruningSampleRunCount: 10,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "deletionPruningRate");
+    expect(h).toBeDefined();
+    expect(h?.direction).toBe("above");
+    expect(h?.threshold).toBeCloseTo(0.3, 5);
+    expect(h?.sampleSize).toBe(10);
+  });
+
+  test("deletionPruningRate with no measured runs is no-data, not a breach (#226)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        deletionPruningRate: 1,
+        deletionPruningSampleRunCount: 0,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "deletionPruningRate")).toBeUndefined();
+  });
+
+  test("proseFindingDropRate breach uses produced-finding sample size (#227)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        proseFindingDropRate: 0.2,
+        proseProducedFindingCount: 25,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "proseFindingDropRate");
+    expect(h).toBeDefined();
+    expect(h?.direction).toBe("above");
+    expect(h?.threshold).toBeCloseTo(0.1, 5);
+    expect(h?.sampleSize).toBe(25);
+  });
+
+  test("proseFindingDropRate below threshold is not a breach (#227)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        proseFindingDropRate: 0.1,
+        proseProducedFindingCount: 25,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "proseFindingDropRate")).toBeUndefined();
   });
 });
 
@@ -676,6 +811,130 @@ describe("buildQualityReport end-to-end via analyzeRunMetrics", () => {
     expect(completionH).toBeDefined();
     expect(completionH?.direction).toBe("below");
     expect(completionH?.value).toBeCloseTo(0.5, 5);
+  });
+
+  test("pipes suppression signals through analyzeRunMetrics then buildQualityReport (#224-#227)", () => {
+    const events: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-14T00:00:00.000Z",
+        runId: "suppression-a",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          reviewedFileCount: 2,
+          ignoredFileCount: 4,
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 3000,
+          findingCount: 1,
+          context: {
+            admission: {
+              degraded: true,
+              demotedFileCount: 1,
+              admittedFileCount: 1,
+            },
+            deletionHunksPruned: 2,
+            deletedFileBodiesPruned: 0,
+          },
+        },
+      },
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-14T01:00:00.000Z",
+        runId: "suppression-b",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          reviewedFileCount: 1,
+          ignoredFileCount: 2,
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 3000,
+          findingCount: 0,
+          context: {
+            admission: {
+              degraded: false,
+              demotedFileCount: 0,
+              admittedFileCount: 1,
+            },
+            deletionHunksPruned: 0,
+            deletedFileBodiesPruned: 0,
+          },
+        },
+      },
+      {
+        type: "agent.output",
+        timestamp: "2026-06-14T00:00:01.000Z",
+        runId: "suppression-a",
+        data: {
+          findingCount: 3,
+          droppedFindingCount: 1,
+          structuredOutput: false,
+        },
+      },
+    ];
+
+    const analysis = analyzeRunMetrics(events);
+    expect(analysis.rates.diffFilterDropRate).toBeCloseTo(6 / 9, 5);
+    expect(analysis.rates.patchAdmissionDegradedRate).toBeCloseTo(1 / 2, 5);
+    expect(analysis.rates.deletionPruningRate).toBeCloseTo(1 / 2, 5);
+    expect(analysis.rates.proseFindingDropRate).toBeCloseTo(1 / 4, 5);
+
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "diffFilterDropRate")).toBeDefined();
+    expect(report.hypotheses.find((x) => x.metric === "patchAdmissionDegradedRate")).toBeDefined();
+    expect(report.hypotheses.find((x) => x.metric === "deletionPruningRate")).toBeDefined();
+    expect(report.hypotheses.find((x) => x.metric === "proseFindingDropRate")).toBeDefined();
+  });
+
+  test("suppression counters stay finite with partial historical telemetry (#226/#227)", () => {
+    const events: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-14T02:00:00.000Z",
+        runId: "partial-a",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          reviewedFileCount: 1,
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 3000,
+          findingCount: 0,
+          context: {
+            deletionHunksPruned: 2,
+          },
+        },
+      },
+      {
+        type: "agent.output",
+        timestamp: "2026-06-14T02:00:01.000Z",
+        runId: "partial-a",
+        data: {
+          structuredOutput: false,
+        },
+      },
+      {
+        type: "agent.output",
+        timestamp: "2026-06-14T02:00:02.000Z",
+        runId: "partial-a",
+        data: {
+          findingCount: "not-a-number",
+          droppedFindingCount: "also-not-a-number",
+          structuredOutput: false,
+        },
+      },
+    ];
+
+    const analysis = analyzeRunMetrics(events);
+
+    expect(analysis.rates.deletionPruningSampleRunCount).toBe(1);
+    expect(analysis.rates.deletionPruningRate).toBe(1);
+    expect(analysis.rates.proseProducedFindingCount).toBe(0);
+    expect(analysis.rates.proseFindingDropRate).toBe(0);
+    expect(Number.isFinite(analysis.rates.deletionPruningRate)).toBe(true);
+    expect(Number.isFinite(analysis.rates.proseFindingDropRate)).toBe(true);
   });
 });
 

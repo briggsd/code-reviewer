@@ -55,6 +55,10 @@ threshold. Cross-reference metric meanings to the table in `docs/telemetry-expor
 |---|---|---|
 | `groundingDropRate` | above → bad | 0.15 |
 | `groundingWithholdRate` | above → bad | 0.30 |
+| `diffFilterDropRate` | above → bad | 0.50 |
+| `patchAdmissionDegradedRate` | above → bad | 0.20 |
+| `deletionPruningRate` | above → bad | 0.30 |
+| `proseFindingDropRate` | above → bad | 0.10 |
 | `thinReviewRate` | above → bad | 0.20 |
 | `overrideRate` | above → bad | 0.10 |
 | `acceptanceRate` | below → bad | 0.50 |
@@ -92,6 +96,14 @@ Pick a breaching segment and name the suspected quality failure:
   climbing rate may signal grounding is over-demoting valid findings (e.g. findings citing
   unchanged regions of a changed file — the #207 signal). Investigate via #214
   (full-file-corpus promotion).
+- High `diffFilterDropRate`, `patchAdmissionDegradedRate`, or `deletionPruningRate` → a
+  deterministic context-reduction gate may be over-suppressing review surface area. For
+  `patchAdmissionDegradedRate`, check the PR summary's partial-review warning first because it
+  lists demoted paths directly. For `diffFilterDropRate` and `deletionPruningRate`, investigate
+  with local dogfood traces for concrete paths because telemetry only carries counts.
+- High `proseFindingDropRate` → the prose parser is discarding a climbing fraction of model
+  findings before they reach the summary. Check `agent.output` trace counts first; do not expect
+  finding text in telemetry.
 - High `overrideRate` → humans are break-glassing the bot; the bot may be misfiring.
 
 ### 3. Investigate on LEGAL material only

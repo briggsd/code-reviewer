@@ -13,6 +13,10 @@ import type { ReviewerAcceptanceStat, RunMetricsAnalysis } from "./run-metrics-a
 export type HypothesisMetric =
   | "groundingDropRate"
   | "groundingWithholdRate"
+  | "diffFilterDropRate"
+  | "patchAdmissionDegradedRate"
+  | "deletionPruningRate"
+  | "proseFindingDropRate"
   | "thinReviewRate"
   | "overrideRate"
   | "acceptanceRate"
@@ -46,6 +50,14 @@ export interface QualityReportThresholds {
   maxGroundingDropRate: number; // default 0.15
   /** Finding-level grounding withhold rate (demoted ÷ produced); climbing-rate MAX threshold. default 0.30 */
   maxGroundingWithholdRate: number; // default 0.30
+  /** File-level filtered-file rate (ignored ÷ total changed files); climbing-rate MAX threshold. default 0.50 */
+  maxDiffFilterDropRate: number; // default 0.50
+  /** Run-level patch-admission degraded rate; climbing-rate MAX threshold. default 0.20 */
+  maxPatchAdmissionDegradedRate: number; // default 0.20
+  /** Run-level deletion-pruning rate; climbing-rate MAX threshold. default 0.30 */
+  maxDeletionPruningRate: number; // default 0.30
+  /** Finding-level prose parser drop rate; climbing-rate MAX threshold. default 0.10 */
+  maxProseFindingDropRate: number; // default 0.10
   maxThinReviewRate: number; // default 0.20
   maxOverrideRate: number; // default 0.10
   minAcceptanceRate: number; // default 0.50
@@ -60,6 +72,10 @@ export interface QualityReportThresholds {
 export const DEFAULT_QUALITY_THRESHOLDS: QualityReportThresholds = {
   maxGroundingDropRate: 0.15,
   maxGroundingWithholdRate: 0.3,
+  maxDiffFilterDropRate: 0.5,
+  maxPatchAdmissionDegradedRate: 0.2,
+  maxDeletionPruningRate: 0.3,
+  maxProseFindingDropRate: 0.1,
   maxThinReviewRate: 0.2,
   maxOverrideRate: 0.1,
   minAcceptanceRate: 0.5,
@@ -122,6 +138,58 @@ export function buildQualityReport(
       // Finding-level rate → finding-level sample size (produced findings), NOT runCount.
       // runCount would mis-flag lowConfidence whenever runs and produced-findings diverge.
       sampleSize: analysis.rates.groundingProducedFindingCount,
+    });
+  }
+
+  // diffFilterDropRate (#224): file-level filtered ÷ total changed files.
+  if (analysis.rates.diffFilterFileCount > 0) {
+    checkBreach(hypotheses, t, {
+      segmentType: "overall",
+      segment: "overall",
+      metric: "diffFilterDropRate",
+      value: analysis.rates.diffFilterDropRate,
+      threshold: t.maxDiffFilterDropRate,
+      direction: "above",
+      sampleSize: analysis.rates.diffFilterFileCount,
+    });
+  }
+
+  // patchAdmissionDegradedRate (#225): run-level fraction of measured runs that degraded by size.
+  if (analysis.rates.patchAdmissionSampleRunCount > 0) {
+    checkBreach(hypotheses, t, {
+      segmentType: "overall",
+      segment: "overall",
+      metric: "patchAdmissionDegradedRate",
+      value: analysis.rates.patchAdmissionDegradedRate,
+      threshold: t.maxPatchAdmissionDegradedRate,
+      direction: "above",
+      sampleSize: analysis.rates.patchAdmissionSampleRunCount,
+    });
+  }
+
+  // deletionPruningRate (#226): run-level fraction of measured runs with any deletion pruning.
+  if (analysis.rates.deletionPruningSampleRunCount > 0) {
+    checkBreach(hypotheses, t, {
+      segmentType: "overall",
+      segment: "overall",
+      metric: "deletionPruningRate",
+      value: analysis.rates.deletionPruningRate,
+      threshold: t.maxDeletionPruningRate,
+      direction: "above",
+      sampleSize: analysis.rates.deletionPruningSampleRunCount,
+    });
+  }
+
+  // proseFindingDropRate (#227): finding-level prose parser drops ÷ produced findings.
+  if (analysis.rates.proseProducedFindingCount > 0) {
+    checkBreach(hypotheses, t, {
+      segmentType: "overall",
+      segment: "overall",
+      metric: "proseFindingDropRate",
+      value: analysis.rates.proseFindingDropRate,
+      threshold: t.maxProseFindingDropRate,
+      direction: "above",
+      sampleSize: analysis.rates.proseProducedFindingCount,
     });
   }
 

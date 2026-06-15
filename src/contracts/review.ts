@@ -151,6 +151,15 @@ export interface ReviewContextArtifacts {
   changeContextBytes: number;
   patchBytes: number;
   totalBytes: number;
+  /** Counts-only patch admission summary (#145). */
+  admission: {
+    budgetBytes: number;
+    originalBytes: number;
+    admittedBytes: number;
+    admittedFileCount: number;
+    demotedFileCount: number;
+    degraded: boolean;
+  };
   /** Number of deletion-only hunks pruned across all modified files (#144). */
   deletionHunksPruned: number;
   /** Number of fully-deleted file patch bodies suppressed (#144). */
@@ -372,6 +381,9 @@ export interface ReviewRunContextMetrics {
   changeContextBytes: number;
   patchBytes: number;
   patchFileCount: number;
+  admission: ReviewContextArtifacts["admission"];
+  deletionHunksPruned: number;
+  deletedFileBodiesPruned: number;
 }
 
 export interface ReviewRunMetrics {

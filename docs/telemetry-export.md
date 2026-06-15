@@ -212,6 +212,10 @@ JSON as an artifact.
 |---|---|---|---|---|
 | `groundingDropRate` | `analysis.rates.groundingDropRunRate` | `maxGroundingDropRate` | above → bad | 0.15 |
 | `groundingWithholdRate` | `analysis.rates.groundingWithholdFindingRate` | `maxGroundingWithholdRate` | above → bad | 0.30 |
+| `diffFilterDropRate` | `analysis.rates.diffFilterDropRate` | `maxDiffFilterDropRate` | above → bad | 0.50 |
+| `patchAdmissionDegradedRate` | `analysis.rates.patchAdmissionDegradedRate` | `maxPatchAdmissionDegradedRate` | above → bad | 0.20 |
+| `deletionPruningRate` | `analysis.rates.deletionPruningRate` | `maxDeletionPruningRate` | above → bad | 0.30 |
+| `proseFindingDropRate` | `analysis.rates.proseFindingDropRate` | `maxProseFindingDropRate` | above → bad | 0.10 |
 | `thinReviewRate` (overall + per-tier) | `analysis.rates.thinReviewRate` (overall) / `analysis.byTier[tier].thinReviewRate` (per tier) | `maxThinReviewRate` | above → bad | 0.20 |
 | `overrideRate` | `analysis.runEvents?.overrideRate` | `maxOverrideRate` | above → bad | 0.10 |
 | `acceptanceRate` | `acceptanceByReviewer[r].acceptanceRate` or `acceptanceByTier[t].acceptanceRate` | `minAcceptanceRate` | below → bad | 0.50 |
@@ -223,9 +227,13 @@ that value as `lowConfidence: true` — it is still surfaced, but flagged for lo
 confidence.
 
 `overrideRate`, `completionRate`, `acceptanceRate`, and `withholdRate` are only evaluated
-when `runEvents` is present in the analysis. `groundingDropRate`, `groundingWithholdRate`, and
-`thinReviewRate` are always evaluated (they come from run_metrics events directly) —
-`thinReviewRate` at both the overall level (`rates.thinReviewRate`) and per tier
+when `runEvents` is present in the analysis. `groundingDropRate`, `groundingWithholdRate`,
+`diffFilterDropRate`, `patchAdmissionDegradedRate`, `deletionPruningRate`, and
+`thinReviewRate` are evaluated from `run_metrics` when their denominators are present.
+`proseFindingDropRate` is evaluated from counts-only `agent.output` trace events whose `runId`
+matches a real-runtime `run_metrics` event. No-data denominators are skipped rather than
+reported as breaches. `thinReviewRate` is reported
+from run_metrics at both the overall level (`rates.thinReviewRate`) and per tier
 (`byTier[tier].thinReviewRate`), so a single report can surface both an `overall` and a
 `tier:<name>` thin-review hypothesis. `groundingWithholdRate` is finding-level (demoted ÷
 produced, pooled across runs); `groundingDropRate` is run-level (fraction of runs with any

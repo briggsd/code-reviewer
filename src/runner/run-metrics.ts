@@ -366,6 +366,9 @@ export function createContextMetrics(
     changeContextBytes: artifacts.changeContextBytes,
     patchBytes: artifacts.patchBytes,
     patchFileCount: artifacts.patchFileCount,
+    admission: artifacts.admission,
+    deletionHunksPruned: artifacts.deletionHunksPruned,
+    deletedFileBodiesPruned: artifacts.deletedFileBodiesPruned,
   };
 }
 
