@@ -168,6 +168,8 @@ export function createRunMetricsTelemetryEvent(input: {
   coordinatorShortCircuited?: boolean;
   incremental?: { mode: string; reason: string; reviewedFileCount: number };
   summary?: ReviewSummary;
+  /** Convergence gate (#149): true when the re-review finding set is unchanged. Counts-only. */
+  converged?: boolean;
   errorClassification?: ReviewErrorClassification;
 }): TelemetryEvent {
   const data: Record<string, JsonValue> = {
@@ -278,6 +280,9 @@ export function createRunMetricsTelemetryEvent(input: {
       fixedFindingCount: input.summary.reReview.fixedFindingIds.length,
       withheldFindingCount: input.summary.reReview.withheldFindingIds.length,
       carriedForwardFindingCount: input.summary.reReview.carriedForwardFindingIds.length,
+      // Convergence gate (#149): counts-only boolean — converged = 0 new + 0 fixed.
+      // M008: no finding text, counts only.
+      ...(input.converged === true ? { converged: true } : {}),
     };
   }
 

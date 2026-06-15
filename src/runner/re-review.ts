@@ -5,6 +5,28 @@ import type {
   ReviewSummary,
 } from "../contracts/index.ts";
 
+/**
+ * Convergence (#149 — Tier 1): a re-review whose finding set is unchanged since the last
+ * review — zero new, zero fixed, AND zero withheld. Withheld is included because a
+ * recurring→withheld transition (e.g. a prior finding grounding-dropped this push) changes
+ * the published summary, so the comment must be re-posted. `carriedForwardFindingIds` is
+ * intentionally excluded — those are prior findings on files NOT re-reviewed this push
+ * (incremental, off-delta); gating on them would make incremental re-pushes never converge.
+ * Distinct from "all issues resolved" (a clean PR). Returns false when there is no re-review
+ * (first review / no prior state) — the first post is never suppressed.
+ *
+ * Single source of truth for the convergence decision: run-review.ts surfaces this on
+ * RunReviewResult.converged, and the CLI suppresses the redundant summary re-post when true.
+ */
+export function isReReviewConverged(reReview: ReReviewSummary | undefined): boolean {
+  return (
+    reReview !== undefined &&
+    reReview.newFindingIds.length === 0 &&
+    reReview.fixedFindingIds.length === 0 &&
+    reReview.withheldFindingIds.length === 0
+  );
+}
+
 export function classifyReReviewFindings(
   summary: ReviewSummary,
   priorState: PriorReviewState | undefined,

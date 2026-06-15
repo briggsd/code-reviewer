@@ -342,13 +342,39 @@ async function runCommand(args: string[]): Promise<void> {
         throw new Error("--publish-summary requires --provider github|gitlab");
       }
 
-      await publishReviewSummary({
-        adapter: source.adapter,
-        change: result.context.metadata,
-        summary: result.summary,
-        runId,
-        ...(traceSink !== undefined ? { traceSink } : {}),
-      });
+      // Convergence gate (#149 — Tier 1): suppress the summary comment re-post when the
+      // finding set is unchanged since the last review. The re-review delta (authoritative,
+      // computed in run-review.ts) drives this; --force-review bypasses suppression.
+      // CI status/exit is NEVER affected — only the summary comment re-post is suppressed.
+      if (result.converged && !publishOptions.forceReview) {
+        // Visible suppression message regardless of trace sink: a local run with no
+        // --output-dir has no trace sink, so the publisher.skipped trace event would
+        // be completely silent. Log to stdout so operators always see suppression.
+        console.log(
+          "[ai-review] Summary publish suppressed: finding set unchanged since last review (converged). Use --force-review to override.",
+        );
+        // Emit a visible trace event so suppression is observable, never silent (M008 —
+        // counts-only, no finding text). The CI-exit block below still runs unchanged.
+        await traceSink?.write({
+          type: "publisher.skipped",
+          runId,
+          timestamp: new Date().toISOString(),
+          data: {
+            reason: "converged",
+            newFindingCount: result.summary.reReview?.newFindingIds.length ?? 0,
+            fixedFindingCount: result.summary.reReview?.fixedFindingIds.length ?? 0,
+            recurringFindingCount: result.summary.reReview?.recurringFindingIds.length ?? 0,
+          },
+        });
+      } else {
+        await publishReviewSummary({
+          adapter: source.adapter,
+          change: result.context.metadata,
+          summary: result.summary,
+          runId,
+          ...(traceSink !== undefined ? { traceSink } : {}),
+        });
+      }
     }
 
     if (outputFormat === "markdown") {

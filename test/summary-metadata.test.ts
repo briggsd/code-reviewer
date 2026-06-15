@@ -215,7 +215,7 @@ describe("summary hidden metadata parsing", () => {
 });
 
 // ---------------------------------------------------------------------------
-// schemaVersion 4 + partialBySize counts (#145)
+// schemaVersion 4 + partialBySize counts (#145) / schemaVersion 5 + findingsHash (#149)
 // ---------------------------------------------------------------------------
 
 const CHANGE: ChangeMetadata = {
@@ -228,10 +228,10 @@ const CHANGE: ChangeMetadata = {
   labels: [],
 };
 
-describe("schemaVersion 4 hidden metadata (#145)", () => {
-  test("createPublishHiddenMetadata emits schemaVersion 4", () => {
+describe("schemaVersion 5 hidden metadata (#149)", () => {
+  test("createPublishHiddenMetadata emits schemaVersion 5", () => {
     const meta = createPublishHiddenMetadata("run-1", CHANGE);
-    expect(meta.schemaVersion).toBe(4);
+    expect(meta.schemaVersion).toBe(5);
   });
 
   test("partialBySize counts block is included when summary.partialBySize is present", () => {
@@ -261,7 +261,7 @@ describe("schemaVersion 4 hidden metadata (#145)", () => {
 
     const meta = createPublishHiddenMetadata("run-1", CHANGE, summary);
 
-    expect(meta.schemaVersion).toBe(4);
+    expect(meta.schemaVersion).toBe(5);
     const partialBySize = meta.partialBySize as
       | {
           admittedFileCount: number;
@@ -286,8 +286,8 @@ describe("schemaVersion 4 hidden metadata (#145)", () => {
     expect((meta as Record<string, unknown>).partialBySize).toBeUndefined();
   });
 
-  test("old parsers (schemaVersion ≤ 3) parsing v4 metadata ignore unknown keys (backward compat)", () => {
-    // Simulate what an old parser sees: parse the v4 JSON and check it doesn't throw.
+  test("old parsers (schemaVersion ≤ 4) parsing v4 metadata ignore unknown keys (backward compat)", () => {
+    // Simulate what an old parser sees: parse a v4 comment and check it doesn't throw.
     // parseSummaryHiddenMetadata is the real parser — it must succeed and return known fields.
     const v4body = [
       "<!-- ai-code-review-factory",
@@ -313,5 +313,129 @@ describe("schemaVersion 4 hidden metadata (#145)", () => {
     // Unknown keys are tolerated (no error thrown); they appear in `raw`.
     expect((parsed?.raw as Record<string, unknown>)?.partialBySize).toBeDefined();
     expect((parsed?.raw as Record<string, unknown>)?.unknownFuture).toBe("ignored");
+    // findingsHash is absent in v4 — treated as undefined (no fast-path, safe direction).
+    expect(parsed?.findingsHash).toBeUndefined();
+  });
+
+  test("findingsHash: round-trips through write→parse and is 16 hex chars", () => {
+    const summaryWithFindings = {
+      decision: "approved" as const,
+      outcome: "pass" as const,
+      title: "Test",
+      body: "body",
+      findings: [
+        {
+          id: "fnd_aaa",
+          reviewer: "security",
+          severity: "warning" as const,
+          category: "auth",
+          title: "Finding A",
+          body: "body",
+          confidence: "high" as const,
+          evidence: [],
+          recommendation: "Fix it",
+        },
+        {
+          id: "fnd_bbb",
+          reviewer: "code_quality",
+          severity: "suggestion" as const,
+          category: "correctness",
+          title: "Finding B",
+          body: "body",
+          confidence: "medium" as const,
+          evidence: [],
+          recommendation: "Fix it",
+        },
+      ],
+      risk: {
+        tier: "full" as const,
+        reason: "test",
+        matchedRules: [],
+        sensitivePaths: [],
+        reviewedFileCount: 5,
+        ignoredFileCount: 0,
+      },
+    };
+
+    const meta = createPublishHiddenMetadata("run-hash", CHANGE, summaryWithFindings);
+    expect(typeof meta.findingsHash).toBe("string");
+    expect((meta.findingsHash as string).length).toBe(16);
+    expect(/^[0-9a-f]{16}$/.test(meta.findingsHash as string)).toBe(true);
+
+    // Parse it back out — round-trip.
+    const body = ["<!-- ai-code-review-factory", JSON.stringify(meta), "-->"].join("\n");
+    const parsed = parseSummaryHiddenMetadata(body);
+    expect(parsed?.findingsHash).toBe(meta.findingsHash as string);
+  });
+
+  test("findingsHash: absent when there are no findings", () => {
+    const meta = createPublishHiddenMetadata("run-1", CHANGE);
+    expect((meta as Record<string, unknown>).findingsHash).toBeUndefined();
+  });
+
+  test("findingsHash: same hash regardless of finding order in summary", () => {
+    const findingA = {
+      id: "fnd_aaa",
+      reviewer: "security",
+      severity: "warning" as const,
+      category: "auth",
+      title: "A",
+      body: "body",
+      confidence: "high" as const,
+      evidence: [],
+      recommendation: "fix",
+    };
+    const findingB = {
+      id: "fnd_bbb",
+      reviewer: "code_quality",
+      severity: "suggestion" as const,
+      category: "correctness",
+      title: "B",
+      body: "body",
+      confidence: "medium" as const,
+      evidence: [],
+      recommendation: "fix",
+    };
+    const base = {
+      decision: "approved" as const,
+      outcome: "pass" as const,
+      title: "Test",
+      body: "body",
+      risk: {
+        tier: "lite" as const,
+        reason: "test",
+        matchedRules: [],
+        sensitivePaths: [],
+        reviewedFileCount: 2,
+        ignoredFileCount: 0,
+      },
+    };
+
+    const metaAB = createPublishHiddenMetadata("run-1", CHANGE, {
+      ...base,
+      findings: [findingA, findingB],
+    });
+    const metaBA = createPublishHiddenMetadata("run-1", CHANGE, {
+      ...base,
+      findings: [findingB, findingA],
+    });
+    expect(metaAB.findingsHash).toBe(metaBA.findingsHash);
+  });
+
+  test("findingsHash: parser rejects non-hex and wrong-length values (backward compat, safe direction)", () => {
+    const bodyWithBadHash = [
+      "<!-- ai-code-review-factory",
+      JSON.stringify({
+        schemaVersion: 5,
+        runId: "run-5",
+        headSha: "abc123",
+        findingIds: ["fnd_1"],
+        findingsHash: "not-valid-hex!!",
+      }),
+      "-->",
+    ].join("\n");
+    const parsed = parseSummaryHiddenMetadata(bodyWithBadHash);
+    // Rejected — treated as absent (safe direction: no fast-path).
+    expect(parsed?.findingsHash).toBeUndefined();
   });
 });

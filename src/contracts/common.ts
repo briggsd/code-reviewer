@@ -65,6 +65,7 @@ export type TraceEventType =
   | "location.backfill.applied"
   | "acknowledgements.applied"
   | "publisher.completed"
+  | "publisher.skipped"
   | "review.timeout"
   | "review.failed"
   | "review.completed"

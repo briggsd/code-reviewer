@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { Finding, PriorReviewState, ReviewSummary } from "../src/index.ts";
+import type { Finding, PriorFindingState, PriorReviewState, ReviewSummary } from "../src/index.ts";
 import {
   classifyReReviewFindings,
   createReReviewSummary,
   formatReviewSummaryMarkdown,
+  isReReviewConverged,
   loadReviewFixture,
   runReview,
 } from "../src/index.ts";
@@ -228,6 +229,245 @@ describe("re-review finding classification", () => {
     expect(result.reReview).toBeDefined();
     expect(result.reReview?.withheldFindingIds).toEqual(["fnd_withheld_only"]);
     expect(result.reReview?.fixedFindingIds).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Convergence gate (#149 — Tier 1): runReview.converged detection
+// ---------------------------------------------------------------------------
+describe("convergence gate (#149)", () => {
+  test("converged = true when re-review has 0 new + 0 fixed (stable finding set)", async () => {
+    // Build a run where the sole finding already existed in prior state → it's recurring,
+    // nothing is new or fixed → converged.
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const firstRun = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+    const stableId = firstRun.summary.findings[0]?.id;
+    if (stableId === undefined) {
+      throw new Error("expected stable finding id");
+    }
+
+    const secondRun = await runReview({
+      fixture: {
+        ...fixture,
+        priorState: {
+          previousRunId: "prior-run",
+          previousHeadSha: "old-head",
+          // Only the recurring finding in prior state — no fixed/new delta.
+          findings: [
+            {
+              stableId,
+              finding: { ...(firstRun.summary.findings[0] as Finding), id: stableId },
+              status: "open",
+              lastSeenHeadSha: "old-head",
+            },
+          ],
+        },
+      },
+      now: new Date("2026-06-09T00:00:01.000Z"),
+    });
+
+    expect(secondRun.summary.reReview?.newFindingIds).toEqual([]);
+    expect(secondRun.summary.reReview?.fixedFindingIds).toEqual([]);
+    expect(secondRun.summary.reReview?.recurringFindingIds).toEqual([stableId]);
+    // THE key assertion: converged must be true when nothing changed.
+    expect(secondRun.converged).toBe(true);
+  });
+
+  test("THE REGRESSION: new finding present → converged = false (new finding is NEVER suppressed)", async () => {
+    // This is the completeness guard from the spec: a genuinely-new finding on a re-push
+    // must NOT be converged, so the summary re-post still happens.
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const firstRun = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+    const stableId = firstRun.summary.findings[0]?.id;
+    if (stableId === undefined) {
+      throw new Error("expected stable finding id");
+    }
+
+    const secondRun = await runReview({
+      fixture: {
+        ...fixture,
+        priorState: {
+          previousRunId: "prior-run",
+          previousHeadSha: "old-head",
+          // Prior state has a DIFFERENT finding (not in current summary) → it will be
+          // "fixed" in this run, making newFindingIds=[stableId], fixedFindingIds=["fnd_was_fixed"].
+          findings: [
+            {
+              stableId: "fnd_was_fixed",
+              finding: {
+                ...(firstRun.summary.findings[0] as Finding),
+                id: "fnd_was_fixed",
+                title: "A prior finding that got fixed",
+              },
+              status: "open",
+              lastSeenHeadSha: "old-head",
+            },
+          ],
+        },
+      },
+      now: new Date("2026-06-09T00:00:01.000Z"),
+    });
+
+    // stableId is new (not in prior), "fnd_was_fixed" is fixed (not in current).
+    expect(secondRun.summary.reReview?.newFindingIds).toEqual([stableId]);
+    expect(secondRun.summary.reReview?.fixedFindingIds).toEqual(["fnd_was_fixed"]);
+    // THE core safety test: converged must be false when there are new/fixed findings.
+    expect(secondRun.converged).toBe(false);
+  });
+
+  test("fixed-only change → converged = false (delta is non-empty)", async () => {
+    // A prior finding that got fixed (no new ones): fixedFindingIds non-empty → not converged.
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const firstRun = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+    const stableId = firstRun.summary.findings[0]?.id;
+    if (stableId === undefined) {
+      throw new Error("expected stable finding id");
+    }
+
+    // Second run has same recurring finding + a prior finding that disappeared (fixed).
+    const secondRun = await runReview({
+      fixture: {
+        ...fixture,
+        priorState: {
+          previousRunId: "prior-run",
+          previousHeadSha: "old-head",
+          findings: [
+            {
+              stableId,
+              finding: { ...(firstRun.summary.findings[0] as Finding), id: stableId },
+              status: "open",
+              lastSeenHeadSha: "old-head",
+            },
+            {
+              stableId: "fnd_now_fixed",
+              finding: {
+                ...(firstRun.summary.findings[0] as Finding),
+                id: "fnd_now_fixed",
+                title: "About to be fixed",
+              },
+              status: "open",
+              lastSeenHeadSha: "old-head",
+            },
+          ],
+        },
+      },
+      now: new Date("2026-06-09T00:00:01.000Z"),
+    });
+
+    expect(secondRun.summary.reReview?.newFindingIds).toEqual([]);
+    expect(secondRun.summary.reReview?.fixedFindingIds).toEqual(["fnd_now_fixed"]);
+    expect(secondRun.converged).toBe(false);
+  });
+
+  test("withheld-only change → converged = false (recurring→withheld changes the published summary)", async () => {
+    // A re-review where 0 new + 0 fixed but ≥1 withheld (a prior recurring finding is
+    // now withheld because evidence grounding dropped it). The published summary changes
+    // (finding moves from Recurring block to Withheld block) so converged must be false.
+    // This test uses withheldStableIds to simulate a grounding-drop: we pass the
+    // recurring finding's stableId as withheld, so classifyReReviewFindings routes it to
+    // withheldFindingIds instead of fixedFindingIds.
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const firstRun = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+    const stableId = firstRun.summary.findings[0]?.id;
+    if (stableId === undefined) {
+      throw new Error("expected stable finding id");
+    }
+
+    // Prior state with the recurring finding plus one extra prior finding that the current
+    // run no longer produces. Routing that extra finding through withheldStableIds (the
+    // grounding-drop mechanism) lands it in withheldFindingIds rather than fixedFindingIds.
+    const priorStateWithExtra: PriorReviewState = {
+      previousRunId: "prior-run",
+      previousHeadSha: "old-head",
+      findings: [
+        {
+          stableId,
+          finding: { ...(firstRun.summary.findings[0] as Finding), id: stableId },
+          status: "open",
+          lastSeenHeadSha: "old-head",
+        },
+        {
+          stableId: "fnd_prior_withheld",
+          finding: {
+            ...(firstRun.summary.findings[0] as Finding),
+            id: "fnd_prior_withheld",
+            title: "A prior finding now withheld by grounding",
+          },
+          status: "open",
+          lastSeenHeadSha: "old-head",
+        },
+      ],
+    };
+
+    // WITH the withheld finding: 0 new, 0 fixed, 1 withheld → must NOT be converged
+    // (the published summary changed — the finding moved to the Withheld block).
+    const reReviewWithWithheld = createReReviewSummary(
+      firstRun.summary,
+      priorStateWithExtra,
+      new Set(["fnd_prior_withheld"]),
+    );
+    expect(reReviewWithWithheld.newFindingIds).toEqual([]);
+    expect(reReviewWithWithheld.fixedFindingIds).toEqual([]);
+    expect(reReviewWithWithheld.withheldFindingIds).toEqual(["fnd_prior_withheld"]);
+    // Assert against the REAL shared predicate (not an inline recompute) so a regression
+    // that drops the withheld clause from isReReviewConverged is caught here.
+    expect(isReReviewConverged(reReviewWithWithheld)).toBe(false);
+
+    // Control: same prior set MINUS the withheld extra → 0 new, 0 fixed, 0 withheld →
+    // converged. Proves the withheld clause is the load-bearing difference above.
+    const priorStateRecurringOnly: PriorReviewState = {
+      ...priorStateWithExtra,
+      findings: [priorStateWithExtra.findings[0] as PriorFindingState],
+    };
+    const reReviewRecurringOnly = createReReviewSummary(firstRun.summary, priorStateRecurringOnly);
+    expect(isReReviewConverged(reReviewRecurringOnly)).toBe(true);
+  });
+
+  test("first review (no prior state) → converged = false (never suppress the first post)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const result = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+    // No prior state → no reReview delta → not converged.
+    expect(result.summary.reReview).toBeUndefined();
+    expect(result.converged).toBe(false);
+  });
+
+  test("CI status path is independent of converged: same outcome regardless", async () => {
+    // Verify that converged does NOT change the summary.decision / summary.outcome.
+    // Both a converged run and a non-converged run must carry the same decision/outcome
+    // (convergence only affects the re-post; CI status is driven by decideCiOutcome which reads
+    // summary.findings, not summary.converged or result.converged).
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const firstRun = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+    const stableId = firstRun.summary.findings[0]?.id;
+    if (stableId === undefined) {
+      throw new Error("expected stable finding id");
+    }
+
+    const convergedRun = await runReview({
+      fixture: {
+        ...fixture,
+        priorState: {
+          previousRunId: "prior-run",
+          previousHeadSha: "old-head",
+          findings: [
+            {
+              stableId,
+              finding: { ...(firstRun.summary.findings[0] as Finding), id: stableId },
+              status: "open",
+              lastSeenHeadSha: "old-head",
+            },
+          ],
+        },
+      },
+      now: new Date("2026-06-09T00:00:01.000Z"),
+    });
+
+    expect(convergedRun.converged).toBe(true);
+    // The summary decision and outcome are the same regardless of convergence.
+    expect(convergedRun.summary.decision).toBe(firstRun.summary.decision);
+    expect(convergedRun.summary.outcome).toBe(firstRun.summary.outcome);
+    // findings are still present — CI gate still sees them.
+    expect(convergedRun.summary.findings).toHaveLength(firstRun.summary.findings.length);
   });
 });
 

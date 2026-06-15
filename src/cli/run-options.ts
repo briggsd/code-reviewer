@@ -1,12 +1,19 @@
 export interface RunPublishOptions {
   publishSummary: boolean;
   publishInline: boolean;
+  /**
+   * When true, bypasses re-review convergence suppression and always posts the
+   * summary comment even when the finding set is unchanged since the last review
+   * (#149 — convergence gate override).
+   */
+  forceReview: boolean;
 }
 
 export function parseRunPublishOptions(args: string[]): RunPublishOptions {
   return {
     publishSummary: hasFlag(args, "--publish-summary"),
     publishInline: hasFlag(args, "--publish-inline"),
+    forceReview: hasFlag(args, "--force-review"),
   };
 }
 

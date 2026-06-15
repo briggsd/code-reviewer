@@ -45,7 +45,7 @@ import { narrowDiffToPaths } from "./incremental-review.ts";
 import { backfillFindingLocations } from "./location-backfill.ts";
 import type { AdmissionDecision } from "./patch-admission.ts";
 import { InMemoryProviderHealthRegistry } from "./provider-health.ts";
-import { classifyReReviewFindings } from "./re-review.ts";
+import { classifyReReviewFindings, isReReviewConverged } from "./re-review.ts";
 import {
   findUnsupportedReviewerPolicyEntries,
   selectTrustedReviewerDefinitions,
@@ -105,6 +105,13 @@ export interface RunReviewResult {
   context: ReviewContext;
   summary: ReviewSummary;
   coordinatorResult?: CoordinatorRunResult;
+  /**
+   * True when this run is a re-review (prior state existed) AND the finding set
+   * is unchanged — zero new findings and zero fixed findings (#149 convergence gate).
+   * The summary comment re-post is suppressed when this is true (and --force-review
+   * is absent). CI status/exit is never affected.
+   */
+  converged: boolean;
 }
 
 interface PartialCoordinatorResultRuntime {
@@ -573,6 +580,8 @@ async function emitCompletedRunMetrics(input: {
   locationBackfilledCount: number;
   acknowledgedCount: number;
   suppressedCount: number;
+  /** Convergence gate (#149): true when re-review finding set is unchanged. Counts-only. */
+  converged?: boolean;
   clock: () => Date;
 }): Promise<void> {
   const {
@@ -593,6 +602,7 @@ async function emitCompletedRunMetrics(input: {
     locationBackfilledCount,
     acknowledgedCount,
     suppressedCount,
+    converged,
     clock,
   } = input;
   const completedAt = clock();
@@ -661,6 +671,7 @@ async function emitCompletedRunMetrics(input: {
             },
           }
         : {}),
+      ...(converged === true ? { converged: true } : {}),
       ...(coordinatorResult?.coordinatorShortCircuited === true
         ? { coordinatorShortCircuited: true }
         : {}),
@@ -941,6 +952,13 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
         : {}),
     };
 
+    // Convergence detection (#149 — Tier 1): a re-review whose finding set is unchanged
+    // (zero new + zero fixed + zero withheld) is converged — the summary comment re-post
+    // is redundant and is suppressed (CI status/exit is never affected). The predicate
+    // (incl. why withheld is gated and carriedForward is not) lives in re-review.ts as the
+    // single source of truth shared with the unit tests.
+    const converged = isReReviewConverged(fusedSummary.reReview);
+
     await emitCompletedRunMetrics({
       options,
       context,
@@ -959,12 +977,14 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       locationBackfilledCount: fused.locationBackfilledCount,
       acknowledgedCount: fused.acknowledgedCount,
       suppressedCount: fused.suppressedCount,
+      ...(converged ? { converged } : {}),
       clock,
     });
 
     return {
       context,
       summary: fusedSummary,
+      converged,
       ...(runtimeResult.coordinatorResult !== undefined
         ? { coordinatorResult: runtimeResult.coordinatorResult }
         : {}),

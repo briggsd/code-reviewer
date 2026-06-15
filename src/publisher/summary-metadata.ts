@@ -20,6 +20,12 @@ export interface ParsedSummaryMetadata {
   findingPaths?: Record<string, string>;
   /** schemaVersion 3+: id → reviewer role for prior findings. */
   findingReviewers?: Record<string, string>;
+  /**
+   * schemaVersion 5+: SHA-256 (16-hex) of the sorted stable finding-ID set (#149).
+   * Substrate for cross-round convergence robustness. Absent in older comments — treated as
+   * undefined, which is the safe direction (no hash = no cross-round fast-path).
+   */
+  findingsHash?: string;
   raw: Record<string, JsonValue>;
 }
 
@@ -92,6 +98,13 @@ export function parseSummaryHiddenMetadata(
         : [],
       ...(findingPaths !== undefined ? { findingPaths } : {}),
       ...(findingReviewers !== undefined ? { findingReviewers } : {}),
+      // Parse findingsHash defensively: accept only a 16-hex string (schemaVersion 5+).
+      // This is UNTRUSTED prior-comment content. It influences convergence substrate only —
+      // the Tier-1 decision uses the authoritative re-review delta, not this hash.
+      // A rejected/absent hash is the safe direction (no cross-round fast-path).
+      ...(typeof parsed.findingsHash === "string" && /^[0-9a-f]{16}$/.test(parsed.findingsHash)
+        ? { findingsHash: parsed.findingsHash }
+        : {}),
       raw: parsed,
     };
   } catch {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   ChangeMetadata,
   JsonValue,
@@ -97,11 +98,24 @@ export function createPublishHiddenMetadata(
         }
       : undefined;
 
+  // findingsHash: SHA-256 of the sorted stable finding-ID set (#149, schemaVersion 5+).
+  // Substrate for Tier-2 convergence cross-round robustness; Tier-1 uses the re-review delta
+  // directly. IDs are sorted before hashing so insertion order doesn't affect the digest.
+  // Mirrors the hashing idiom in stable-finding-id.ts: JSON-encoded input, hex slice to 16.
+  // Old parsers (schemaVersion ≤ 4) ignore unknown keys — backward-compatible.
+  const findingsHash =
+    findingIds !== undefined && findingIds.length > 0
+      ? createHash("sha256")
+          .update(JSON.stringify([...findingIds].sort()))
+          .digest("hex")
+          .slice(0, 16)
+      : undefined;
+
   return {
-    // Bumped 3 → 4 for the partialBySize counts block (#145). The bump is additive and
-    // backward-compatible: old parsers (schemaVersion ≤ 3) ignore unknown keys per the existing
+    // Bumped 4 → 5 for the findingsHash field (#149). The bump is additive and
+    // backward-compatible: old parsers (schemaVersion ≤ 4) ignore unknown keys per the existing
     // defensive-parse pattern (parseSummaryHiddenMetadata in summary-metadata.ts line ~40).
-    schemaVersion: 4,
+    schemaVersion: 5,
     runId,
     headSha: change.headSha,
     provider: change.provider,
@@ -114,5 +128,6 @@ export function createPublishHiddenMetadata(
     // ignore unknown keys, so this stays backward-compatible with the existing metadata reader.
     ...(summary?.gateDecision !== undefined ? { gateDecision: summary.gateDecision } : {}),
     ...(partialBySize !== undefined ? { partialBySize } : {}),
+    ...(findingsHash !== undefined ? { findingsHash } : {}),
   };
 }
