@@ -107,6 +107,11 @@ export interface Acknowledgement {
   category?: string;
   stableFindingId?: string;
   mode: "acknowledge" | "suppress"; // acknowledge = downgrade+annotate; suppress = hide
+  /** Disposition outcome of this acknowledgement (#256, M023 S04).
+   *  dismissed = human explicitly rejected the finding (wrong/won't-fix).
+   *  acknowledged = accepted-as-is (default when absent).
+   *  Orthogonal to `mode` (visibility); governs outcome only. */
+  verdict?: "dismissed" | "acknowledged";
   reason: string;
   expires?: string; // ISO date (YYYY-MM-DD); a past date deactivates the entry
 }
@@ -219,8 +224,10 @@ export interface Finding {
    */
   quotedCode?: string[];
   /** Set when a base-branch acknowledgement matched this finding (#60-P3). Acknowledged findings
-   *  are surfaced + annotated but excluded from the CI gate; they are never hidden. */
-  acknowledged?: { reason: string };
+   *  are surfaced + annotated but excluded from the CI gate; they are never hidden.
+   *  `verdict` (when present) mirrors the ack's verdict field (#256, M023 S04) — used by
+   *  `deriveDisposition` to distinguish dismissed vs acknowledged outcomes. */
+  acknowledged?: { reason: string; verdict?: "dismissed" | "acknowledged" };
   recommendation: string;
 }
 
@@ -406,6 +413,24 @@ export interface ReviewRunContextMetrics {
   deletedFileBodiesPruned: number;
 }
 
+/** Per-finding outcome counts for a re-review run (#256, M023 S04).
+ *  Counts-only (M008/egress): integers + reviewer-role/severity identifiers only.
+ *  Absent on first review (no prior state to compare). */
+export interface DispositionCounts {
+  fixed: number;
+  dismissed: number;
+  ignored: number;
+  acknowledged: number;
+  byReviewer?: Record<
+    string,
+    { fixed: number; dismissed: number; ignored: number; acknowledged: number }
+  >;
+  bySeverity?: Record<
+    string,
+    { fixed: number; dismissed: number; ignored: number; acknowledged: number }
+  >;
+}
+
 export interface ReviewRunMetrics {
   durationsMs: ReviewRunDurations;
   context?: ReviewRunContextMetrics;
@@ -416,6 +441,9 @@ export interface ReviewRunMetrics {
   structuredOutput?: { structuredCount: number; totalCount: number };
   /** Deduped, sorted runtime-reported effective model identifiers for this run (#189). Identifiers-only (M008). Absent for runtimes that resolve no real model (e.g. dummy). Distinct from run.start `modelIds`, which records CONFIGURED intent. */
   effectiveModelIds?: readonly string[];
+  /** Per-finding outcome counts from re-review disposition derivation (#256, M023 S04).
+   *  Absent on first review. Counts-only — no finding bodies/locations/paths (M008). */
+  dispositions?: DispositionCounts;
 }
 
 export interface ReviewRunRecord {

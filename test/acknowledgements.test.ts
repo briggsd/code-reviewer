@@ -220,4 +220,79 @@ describe("applyAcknowledgements", () => {
     expect(findings).toEqual(findingsBefore);
     expect(acks).toEqual(acksBefore);
   });
+
+  // -------------------------------------------------------------------------
+  // verdict surfacing (#256, M023 S04)
+  // -------------------------------------------------------------------------
+
+  test("verdict: 'dismissed' on ack is surfaced on finding.acknowledged (#256)", () => {
+    const finding = makeFinding({ location: { path: "src/auth.ts" } });
+    const ack = makeAck({
+      path: "src/**",
+      mode: "acknowledge",
+      verdict: "dismissed",
+      reason: "wrong call",
+    });
+
+    const result = applyAcknowledgements([finding], [ack], NOW);
+
+    expect(result.acknowledgedCount).toBe(1);
+    expect(result.findings[0]?.acknowledged).toEqual({
+      reason: "wrong call",
+      verdict: "dismissed",
+    });
+  });
+
+  test("verdict: 'acknowledged' on ack is surfaced on finding.acknowledged (#256)", () => {
+    const finding = makeFinding({ location: { path: "src/auth.ts" } });
+    const ack = makeAck({
+      path: "src/**",
+      mode: "acknowledge",
+      verdict: "acknowledged",
+      reason: "tracked",
+    });
+
+    const result = applyAcknowledgements([finding], [ack], NOW);
+
+    expect(result.acknowledgedCount).toBe(1);
+    expect(result.findings[0]?.acknowledged).toEqual({
+      reason: "tracked",
+      verdict: "acknowledged",
+    });
+  });
+
+  test("no verdict on ack → finding.acknowledged has no verdict property (back-compat, #256)", () => {
+    const finding = makeFinding({ location: { path: "src/auth.ts" } });
+    const ack = makeAck({ path: "src/**", mode: "acknowledge", reason: "legacy ack" });
+    // Ensure no verdict key on the ack
+    expect(ack.verdict).toBeUndefined();
+
+    const result = applyAcknowledgements([finding], [ack], NOW);
+
+    expect(result.acknowledgedCount).toBe(1);
+    const acknowledged = result.findings[0]?.acknowledged;
+    expect(acknowledged).toEqual({ reason: "legacy ack" });
+    // Explicitly check no verdict leaks in
+    expect(acknowledged).not.toHaveProperty("verdict");
+  });
+
+  test("security finding with dismissed suppress ack → downgraded to acknowledge, verdict surfaced", () => {
+    const finding = makeFinding({ reviewer: "security", location: { path: "src/auth.ts" } });
+    const ack = makeAck({
+      path: "src/**",
+      mode: "suppress",
+      verdict: "dismissed",
+      reason: "accepted risk",
+    });
+
+    const result = applyAcknowledgements([finding], [ack], NOW);
+
+    // Security guard: suppress → acknowledge; verdict is still surfaced
+    expect(result.acknowledgedCount).toBe(1);
+    expect(result.suppressedCount).toBe(0);
+    expect(result.findings[0]?.acknowledged).toEqual({
+      reason: "accepted risk",
+      verdict: "dismissed",
+    });
+  });
 });

@@ -136,6 +136,7 @@ export const reviewConfigSchema = {
           category: { type: "string", maxLength: 200 },
           stableFindingId: { type: "string", maxLength: 100 },
           mode: { type: "string", enum: ["acknowledge", "suppress"] },
+          verdict: { type: "string", enum: ["dismissed", "acknowledged"] },
           reason: { type: "string", maxLength: 500 },
           expires: { type: "string", maxLength: 200 },
         },

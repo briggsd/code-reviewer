@@ -47,7 +47,14 @@ export function applyAcknowledgements(
         : matchedAck.mode;
 
     if (effectiveMode === "acknowledge") {
-      result.push({ ...finding, acknowledged: { reason: matchedAck.reason } });
+      result.push({
+        ...finding,
+        acknowledged: {
+          reason: matchedAck.reason,
+          // Surface the ack's verdict so deriveDisposition can distinguish dismissed vs acknowledged (#256).
+          ...(matchedAck.verdict !== undefined ? { verdict: matchedAck.verdict } : {}),
+        },
+      });
       acknowledgedCount += 1;
     } else {
       // suppress: drop the finding entirely

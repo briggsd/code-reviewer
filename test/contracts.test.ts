@@ -39,6 +39,16 @@ describe("contract exports", () => {
     expect(items?.properties?.category).toBeDefined();
     expect(items?.properties?.stableFindingId).toBeDefined();
     expect(items?.properties?.expires).toBeDefined();
+    // verdict field (#256, M023 S04): optional, enum of "dismissed" | "acknowledged"
+    const verdictSchema = items?.properties?.verdict as
+      | { type?: string; enum?: readonly string[] }
+      | undefined;
+    expect(verdictSchema).toBeDefined();
+    expect(verdictSchema?.type).toBe("string");
+    expect(verdictSchema?.enum).toContain("dismissed");
+    expect(verdictSchema?.enum).toContain("acknowledged");
+    // verdict is NOT required (default = acknowledged)
+    expect(items?.required).not.toContain("verdict");
   });
 
   test("quotedCode contract (#54.2 prereq): finding output schema includes quotedCode property and it is not required", () => {

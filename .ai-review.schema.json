@@ -493,6 +493,13 @@
               "suppress"
             ]
           },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "dismissed",
+              "acknowledged"
+            ]
+          },
           "reason": {
             "type": "string",
             "maxLength": 500

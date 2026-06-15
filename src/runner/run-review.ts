@@ -58,6 +58,7 @@ import {
   createRunStartEvent,
 } from "./run-events.ts";
 import {
+  computeDispositions,
   countFindingsBy,
   createContextMetrics,
   createRunMetrics,
@@ -625,6 +626,8 @@ async function emitCompletedRunMetrics(input: {
   /** Convergence gate (#149): true when re-review finding set is unchanged. Counts-only. */
   converged?: boolean;
   clock: () => Date;
+  /** Per-finding disposition counts (#256, M023 S04). Counts-only; absent on first review. */
+  dispositions?: import("../contracts/review.ts").DispositionCounts;
 }): Promise<void> {
   const {
     options,
@@ -646,6 +649,7 @@ async function emitCompletedRunMetrics(input: {
     suppressedCount,
     converged,
     clock,
+    dispositions,
   } = input;
   const completedAt = clock();
   const completedAtTimestamp = completedAt.toISOString();
@@ -726,6 +730,7 @@ async function emitCompletedRunMetrics(input: {
             },
           }
         : {}),
+      ...(dispositions !== undefined ? { dispositions } : {}),
     }),
   });
 
@@ -1036,6 +1041,11 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     // single source of truth shared with the unit tests.
     const converged = isReReviewConverged(fusedSummary.reReview);
 
+    // Derive per-finding disposition counts (#256, M023 S04). Both re-review classifications
+    // and acknowledgement info (surfaced on finding.acknowledged) are in scope here.
+    // Absent on first review (no prior state → no classifications).
+    const dispositions = computeDispositions(fusedSummary.reReview?.classifications);
+
     await emitCompletedRunMetrics({
       options,
       context,
@@ -1055,6 +1065,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       acknowledgedCount: fused.acknowledgedCount,
       suppressedCount: fused.suppressedCount,
       ...(converged ? { converged } : {}),
+      ...(dispositions !== undefined ? { dispositions } : {}),
       clock,
     });
 

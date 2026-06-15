@@ -166,6 +166,9 @@ function buildDismissBlock(finding: Finding): string | null {
       ? { stableFindingId: finding.id }
       : {}),
     mode: "acknowledge",
+    // Model the verdict field in the template (#256) so the snippet matches the prose below:
+    // "acknowledged" = accepted-as-is (default); change to "dismissed" to record a rejection.
+    verdict: "acknowledged",
     reason: "<why this is intentional>",
   };
 
@@ -184,7 +187,9 @@ function buildDismissBlock(finding: Finding): string | null {
     `With \`mode: "acknowledge"\` the finding stays visible in the summary (annotated with your reason) but no`,
     `longer blocks CI; change \`mode\` to \`"suppress"\` to hide it entirely (security-reviewer findings are`,
     `downgraded to \`acknowledge\` regardless). Add an optional \`"expires": "YYYY-MM-DD"\` field to make the`,
-    `acknowledgement lapse automatically.`,
+    `acknowledgement lapse automatically. To record that you are explicitly **rejecting** this finding`,
+    `(wrong call or won't-fix), add \`"verdict": "dismissed"\` alongside \`mode\` — omitting \`verdict\` defaults`,
+    `to \`"acknowledged"\` (accepted-as-is). The verdict is tracked in re-review precision metrics.`,
     ``,
     `${fence}json`,
     serialized,

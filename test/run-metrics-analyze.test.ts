@@ -1718,3 +1718,162 @@ describe("analyzeRunMetrics byDecision (#151)", () => {
     expect(Object.keys(analysis.byDecision)).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Disposition precision (#256, M023 S04)
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics — disposition precision", () => {
+  /** Build a synthetic run_metrics event with a dispositions block. */
+  function makeDispositionEvent(
+    runId: string,
+    dispositions: {
+      fixed: number;
+      dismissed: number;
+      ignored: number;
+      acknowledged: number;
+      byReviewer?: Record<
+        string,
+        { fixed: number; dismissed: number; ignored: number; acknowledged: number }
+      >;
+      bySeverity?: Record<
+        string,
+        { fixed: number; dismissed: number; ignored: number; acknowledged: number }
+      >;
+    },
+  ): TelemetryEvent {
+    return {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-15T10:00:00.000Z",
+      runId,
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "significant_concerns",
+        outcome: "fail",
+        durationMs: 3000,
+        findingCount: 0,
+        dispositions: dispositions as unknown as Record<
+          string,
+          import("../src/contracts/common.ts").JsonValue
+        >,
+      },
+    };
+  }
+
+  test("dispositions absent when no run has a dispositions block", () => {
+    const analysis = analyzeRunMetrics(events); // events fixture has no dispositions block
+    expect(analysis.dispositions).toBeUndefined();
+  });
+
+  test("dispositions present when at least one run has a dispositions block", () => {
+    const eventsWithDispositions: TelemetryEvent[] = [
+      makeDispositionEvent("d-1", { fixed: 3, dismissed: 1, ignored: 2, acknowledged: 0 }),
+    ];
+    const analysis = analyzeRunMetrics(eventsWithDispositions);
+    expect(analysis.dispositions).not.toBeUndefined();
+  });
+
+  test("precision = fixed ÷ (fixed + ignored + dismissed)", () => {
+    // fixed=3, ignored=2, dismissed=1 → precision = 3/6 = 0.5
+    const eventsWithDispositions: TelemetryEvent[] = [
+      makeDispositionEvent("d-1", { fixed: 3, dismissed: 1, ignored: 2, acknowledged: 1 }),
+    ];
+    const analysis = analyzeRunMetrics(eventsWithDispositions);
+    expect(analysis.dispositions?.pooled.fixed).toBe(3);
+    expect(analysis.dispositions?.pooled.dismissed).toBe(1);
+    expect(analysis.dispositions?.pooled.ignored).toBe(2);
+    expect(analysis.dispositions?.pooled.acknowledged).toBe(1);
+    expect(analysis.dispositions?.pooled.precision).toBeCloseTo(0.5, 5);
+  });
+
+  test("precision is null when denominator is 0 (acknowledged only)", () => {
+    const eventsWithDispositions: TelemetryEvent[] = [
+      makeDispositionEvent("d-1", { fixed: 0, dismissed: 0, ignored: 0, acknowledged: 3 }),
+    ];
+    const analysis = analyzeRunMetrics(eventsWithDispositions);
+    expect(analysis.dispositions?.pooled.precision).toBeNull();
+  });
+
+  test("pooled totals accumulate across multiple events", () => {
+    const eventsWithDispositions: TelemetryEvent[] = [
+      makeDispositionEvent("d-1", { fixed: 2, dismissed: 0, ignored: 1, acknowledged: 0 }),
+      makeDispositionEvent("d-2", { fixed: 1, dismissed: 1, ignored: 2, acknowledged: 1 }),
+    ];
+    const analysis = analyzeRunMetrics(eventsWithDispositions);
+    expect(analysis.dispositions?.pooled.fixed).toBe(3);
+    expect(analysis.dispositions?.pooled.dismissed).toBe(1);
+    expect(analysis.dispositions?.pooled.ignored).toBe(3);
+    expect(analysis.dispositions?.pooled.acknowledged).toBe(1);
+    // precision = 3 / (3+3+1) = 3/7
+    expect(analysis.dispositions?.pooled.precision).toBeCloseTo(3 / 7, 5);
+  });
+
+  test("byReviewer segment with precision populated", () => {
+    const eventsWithDispositions: TelemetryEvent[] = [
+      makeDispositionEvent("d-1", {
+        fixed: 2,
+        dismissed: 0,
+        ignored: 1,
+        acknowledged: 0,
+        byReviewer: {
+          security: { fixed: 2, dismissed: 0, ignored: 0, acknowledged: 0 },
+          code_quality: { fixed: 0, dismissed: 0, ignored: 1, acknowledged: 0 },
+        },
+      }),
+    ];
+    const analysis = analyzeRunMetrics(eventsWithDispositions);
+    const byRev = analysis.dispositions?.byReviewer;
+    expect(byRev).not.toBeUndefined();
+
+    // stable-sorted keys
+    expect(Object.keys(byRev ?? {})).toEqual(["code_quality", "security"]);
+
+    // security: precision = 2/(2+0+0) = 1.0
+    expect(byRev?.["security"]?.precision).toBeCloseTo(1.0, 5);
+    // code_quality: precision = 0/(0+1+0) = 0.0
+    expect(byRev?.["code_quality"]?.precision).toBeCloseTo(0.0, 5);
+  });
+
+  test("bySeverity segment with precision populated", () => {
+    const eventsWithDispositions: TelemetryEvent[] = [
+      makeDispositionEvent("d-1", {
+        fixed: 2,
+        dismissed: 1,
+        ignored: 1,
+        acknowledged: 0,
+        bySeverity: {
+          critical: { fixed: 2, dismissed: 0, ignored: 1, acknowledged: 0 },
+          warning: { fixed: 0, dismissed: 1, ignored: 0, acknowledged: 0 },
+        },
+      }),
+    ];
+    const analysis = analyzeRunMetrics(eventsWithDispositions);
+    const bySev = analysis.dispositions?.bySeverity;
+    expect(bySev).not.toBeUndefined();
+
+    // stable-sorted keys: critical before warning
+    expect(Object.keys(bySev ?? {})).toEqual(["critical", "warning"]);
+
+    // critical: precision = 2/(2+1+0) = 2/3
+    expect(bySev?.["critical"]?.precision).toBeCloseTo(2 / 3, 5);
+    // warning: precision = 0/(0+0+1) = 0
+    expect(bySev?.["warning"]?.precision).toBeCloseTo(0.0, 5);
+  });
+
+  test("formatRunMetricsAnalysis includes disposition section when present", () => {
+    const eventsWithDispositions: TelemetryEvent[] = [
+      makeDispositionEvent("d-1", { fixed: 3, dismissed: 1, ignored: 2, acknowledged: 0 }),
+    ];
+    const analysis = analyzeRunMetrics(eventsWithDispositions);
+    const formatted = formatRunMetricsAnalysis(analysis);
+    expect(formatted).toContain("Disposition Precision");
+    expect(formatted).toContain("pooled");
+  });
+
+  test("formatRunMetricsAnalysis omits disposition section when absent", () => {
+    const analysis = analyzeRunMetrics(events); // no dispositions block
+    const formatted = formatRunMetricsAnalysis(analysis);
+    expect(formatted).not.toContain("Disposition Precision");
+  });
+});

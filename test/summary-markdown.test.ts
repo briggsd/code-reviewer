@@ -1336,6 +1336,8 @@ describe("dismiss-this-finding block (#159)", () => {
     expect(parsed["category"]).toBe("auth");
     expect(parsed["stableFindingId"]).toBe("fnd_abc123");
     expect(parsed["mode"]).toBe("acknowledge");
+    // verdict is modeled in the template (#256) so a dismiss intent isn't silently defaulted.
+    expect(parsed["verdict"]).toBe("acknowledged");
     expect(parsed["reason"]).toBe("<why this is intentional>");
 
     // Instruction text must clarify acknowledge-vs-suppress behaviour + the expires option

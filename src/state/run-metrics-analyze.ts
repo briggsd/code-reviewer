@@ -121,6 +121,27 @@ interface SupplementalEventsAnalysis {
   proseDrops: ProseFindingDropAnalysis;
 }
 
+/** Precision stats for a single reviewer or severity segment (#256, M023 S04). */
+export interface DispositionPrecisionSegment {
+  fixed: number;
+  dismissed: number;
+  ignored: number;
+  acknowledged: number;
+  /** fixed ÷ (fixed + ignored + dismissed); null when denominator is 0. */
+  precision: number | null;
+}
+
+/** Pooled + segmented disposition outcome analysis (#256, M023 S04).
+ *  Absent when no run has emitted a `dispositions` block (first-review-only fleet). */
+export interface DispositionAnalysis {
+  /** Pooled totals across all runs with disposition data. */
+  pooled: DispositionPrecisionSegment;
+  /** Per-reviewer breakdown (stable-sorted keys). */
+  byReviewer: Record<string, DispositionPrecisionSegment>;
+  /** Per-severity breakdown (stable-sorted keys). */
+  bySeverity: Record<string, DispositionPrecisionSegment>;
+}
+
 export interface RunMetricsAnalysis {
   runCount: number;
   /** Runs whose run_metrics carried >=1 reviewer-kind failure (#212). */
@@ -204,6 +225,9 @@ export interface RunMetricsAnalysis {
    * event (orphan run_events are ignored).
    */
   runEvents?: RunEventsAnalysis;
+  /** Per-finding disposition outcome analysis (#256, M023 S04).
+   *  Absent when no run has a dispositions block (first-review-only fleet). */
+  dispositions?: DispositionAnalysis;
 }
 
 interface TierAccumulator {
@@ -245,6 +269,8 @@ interface RunMetricsEventData extends Record<string, JsonValue> {
   acknowledgements?: Record<string, JsonValue>;
   structuredOutput?: Record<string, JsonValue>;
   failures?: JsonValue[];
+  /** Per-finding disposition counts (#256, M023 S04). Absent on first review. */
+  dispositions?: Record<string, JsonValue>;
 }
 
 type RunMetricsEvent = TelemetryEvent & { data: RunMetricsEventData };
@@ -477,6 +503,131 @@ function accumulateReviewerFailures(
   return { didFailThisRun: true };
 }
 
+// ─── disposition accumulation helpers (#256, M023 S04) ───────────────────────
+
+interface DispositionAccumulator {
+  fixed: number;
+  dismissed: number;
+  ignored: number;
+  acknowledged: number;
+}
+
+function dispositionAccZero(): DispositionAccumulator {
+  return { fixed: 0, dismissed: 0, ignored: 0, acknowledged: 0 };
+}
+
+function computePrecision(acc: DispositionAccumulator): number | null {
+  const denom = acc.fixed + acc.ignored + acc.dismissed;
+  return denom === 0 ? null : acc.fixed / denom;
+}
+
+function toDispositionSegment(acc: DispositionAccumulator): DispositionPrecisionSegment {
+  return {
+    fixed: acc.fixed,
+    dismissed: acc.dismissed,
+    ignored: acc.ignored,
+    acknowledged: acc.acknowledged,
+    precision: computePrecision(acc),
+  };
+}
+
+/** Accumulate disposition counts from a single run_metrics event's `dispositions` block. */
+function accumulateDispositions(
+  data: RunMetricsEventData,
+  pooled: DispositionAccumulator,
+  byReviewer: Map<string, DispositionAccumulator>,
+  bySeverity: Map<string, DispositionAccumulator>,
+): boolean {
+  const block = data.dispositions;
+  if (block === undefined || !isPlainObject(block)) {
+    return false;
+  }
+
+  const fixed = asNumber(block.fixed);
+  const dismissed = asNumber(block.dismissed);
+  const ignored = asNumber(block.ignored);
+  const acknowledged = asNumber(block.acknowledged);
+  const hasAny = fixed + dismissed + ignored + acknowledged > 0;
+
+  pooled.fixed += fixed;
+  pooled.dismissed += dismissed;
+  pooled.ignored += ignored;
+  pooled.acknowledged += acknowledged;
+
+  // byReviewer: each entry is { fixed, dismissed, ignored, acknowledged }
+  const reviewerBlock = block.byReviewer;
+  if (reviewerBlock !== undefined && isPlainObject(reviewerBlock)) {
+    for (const [reviewer, counts] of Object.entries(reviewerBlock)) {
+      if (!isPlainObject(counts)) continue;
+      // Sanitize reviewer key (mirrors #74 discipline in accumulateReviewerFailures)
+      const safeKey = reviewer.replace(/[\r\n]+/g, " ").slice(0, 128);
+      let acc = byReviewer.get(safeKey);
+      if (acc === undefined) {
+        acc = dispositionAccZero();
+        byReviewer.set(safeKey, acc);
+      }
+      acc.fixed += asNumber(counts.fixed);
+      acc.dismissed += asNumber(counts.dismissed);
+      acc.ignored += asNumber(counts.ignored);
+      acc.acknowledged += asNumber(counts.acknowledged);
+    }
+  }
+
+  // bySeverity: same structure
+  const severityBlock = block.bySeverity;
+  if (severityBlock !== undefined && isPlainObject(severityBlock)) {
+    for (const [severity, counts] of Object.entries(severityBlock)) {
+      if (!isPlainObject(counts)) continue;
+      const safeKey = severity.replace(/[\r\n]+/g, " ").slice(0, 64);
+      let acc = bySeverity.get(safeKey);
+      if (acc === undefined) {
+        acc = dispositionAccZero();
+        bySeverity.set(safeKey, acc);
+      }
+      acc.fixed += asNumber(counts.fixed);
+      acc.dismissed += asNumber(counts.dismissed);
+      acc.ignored += asNumber(counts.ignored);
+      acc.acknowledged += asNumber(counts.acknowledged);
+    }
+  }
+
+  return hasAny;
+}
+
+/** Build a DispositionAnalysis from accumulated data. Returns undefined when no data. */
+function buildDispositionAnalysis(
+  pooled: DispositionAccumulator,
+  byReviewer: Map<string, DispositionAccumulator>,
+  bySeverity: Map<string, DispositionAccumulator>,
+  hasDispositionData: boolean,
+): DispositionAnalysis | undefined {
+  if (!hasDispositionData) {
+    return undefined;
+  }
+
+  const byReviewerRecord: Record<string, DispositionPrecisionSegment> = {};
+  for (const key of [...byReviewer.keys()].sort()) {
+    const acc = byReviewer.get(key);
+    if (acc !== undefined) {
+      byReviewerRecord[key] = toDispositionSegment(acc);
+    }
+  }
+
+  const bySeverityRecord: Record<string, DispositionPrecisionSegment> = {};
+  for (const key of [...bySeverity.keys()].sort()) {
+    const acc = bySeverity.get(key);
+    if (acc !== undefined) {
+      bySeverityRecord[key] = toDispositionSegment(acc);
+    }
+  }
+
+  return {
+    pooled: toDispositionSegment(pooled),
+    byReviewer: byReviewerRecord,
+    bySeverity: bySeverityRecord,
+  };
+}
+
 // ─── record-assembly helpers ─────────────────────────────────────────────────
 
 /** Build the `byTier` record with stable key ordering from accumulated tier data. */
@@ -621,6 +772,12 @@ export function analyzeRunMetrics(
   let reviewerFailureRunCount = 0;
   const reviewerFailureCountByRoleMap = new Map<string, number>();
 
+  // Disposition analysis accumulators (#256, M023 S04)
+  const dispositionPooled = dispositionAccZero();
+  const dispositionByReviewer = new Map<string, DispositionAccumulator>();
+  const dispositionBySeverity = new Map<string, DispositionAccumulator>();
+  let hasDispositionData = false;
+
   for (const event of realEvents) {
     const data = event.data;
 
@@ -700,6 +857,17 @@ export function analyzeRunMetrics(
     const { didFailThisRun } = accumulateReviewerFailures(data, reviewerFailureCountByRoleMap);
     if (didFailThisRun) {
       reviewerFailureRunCount += 1;
+    }
+
+    // Disposition counts (#256, M023 S04)
+    const hadDispositions = accumulateDispositions(
+      data,
+      dispositionPooled,
+      dispositionByReviewer,
+      dispositionBySeverity,
+    );
+    if (hadDispositions) {
+      hasDispositionData = true;
     }
   }
 
@@ -807,6 +975,16 @@ export function analyzeRunMetrics(
     ...(supplementalEventsAnalysis.runEvents !== undefined
       ? { runEvents: supplementalEventsAnalysis.runEvents }
       : {}),
+    // Disposition analysis (#256, M023 S04): absent when no run has disposition data.
+    ...(() => {
+      const da = buildDispositionAnalysis(
+        dispositionPooled,
+        dispositionByReviewer,
+        dispositionBySeverity,
+        hasDispositionData,
+      );
+      return da !== undefined ? { dispositions: da } : {};
+    })(),
   };
 }
 
@@ -1220,6 +1398,66 @@ function formatRunEventsSection(analysis: RunMetricsAnalysis): string[] {
   return lines;
 }
 
+/** Render the dispositions precision section (#256, M023 S04).
+ *  Returns an empty array when no disposition data is present. */
+function formatDispositionsSection(analysis: RunMetricsAnalysis): string[] {
+  if (analysis.dispositions === undefined) {
+    return [];
+  }
+  const da = analysis.dispositions;
+  const lines: string[] = [];
+  lines.push("");
+  lines.push("--- Disposition Precision (fixed ÷ (fixed + ignored + dismissed)) ---");
+
+  function renderSegment(label: string, seg: DispositionPrecisionSegment): string {
+    const precStr = seg.precision === null ? "n/a" : `${(seg.precision * 100).toFixed(1)}%`;
+    return (
+      padRight(label, 24) +
+      padLeft(String(seg.fixed), 7) +
+      padLeft(String(seg.dismissed), 10) +
+      padLeft(String(seg.ignored), 8) +
+      padLeft(String(seg.acknowledged), 13) +
+      padLeft(precStr, 10)
+    );
+  }
+
+  lines.push(
+    padRight("Segment", 24) +
+      padLeft("Fixed", 7) +
+      padLeft("Dismissed", 10) +
+      padLeft("Ignored", 8) +
+      padLeft("Acknowledged", 13) +
+      padLeft("Precision", 10),
+  );
+  lines.push(renderSegment("pooled", da.pooled));
+
+  const reviewerKeys = Object.keys(da.byReviewer).sort();
+  if (reviewerKeys.length > 0) {
+    lines.push("");
+    lines.push("  By Reviewer:");
+    for (const reviewer of reviewerKeys) {
+      const seg = da.byReviewer[reviewer];
+      if (seg !== undefined) {
+        lines.push(renderSegment(`  ${reviewer}`, seg));
+      }
+    }
+  }
+
+  const severityKeys = Object.keys(da.bySeverity).sort();
+  if (severityKeys.length > 0) {
+    lines.push("");
+    lines.push("  By Severity:");
+    for (const severity of severityKeys) {
+      const seg = da.bySeverity[severity];
+      if (seg !== undefined) {
+        lines.push(renderSegment(`  ${severity}`, seg));
+      }
+    }
+  }
+
+  return lines;
+}
+
 export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
   const lines: string[] = [];
 
@@ -1243,6 +1481,9 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
 
   // Run events section (present only when run_event data exists)
   lines.push(...formatRunEventsSection(analysis));
+
+  // Disposition precision section (#256, M023 S04)
+  lines.push(...formatDispositionsSection(analysis));
 
   return lines.join("\n");
 }

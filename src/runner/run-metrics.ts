@@ -1,7 +1,9 @@
 import type {
   CoordinatorRunResult,
+  DispositionCounts,
   Finding,
   JsonValue,
+  ReReviewFindingClassification,
   ReviewContext,
   ReviewContextArtifacts,
   ReviewErrorClassification,
@@ -10,6 +12,7 @@ import type {
   TelemetryEvent,
   TokenUsage,
 } from "../contracts/index.ts";
+import { deriveDisposition } from "./finding-disposition.ts";
 
 export function createRunMetrics(input: {
   durationsMs: ReviewRunMetrics["durationsMs"];
@@ -171,6 +174,8 @@ export function createRunMetricsTelemetryEvent(input: {
   /** Convergence gate (#149): true when the re-review finding set is unchanged. Counts-only. */
   converged?: boolean;
   errorClassification?: ReviewErrorClassification;
+  /** Per-finding disposition counts (#256, M023 S04). Counts-only; absent on first review. */
+  dispositions?: DispositionCounts;
 }): TelemetryEvent {
   const data: Record<string, JsonValue> = {
     schemaVersion: "ai-review.run_metrics.v1",
@@ -329,6 +334,23 @@ export function createRunMetricsTelemetryEvent(input: {
       reason: input.errorClassification.reason,
     };
   }
+  if (input.dispositions !== undefined) {
+    // Counts-only (M008): integers + reviewer-role/severity identifiers — no finding text.
+    const d = input.dispositions;
+    const dispoData: Record<string, JsonValue> = {
+      fixed: d.fixed,
+      dismissed: d.dismissed,
+      ignored: d.ignored,
+      acknowledged: d.acknowledged,
+    };
+    if (d.byReviewer !== undefined && Object.keys(d.byReviewer).length > 0) {
+      dispoData.byReviewer = d.byReviewer as unknown as JsonValue;
+    }
+    if (d.bySeverity !== undefined && Object.keys(d.bySeverity).length > 0) {
+      dispoData.bySeverity = d.bySeverity as unknown as JsonValue;
+    }
+    data.dispositions = dispoData;
+  }
 
   return {
     type: "ai_review.run_metrics",
@@ -401,4 +423,92 @@ function sumOptional(values: Array<number | undefined>): number | undefined {
   }
 
   return present.reduce((total, value) => total + value, 0);
+}
+
+const DISPOSITION_ZERO = (): {
+  fixed: number;
+  dismissed: number;
+  ignored: number;
+  acknowledged: number;
+} => ({
+  fixed: 0,
+  dismissed: 0,
+  ignored: 0,
+  acknowledged: 0,
+});
+
+/**
+ * Derive per-finding disposition counts from re-review classifications (#256, M023 S04).
+ * Returns undefined when there are no prior findings (first review / no prior state).
+ * Counts-only: no finding bodies/locations/paths cross egress (M008).
+ */
+export function computeDispositions(
+  classifications: readonly ReReviewFindingClassification[] | undefined,
+): DispositionCounts | undefined {
+  if (classifications === undefined || classifications.length === 0) {
+    return undefined;
+  }
+
+  const totals = DISPOSITION_ZERO();
+  const byReviewer = new Map<string, ReturnType<typeof DISPOSITION_ZERO>>();
+  const bySeverity = new Map<string, ReturnType<typeof DISPOSITION_ZERO>>();
+  let hasAny = false;
+
+  for (const cls of classifications) {
+    const disposition = deriveDisposition(cls);
+    if (disposition === undefined) {
+      continue;
+    }
+    hasAny = true;
+
+    totals[disposition] += 1;
+
+    // Reviewer: prefer the live finding (recurring), fall back to priorFinding (fixed/dismissed).
+    const reviewer = (cls.finding ?? cls.priorFinding)?.reviewer;
+    if (typeof reviewer === "string" && reviewer.length > 0) {
+      let rev = byReviewer.get(reviewer);
+      if (rev === undefined) {
+        rev = DISPOSITION_ZERO();
+        byReviewer.set(reviewer, rev);
+      }
+      rev[disposition] += 1;
+    }
+
+    // Severity: same source preference.
+    const severity = (cls.finding ?? cls.priorFinding)?.severity;
+    if (typeof severity === "string" && severity.length > 0) {
+      let sev = bySeverity.get(severity);
+      if (sev === undefined) {
+        sev = DISPOSITION_ZERO();
+        bySeverity.set(severity, sev);
+      }
+      sev[disposition] += 1;
+    }
+  }
+
+  if (!hasAny) {
+    return undefined;
+  }
+
+  // Build stable-sorted records (mirrors existing byReviewer/bySeverity conventions).
+  const byReviewerRecord: Record<
+    string,
+    { fixed: number; dismissed: number; ignored: number; acknowledged: number }
+  > = {};
+  for (const key of [...byReviewer.keys()].sort()) {
+    byReviewerRecord[key] = byReviewer.get(key) ?? DISPOSITION_ZERO();
+  }
+  const bySeverityRecord: Record<
+    string,
+    { fixed: number; dismissed: number; ignored: number; acknowledged: number }
+  > = {};
+  for (const key of [...bySeverity.keys()].sort()) {
+    bySeverityRecord[key] = bySeverity.get(key) ?? DISPOSITION_ZERO();
+  }
+
+  return {
+    ...totals,
+    ...(Object.keys(byReviewerRecord).length > 0 ? { byReviewer: byReviewerRecord } : {}),
+    ...(Object.keys(bySeverityRecord).length > 0 ? { bySeverity: bySeverityRecord } : {}),
+  };
 }
