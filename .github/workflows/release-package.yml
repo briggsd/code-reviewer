@@ -1,6 +1,12 @@
 name: Release package artifact
 
 on:
+  # Tag push (vX.Y.Z) builds the tarball through the same holdout quality gate and, only on a
+  # tag, attaches the tarball + quality stamp to a GitHub Release. workflow_dispatch keeps the
+  # artifact-only build path (no Release) for ad-hoc verification.
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       run_checks:
@@ -50,7 +56,9 @@ jobs:
         run: npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 
       - name: Run checks
-        if: inputs.run_checks
+        # Always on a tag push (a real release must pass the check suite); on workflow_dispatch
+        # the run_checks input still gates it for ad-hoc artifact builds.
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.run_checks
         run: bun run check
 
       - name: Run package smoke
@@ -71,7 +79,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
-          EVAL_RUNS: ${{ inputs.eval_runs }}
+          # On a tag push there are no dispatch inputs, so eval_runs is empty; fall back to 3
+          # (the workflow_dispatch default) so the gate runs with a sane run count either way.
+          EVAL_RUNS: ${{ inputs.eval_runs || '3' }}
         run: |
           mkdir -p dist
           bun run evals --gate --runs "$EVAL_RUNS" --stamp dist/quality-stamp.json
@@ -100,3 +110,35 @@ jobs:
             dist/*.tgz
             dist/quality-stamp.json
           if-no-files-found: error
+
+  # Tag-only: attach the gated build to a GitHub Release. Split out from `pack` so the build job
+  # stays least-privilege (contents: read); contents: write is confined to this job and runs only
+  # after `pack` (and therefore the holdout quality gate) succeeds. No registry publish step.
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: pack
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download built artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ai-code-review-package-${{ github.sha }}
+          path: dist
+
+      - name: Create GitHub Release
+        # gh CLI is a run-step, not a third-party action, so no SHA pin is required (#96). It uses
+        # the built-in GITHUB_TOKEN (contents: write) to create the Release for the pushed tag and
+        # attach the tarball + quality stamp. --verify-tag ensures the tag exists on the remote.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --verify-tag \
+            dist/*.tgz \
+            dist/quality-stamp.json

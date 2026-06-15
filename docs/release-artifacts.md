@@ -2,9 +2,12 @@
 
 This project currently supports immutable tarball release artifacts, not registry publishing. Registry publishing remains blocked until package name, license, and access policy are finalized. For the Fortis/self-managed GitLab beta, the release channel is an internal pinned tarball URL; public npm is intentionally out of scope.
 
-## Manual GitHub workflow
+## Release workflow
 
-`.github/workflows/release-package.yml` is manual-only (`workflow_dispatch`) and builds an npm tarball artifact from the trusted checkout.
+`.github/workflows/release-package.yml` builds an npm tarball artifact from the trusted checkout. It runs on two triggers:
+
+- **`workflow_dispatch`** — ad-hoc artifact build (no GitHub Release), with the optional inputs below.
+- **Push of a `v*` tag** — the release path: it runs the same gated build and then attaches the tarball + quality stamp to a **GitHub Release** for the tag (see [Release readiness](release-readiness.md) for the tag/bump SOP).
 
 **Prerequisite:** the live holdout quality gate (step 7) performs real model calls, so at least one
 of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_GENERATIVE_AI_API_KEY` must be configured as a
@@ -23,7 +26,8 @@ The workflow:
 6. always runs `bun run pack:smoke`,
 7. runs the **live holdout quality gate** (`bun run evals --gate --runs "$EVAL_RUNS" --stamp dist/quality-stamp.json`) — this step is **required** (no `if:` or `continue-on-error`); if any holdout scenario regresses below threshold (or the holdout is empty), the gate exits nonzero and the pack step never runs,
 8. creates `dist/*.tgz` with `npm pack`,
-9. uploads the tarball **and** the `dist/quality-stamp.json` as a GitHub Actions artifact named with the source commit SHA.
+9. uploads the tarball **and** the `dist/quality-stamp.json` as a GitHub Actions artifact named with the source commit SHA,
+10. on a `v*` tag push only, the `release` job downloads that artifact and runs `gh release create` to publish a GitHub Release for the tag with both files attached.
 
 The quality stamp (`ai-review.quality_stamp.v2`) contains per-scenario satisfaction scores, a
 `blocked` boolean, per-run satisfaction distributions, min/max/variance diagnostics, flaky
@@ -31,7 +35,9 @@ markers, and per-criterion pass-rate results. It is uploaded alongside the tarba
 cross-version stability signal. See `docs/evals.md` for the stamp schema, v1-to-v2 migration note,
 and the `--stamp` flag documentation.
 
-It does **not** publish to npm and does not require write permissions. Workflow permissions are `contents: read` only.
+On a `v*` tag push, a separate tag-only `release` job creates a GitHub Release for the tag and attaches the tarball and `dist/quality-stamp.json` via `gh release create` (a CLI run-step, not a third-party action, so no SHA pin is needed). The release runs only after the build job — and therefore the live holdout quality gate — succeeds.
+
+It does **not** publish to npm and adds no registry step; `private: true` stays in `package.json`. The build job is least-privilege (`contents: read`); `contents: write` is confined to the tag-only `release` job, which uses the built-in `GITHUB_TOKEN` and is the only place a write token is exercised.
 
 ## How adopters should pin it
 

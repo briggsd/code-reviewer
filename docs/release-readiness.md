@@ -32,6 +32,38 @@ Expected results:
 - Keep `AI_REVIEW_PACKAGE` in CI templates pinned to an immutable internal tarball URL, exact package version, or full Git commit SHA for internal smoke only. For the Fortis/self-managed GitLab beta, prefer a versioned internal tarball URL and do not require public npm.
 - Do not use mutable install sources such as `main`, floating tags, or `latest` in adopter CI.
 
+## Cutting a tagged GitHub Release
+
+The supported beta distribution is a **GitHub Release** carrying the tarball and quality stamp.
+There is **no registry publish** this round: `private: true` stays in `package.json` and no `npm
+publish` / registry login exists in any workflow. That deferral is intentional — registry
+semantics (final name/scope, access policy, provenance) are not yet finalized; see
+[Release artifacts](release-artifacts.md).
+
+Releases are version-tag driven. The version convention is a `vX.Y.Z` git tag matching the
+`package.json` `version`. To cut a release:
+
+1. **Bump the version.** Set `package.json` `version` to the new `X.Y.Z`.
+2. **Update the changelog.** In [`CHANGELOG.md`](../CHANGELOG.md), promote the `## [Unreleased]`
+   entries into a new `## [X.Y.Z]` section and refresh the comparison links at the bottom.
+3. **Land the bump** on the default branch (normal PR + merge).
+4. **Tag and push.** From the merged commit, create and push the matching annotated tag:
+
+   ```bash
+   git tag -a vX.Y.Z -m "vX.Y.Z"
+   git push origin vX.Y.Z
+   ```
+
+5. **Workflow publishes.** The `v*` tag push triggers `.github/workflows/release-package.yml`,
+   which runs the **live holdout quality gate** (a tag release must still pass it — it is not
+   bypassed), builds the `npm pack` tarball + `dist/quality-stamp.json`, and then a tag-only
+   `release` job creates a GitHub Release for the tag with both files attached via `gh release
+   create`. That job is the only one granted `contents: write`; the build job stays
+   `contents: read`.
+
+Adopters then pin `AI_REVIEW_PACKAGE` to the immutable Release asset URL — never a mutable
+branch, floating tag, or `latest`.
+
 ## Channel decision
 
 Current supported channel:
