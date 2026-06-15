@@ -5,7 +5,7 @@ Importable Grafana dashboards over the telemetry this project ships to Loki
 
 ## `dashboards/ai-review-telemetry.json`
 
-Four sections over the `ai_review.run_metrics` and `ai_review.run_event` streams:
+Six sections over the `ai_review.run_metrics` and `ai_review.run_event` streams:
 
 - **Run health & volume** — total runs, completion rate (`run.completed` / `run.start`),
   pass rate, break-glass overrides, runs-over-time by outcome, decision breakdown, runs by tier.
@@ -14,6 +14,15 @@ Four sections over the `ai_review.run_metrics` and `ai_review.run_event` streams
 - **Latency by tier** — average and p95 `durationMs` split by trivial / lite / full.
 - **Review quality** — findings by severity, the re-review correction signal
   (new / recurring / fixed / withheld), and a raw `run_metrics` drilldown.
+- **Re-review dynamics** — findings by reviewer (real-Pi) and re-review rounds per PR.
+- **Reviewer reliability (failures)** — runs that carried a reviewer failure (`data.failures[]`):
+  count, run rate, failback-exhausted runs, a by-category timeseries, and a failures drilldown.
+  Distinct from `outcome=fail` (a blocking *finding*, not a reviewer crashing). **Array caveat:**
+  `data.failures` is an array with no scalar count, so these panels key off the *first* failure
+  (`data_failures_0_*`) — they count runs-with-a-failure and categorize by the first failure, not
+  total failures across the array. Expand the drilldown to see every failed reviewer per run. A
+  clean total-failures / per-category-sum chart would need a scalar summary emitted from
+  `run-metrics.ts` (`data.failureCount` / `data.failuresByCategory`).
 
 Two template variables: **datasource** (pick your Loki source on import) and
 **tier** (multi-select risk-tier filter, defaults to All).

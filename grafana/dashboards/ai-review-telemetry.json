@@ -13,7 +13,7 @@
   "title": "AI Code Review \u2014 Telemetry",
   "uid": "ai-review-telemetry",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "templating": {
     "list": [
       {
@@ -955,6 +955,250 @@
             "mode": "columns",
             "valueLabel": "data_changeId"
           }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Reviewer reliability (failures)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 63
+      },
+      "id": 105
+    },
+    {
+      "id": 30,
+      "type": "stat",
+      "title": "Runs with a reviewer failure",
+      "description": "Runs where run_metrics carried at least one entry in data.failures[]. Counts runs, not total failures: data.failures is an array with no scalar count, so LogQL keys off the first element (data_failures_0_role). A run with 3 failed reviewers counts once.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 64
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | data_failures_0_role != \"\" [$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "stat",
+      "title": "Reviewer-failure run rate",
+      "description": "Fraction of run_metrics events that carried at least one failure (runs-with-a-failure / total runs). NOT the same as outcome=fail, which means a blocking finding was found, not a reviewer crashing.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 64
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.02
+              },
+              {
+                "color": "red",
+                "value": 0.1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | data_failures_0_role != \"\" [$__range])) / sum(count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} [$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "stat",
+      "title": "Failback-exhausted runs",
+      "description": "Runs whose first failure exhausted the failback chain (data_failures_0_failbackExhausted=true) — every model/provider hop was tried and still failed. A reviewer that produced no read at all.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 64
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | data_failures_0_failbackExhausted=\"true\" [$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "Runs with a failure over time, by category",
+      "description": "Runs carrying a failure, bucketed by the first failure's errorCategory (timeout / rate_limited / truncated / context_overflow / auth / provider_error / schema_invalid / retryable_transient / unsafe_fork / unknown). Array limitation: only the first failure per run is categorized here.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 68
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 60
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (data_failures_0_errorCategory) (count_over_time({service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | data_failures_0_role != \"\" [$__interval]))",
+          "legendFormat": "{{data_failures_0_errorCategory}}",
+          "queryType": "range"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "type": "logs",
+      "title": "Recent runs with reviewer failures (drilldown)",
+      "description": "Full run_metrics lines for runs that carried a failure. Expand a line to see the complete data.failures[] array (every failed reviewer, errorCategory, attemptedModels, failbackHopCount) — the per-failure detail the stat panels collapse.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 68
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "expr": "{service=\"ai-code-review\", event_type=\"ai_review.run_metrics\", riskTier=~\"$tier\"} | json | data_failures_0_role != \"\"",
+          "queryType": "range"
         }
       ]
     }
