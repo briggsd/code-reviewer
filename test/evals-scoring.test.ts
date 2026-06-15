@@ -38,6 +38,7 @@ function makeSummary(
   findings: Finding[],
   decision: ReviewSummary["decision"] = "approved",
   outcome: ReviewSummary["outcome"] = "pass",
+  overrides: Partial<ReviewSummary> = {},
 ): ReviewSummary {
   return {
     decision,
@@ -46,6 +47,7 @@ function makeSummary(
     body: "Test body",
     findings,
     risk: baseRisk,
+    ...overrides,
   };
 }
 
@@ -294,6 +296,151 @@ describe("evaluateCriterion — outcome_is", () => {
     expect(evaluateCriterion({ kind: "outcome_is", label: "test", value: "pass" }, summary)).toBe(
       false,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// evaluateCriterion — reviewer_not_failed
+// ---------------------------------------------------------------------------
+
+describe("evaluateCriterion — reviewer_not_failed", () => {
+  test("passes when summary has no degraded reviewer-failure block", () => {
+    const summary = makeSummary([]);
+    expect(
+      evaluateCriterion(
+        { kind: "reviewer_not_failed", label: "code_quality completed", reviewer: "code_quality" },
+        summary,
+      ),
+    ).toBe(true);
+  });
+
+  test("passes when degraded block names other failed reviewers only", () => {
+    const summary = makeSummary([], "approved", "pass", {
+      degraded: {
+        failedReviewerCount: 1,
+        completedReviewerCount: 2,
+        failedRoles: ["security"],
+      },
+    });
+
+    expect(
+      evaluateCriterion(
+        { kind: "reviewer_not_failed", label: "code_quality completed", reviewer: "code_quality" },
+        summary,
+      ),
+    ).toBe(true);
+  });
+
+  test("fails on exact case-insensitive reviewer match in failedRoles", () => {
+    const summary = makeSummary([], "approved", "pass", {
+      degraded: {
+        failedReviewerCount: 1,
+        completedReviewerCount: 2,
+        failedRoles: ["Code_Quality"],
+      },
+    });
+
+    expect(
+      evaluateCriterion(
+        { kind: "reviewer_not_failed", label: "code_quality completed", reviewer: "code_quality" },
+        summary,
+      ),
+    ).toBe(false);
+  });
+
+  test("does not fail on substring-only reviewer matches", () => {
+    const summary = makeSummary([], "approved", "pass", {
+      degraded: {
+        failedReviewerCount: 1,
+        completedReviewerCount: 2,
+        failedRoles: ["code_quality_extra"],
+      },
+    });
+
+    expect(
+      evaluateCriterion(
+        { kind: "reviewer_not_failed", label: "code_quality completed", reviewer: "code_quality" },
+        summary,
+      ),
+    ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// evaluateCriterion — partial_by_size
+// ---------------------------------------------------------------------------
+
+describe("evaluateCriterion — partial_by_size", () => {
+  test("fails when partialBySize is absent", () => {
+    const summary = makeSummary([]);
+    expect(evaluateCriterion({ kind: "partial_by_size", label: "demoted files" }, summary)).toBe(
+      false,
+    );
+  });
+
+  test("passes when partialBySize is present and count thresholds are met", () => {
+    const summary = makeSummary([], "approved", "pass", {
+      partialBySize: {
+        admittedFileCount: 2,
+        droppedFileCount: 3,
+        originalBytes: 10_000,
+        admittedBytes: 4_000,
+        budgetBytes: 5_000,
+        droppedPaths: ["test/fixtures/a.json", "test/fixtures/b.json", "snapshots/c.snap"],
+      },
+    });
+
+    expect(
+      evaluateCriterion(
+        {
+          kind: "partial_by_size",
+          label: "bulk demotion was visible",
+          minDroppedFileCount: 1,
+          minAdmittedFileCount: 1,
+        },
+        summary,
+      ),
+    ).toBe(true);
+  });
+
+  test("fails when dropped-file minimum is not met", () => {
+    const summary = makeSummary([], "approved", "pass", {
+      partialBySize: {
+        admittedFileCount: 2,
+        droppedFileCount: 0,
+        originalBytes: 4_000,
+        admittedBytes: 4_000,
+        budgetBytes: 5_000,
+        droppedPaths: [],
+      },
+    });
+
+    expect(
+      evaluateCriterion(
+        { kind: "partial_by_size", label: "bulk demotion was visible", minDroppedFileCount: 1 },
+        summary,
+      ),
+    ).toBe(false);
+  });
+
+  test("fails when admitted-file minimum is not met", () => {
+    const summary = makeSummary([], "approved", "pass", {
+      partialBySize: {
+        admittedFileCount: 0,
+        droppedFileCount: 3,
+        originalBytes: 10_000,
+        admittedBytes: 0,
+        budgetBytes: 500,
+        droppedPaths: ["test/fixtures/a.json", "test/fixtures/b.json", "snapshots/c.snap"],
+      },
+    });
+
+    expect(
+      evaluateCriterion(
+        { kind: "partial_by_size", label: "logic stayed admitted", minAdmittedFileCount: 1 },
+        summary,
+      ),
+    ).toBe(false);
   });
 });
 

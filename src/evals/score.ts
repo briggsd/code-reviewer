@@ -92,6 +92,32 @@ export function evaluateCriterion(criterion: EvalCriterion, summary: ReviewSumma
 
     case "outcome_is":
       return summary.outcome === criterion.value;
+
+    case "reviewer_not_failed": {
+      const failedRoles = summary.degraded?.failedRoles ?? [];
+      const reviewer = criterion.reviewer.toLowerCase();
+      return !failedRoles.some((role) => role.toLowerCase() === reviewer);
+    }
+
+    case "partial_by_size": {
+      const partialBySize = summary.partialBySize;
+      if (partialBySize === undefined) {
+        return false;
+      }
+      if (
+        criterion.minDroppedFileCount !== undefined &&
+        partialBySize.droppedFileCount < criterion.minDroppedFileCount
+      ) {
+        return false;
+      }
+      if (
+        criterion.minAdmittedFileCount !== undefined &&
+        partialBySize.admittedFileCount < criterion.minAdmittedFileCount
+      ) {
+        return false;
+      }
+      return true;
+    }
   }
 }
 

@@ -252,7 +252,7 @@ release holdout gate (M016 S02, `release-package.yml`).
 - **Advisory / non-blocking** — the eval step uses `continue-on-error: true` so a harness crash
   never blocks the PR.
 - **Deterministic result** — the dummy runtime produces "2/5 passed" over the holdout split
-  (`evals/scenarios`) and "1/1 passed" over the dev split (`evals/scenarios-dev`): recall scenarios
+  (`evals/scenarios`) and "2/6 passed" over the dev split (`evals/scenarios-dev`): recall scenarios
   score 0 with no findings, precision scenarios pass. Both are expected and are NOT failures (these
   baselines shift as scenarios are added/removed). Only a harness crash (nonzero exit) is the
   negative signal. `--gate` is never used here because it would always "fail" under dummy.
@@ -296,6 +296,8 @@ the behavior is unstable and may need clearer reviewer guidance, narrower criter
 | `max_findings` | At most `count` findings at or above `atOrAbove` severity |
 | `decision_in` | `summary.decision` is one of the listed values |
 | `outcome_is` | `summary.outcome` equals the given value |
+| `reviewer_not_failed` | `summary.degraded?.failedRoles` does not include the named reviewer, matched case-insensitively; absent `degraded` passes |
+| `partial_by_size` | `summary.partialBySize` is present and any provided count minimums are met (`minDroppedFileCount`, `minAdmittedFileCount`) |
 
 Severity rank: `critical` (3) > `warning` (2) > `suggestion` (1).
 `minSeverity` in `has_finding` matches the given level OR higher.
@@ -349,6 +351,7 @@ satisfaction is high enough.
 | `untrusted-runtime-output-validation` | Recall | Catches casts of untrusted model/subprocess-shaped JSON into review contracts without validation | `has_finding` minSeverity=warning, textIncludes=validate; decision in [approved_with_comments, minor_issues, significant_concerns, review_failed]; threshold=1.0 |
 | `quality-stamp-schema-rename` | Recall | Catches silent serialized contract drift in the persisted release quality stamp | `has_finding` minSeverity=warning, textIncludes=schemaVersion; decision in [approved_with_comments, minor_issues, significant_concerns, review_failed]; threshold=1.0 |
 | `timeout-fallback-integration-coverage` | Recall | Catches degraded timeout fallback changes that only add helper-level tests instead of integration/policy coverage | `has_finding` minSeverity=warning, textIncludes=timeout; decision in [approved_with_comments, minor_issues, significant_concerns, review_failed]; threshold=1.0 |
+| `large-diff-code-quality-delivery` | Survival under stress | Full-tier dev stress scenario for #238: large fixture/generated/test-data bulk is visibly demoted while `code_quality` completes and an admitted discount logic bug remains catchable by live runs | `reviewer_not_failed` for code_quality, critical; `partial_by_size` minDroppedFileCount=1 minAdmittedFileCount=1; `has_finding` reviewer=code_quality minSeverity=warning textIncludes=discount; decision in [approved_with_comments, minor_issues, significant_concerns, review_failed]; threshold=1.0 |
 
 > **Criterion authoring lesson (from the first live pi run).** Prefer `textIncludes` (searches a
 > finding's title/body/recommendation/evidence/quotedCode) over `pathIncludes` to detect *whether a

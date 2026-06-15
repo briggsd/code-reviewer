@@ -28,7 +28,15 @@ export type EvalCriterion =
   // The review decision is one of `values`.
   | (EvalCriterionBase & { kind: "decision_in"; values: ReviewDecision[] })
   // The CI outcome equals `value`.
-  | (EvalCriterionBase & { kind: "outcome_is"; value: CiOutcome });
+  | (EvalCriterionBase & { kind: "outcome_is"; value: CiOutcome })
+  // A named reviewer did not fail in a completing degraded review.
+  | (EvalCriterionBase & { kind: "reviewer_not_failed"; reviewer: string })
+  // Patch-admission demotion was visible in the counts-only summary block.
+  | (EvalCriterionBase & {
+      kind: "partial_by_size";
+      minDroppedFileCount?: number;
+      minAdmittedFileCount?: number;
+    });
 
 export interface EvalScenario {
   name: string;

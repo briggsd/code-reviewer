@@ -1,0 +1,32 @@
+{
+  "name": "large-diff-code-quality-delivery",
+  "description": "Primary reliability dimension: Survival under stress. Full-tier dev stress scenario for #238: large fixture/generated/test-data bulk should be demoted by patch admission while code_quality still completes and the admitted logic bug remains catchable.",
+  "fixture": "evals/fixtures/large-diff-code-quality-delivery.json",
+  "threshold": 1,
+  "criteria": [
+    {
+      "kind": "reviewer_not_failed",
+      "label": "code_quality did not fail or degrade",
+      "reviewer": "code_quality",
+      "critical": true
+    },
+    {
+      "kind": "partial_by_size",
+      "label": "patch admission demoted low-signal bulk by size",
+      "minDroppedFileCount": 1,
+      "minAdmittedFileCount": 1
+    },
+    {
+      "kind": "has_finding",
+      "label": "code_quality catches the admitted discount logic bug",
+      "reviewer": "code_quality",
+      "minSeverity": "warning",
+      "textIncludes": "discount"
+    },
+    {
+      "kind": "decision_in",
+      "label": "decision reflects a real code-quality concern",
+      "values": ["approved_with_comments", "minor_issues", "significant_concerns", "review_failed"]
+    }
+  ]
+}
