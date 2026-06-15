@@ -6,6 +6,7 @@ interface PackageJson {
   version?: string;
   private?: boolean;
   license?: string;
+  author?: string;
   homepage?: string;
   repository?: {
     type?: string;
@@ -46,7 +47,7 @@ describe("package distribution metadata", () => {
     expect(manifest.name).toBe("ai-code-review-factory");
     expect(manifest.version).toBe("0.1.0");
     expect(manifest.private).toBe(true);
-    expect(manifest.license).toBe("UNLICENSED");
+    expect(manifest.license).toBe("Apache-2.0");
     expect(manifest.homepage).toBe("https://github.com/briggsd/ai-code-review-factory#readme");
     expect(manifest.repository).toEqual({
       type: "git",
@@ -119,11 +120,32 @@ describe("package distribution metadata", () => {
     expect(manifest.private).toBe(true);
   });
 
+  test("declares Apache-2.0 license with LICENSE + NOTICE at repo root", async () => {
+    const manifest = JSON.parse(await readFile("package.json", "utf8")) as PackageJson;
+
+    expect(manifest.license).toBe("Apache-2.0");
+    expect(manifest.author).toBe("The AI Code Review Factory Authors");
+
+    // private:true is a DELIBERATE registry-deferral guard: distribution this round is
+    // GitHub Releases + tarball, and `private:true` blocks only `npm publish`, not
+    // `npm pack`/install-by-URL. Do NOT "fix" this to false to enable publishing.
+    expect(manifest.private).toBe(true);
+
+    const license = await readFile("LICENSE", "utf8");
+    expect(license).toContain("Apache License");
+    expect(license).toContain("Version 2.0");
+
+    const notice = await readFile("NOTICE", "utf8");
+    expect(notice).toContain("AI Code Review Factory");
+    expect(notice).toContain("Copyright 2026 The AI Code Review Factory Authors");
+  });
+
   test("ships runtime assets without test or workflow internals", async () => {
     const manifest = JSON.parse(await readFile("package.json", "utf8")) as PackageJson;
 
     expect(manifest.files).toEqual([
       ".ai-review.schema.json",
+      "NOTICE",
       "README.md",
       "docs",
       "examples/ci",
