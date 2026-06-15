@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type {
   AgentRuntime,
   CoordinatorRunInput,
@@ -150,6 +152,85 @@ describe("evidence grounding spine integration", () => {
     const groundingEvent = traceSink.events.find((e) => e.type === "grounding.applied");
     expect(groundingEvent).toBeDefined();
     expect(groundingEvent?.data?.droppedFindingCount).toBe(1);
+  });
+
+  test("#214 full changed-file content grounds unchanged-region quote without leaking to context artifacts or telemetry", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const telemetrySink = new RecordingTelemetrySink();
+    const traceSink = new RecordingTraceSink();
+    const fullContentOnlySentinel =
+      "const fullFileOnlyOwnerGuard214 = await requireOwner(accountId);";
+
+    const promotedCritical: Finding = {
+      reviewer: "security",
+      severity: "critical",
+      category: "auth",
+      title: "Full-content grounded critical",
+      body: "body",
+      confidence: "high",
+      evidence: ["full content evidence"],
+      recommendation: "fix it",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: [fullContentOnlySentinel],
+    };
+    const fabricatedWarning: Finding = {
+      reviewer: "code_quality",
+      severity: "warning",
+      category: "correctness",
+      title: "Fabricated paired warning",
+      body: "body",
+      confidence: "high",
+      evidence: ["fabricated evidence"],
+      recommendation: "fix it too",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["return db.accounts.deleteEverything();"],
+    };
+
+    const fixturePatches = fixture.diff.files.map((f) => f.patch ?? "").join("\n");
+    expect(fixturePatches).not.toContain(fullContentOnlySentinel);
+    expect(fixturePatches).not.toContain("deleteEverything");
+
+    fixture.fakeFindings = [promotedCritical, fabricatedWarning];
+    fixture.changedFileContents = {
+      "auth/accounts.ts": [
+        "export async function getAccount(req) {",
+        fullContentOnlySentinel,
+        "  const accountId = req.query.accountId;",
+        "  return db.accounts.findById(accountId);",
+        "}",
+      ].join("\n"),
+    };
+
+    const result = await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-14T00:30:00.000Z"),
+      telemetrySink,
+      traceSink,
+    });
+
+    const { summary } = result;
+    expect(summary.findings.map((f) => f.title)).toContain("Full-content grounded critical");
+    expect(summary.findings.map((f) => f.title)).not.toContain("Fabricated paired warning");
+    expect(summary.groundingWithheld?.map((f) => f.title)).toContain("Fabricated paired warning");
+    expect(summary.decision).toBe("significant_concerns");
+    expect(summary.outcome).toBe("fail");
+
+    const fullContentTrace = traceSink.events.find(
+      (e) => e.type === "grounding.full_content_corpus",
+    );
+    expect(fullContentTrace).toBeDefined();
+    expect(fullContentTrace?.data?.fullContentAvailableCount).toBe(1);
+    expect(fullContentTrace?.data?.includedCount).toBe(1);
+
+    const changeContextPath = result.context.contextArtifacts?.changeContextPath;
+    expect(changeContextPath).toBeDefined();
+    const changeContext = await readFile(
+      join(result.context.workingDirectory, changeContextPath ?? ""),
+      "utf8",
+    );
+    expect(changeContext).not.toContain(fullContentOnlySentinel);
+    expect(JSON.stringify(traceSink.events)).not.toContain(fullContentOnlySentinel);
+    expect(JSON.stringify(telemetrySink.events)).not.toContain(fullContentOnlySentinel);
   });
 
   test("grounding is a no-op when all findings have no quotedCode (existing data stays unchanged)", async () => {
@@ -576,7 +657,7 @@ describe("evidence grounding spine integration", () => {
 
     // (c) body uses the down-weight framing (#207), not the old "withheld" wording
     expect(summary.body).toContain(
-      "finding(s) shown at low confidence (kept, non-blocking): cited code was not found in the changed hunks",
+      "finding(s) shown at low confidence (kept, non-blocking): cited code was not found in the changed-file grounding corpus",
     );
     expect(summary.body).not.toContain("withheld: the code they cited could not be found");
   });

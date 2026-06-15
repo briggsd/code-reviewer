@@ -29,6 +29,7 @@ import {
   GITLAB_MIN_TRUSTED_ACCESS_LEVEL,
   mapGitLabAccessLevel,
 } from "../break-glass-marker.ts";
+import { decodeBase64Utf8Content } from "../shared/base64-content.ts";
 import type { FetchLike } from "../shared/http-json-client.ts";
 import { HttpJsonClient, HttpRequestError } from "../shared/http-json-client.ts";
 
@@ -405,11 +406,23 @@ export class GitLabVcsAdapter implements VcsAdapter {
     }
 
     const data = (await response.json()) as { content?: unknown; encoding?: unknown };
-    if (data.encoding !== "base64" || typeof data.content !== "string") {
+    return decodeBase64Utf8Content(data);
+  }
+
+  async readChangeFileAtHead(change: ChangeMetadata, path: string): Promise<string | undefined> {
+    try {
+      const url = `${this.apiBaseUrl}/projects/${encodeURIComponent(change.repository.slug)}/repository/files/${encodeURIComponent(path)}?ref=${encodeURIComponent(change.headSha)}`;
+      const response = await this.fetchImpl(url, { headers: this.headers() });
+      if (!response.ok) {
+        return undefined;
+      }
+
+      const data = (await response.json()) as { content?: unknown; encoding?: unknown };
+      return decodeBase64Utf8Content(data);
+    } catch {
+      // Best-effort deterministic grounding: head-file read failures never fail the review.
       return undefined;
     }
-
-    return Buffer.from(data.content, "base64").toString("utf8");
   }
 
   async publishInlineFindings(

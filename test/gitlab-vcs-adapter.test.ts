@@ -461,6 +461,46 @@ describe("GitLabVcsAdapter", () => {
     expect(url).toContain("?ref=release%2Fv2");
   });
 
+  test("readChangeFileAtHead fetches head content at headSha and decodes base64", async () => {
+    let seenUrl = "";
+    const adapter = new GitLabVcsAdapter({
+      fetch: async (input) => {
+        seenUrl = String(input);
+        return jsonResponse({
+          encoding: "base64",
+          content: Buffer.from("export const headOnly = true;\n", "utf8").toString("base64"),
+        });
+      },
+    });
+
+    const result = await adapter.readChangeFileAtHead(changeMetadata, "src/auth/accounts.ts");
+
+    expect(seenUrl).toBe(
+      "https://gitlab.com/api/v4/projects/example%2Fpayments-api/repository/files/src%2Fauth%2Faccounts.ts?ref=headsha123",
+    );
+    expect(result).toBe("export const headOnly = true;\n");
+  });
+
+  test("readChangeFileAtHead returns undefined on non-OK and malformed base64", async () => {
+    const nonOk = new GitLabVcsAdapter({
+      fetch: async () =>
+        new Response(JSON.stringify({ message: "not found" }), {
+          status: 404,
+          statusText: "Not Found",
+        }),
+    });
+    await expect(nonOk.readChangeFileAtHead(changeMetadata, "src/missing.ts")).resolves.toBe(
+      undefined,
+    );
+
+    const malformed = new GitLabVcsAdapter({
+      fetch: async () => jsonResponse({ encoding: "base64", content: "not base64!!!" }),
+    });
+    await expect(
+      malformed.readChangeFileAtHead(changeMetadata, "src/auth/accounts.ts"),
+    ).resolves.toBe(undefined);
+  });
+
   // Inline diff-discussion tests (Part B — #82)
 
   const inlineDiffRefs = { base_sha: "base-abc", start_sha: "start-abc", head_sha: "head-abc" };

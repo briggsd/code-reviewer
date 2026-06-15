@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { GitRunner } from "../src/index.ts";
 import { loadGitDiffChange, parseUnifiedDiff } from "../src/index.ts";
 
@@ -227,6 +230,68 @@ describe("loadGitDiffChange", () => {
     expect(diff.totalAdditions).toBe(4);
     expect(diff.totalDeletions).toBe(1);
     expect(diff.truncated).toBe(false);
+  });
+
+  test("reads working-tree full content for non-binary, non-deleted changed files", async () => {
+    const reads: string[] = [];
+    const { changedFileContents } = await loadGitDiffChange(
+      {
+        base: "main",
+        readWorkingTreeFile: async (path) => {
+          reads.push(path);
+          return `full content for ${path}`;
+        },
+      },
+      fakeGit({ "diff --no-color main": `${MODIFIED}${ADDED}${DELETED}${BINARY}` }),
+    );
+
+    expect(reads.sort()).toEqual(["src/app.ts", "src/new.ts"]);
+    expect(changedFileContents).toEqual({
+      "src/app.ts": "full content for src/app.ts",
+      "src/new.ts": "full content for src/new.ts",
+    });
+  });
+
+  test("working-tree full content read failures degrade to absent content", async () => {
+    const { changedFileContents } = await loadGitDiffChange(
+      {
+        base: "main",
+        readWorkingTreeFile: async (path) => {
+          if (path === "src/app.ts") {
+            throw new Error("read failed");
+          }
+          return `full content for ${path}`;
+        },
+      },
+      fakeGit(),
+    );
+
+    expect(changedFileContents).toEqual({
+      "src/new.ts": "full content for src/new.ts",
+    });
+  });
+
+  test("default working-tree reader skips symlinks that resolve outside the repository", async () => {
+    const root = await mkdtemp(join(tmpdir(), "acrf-git-diff-"));
+    const repo = join(root, "repo");
+    const outside = join(root, "outside-secret.txt");
+    try {
+      await mkdir(join(repo, "src"), { recursive: true });
+      await writeFile(outside, "do not read me", "utf8");
+      await symlink(outside, join(repo, "src/app.ts"));
+
+      const { changedFileContents } = await loadGitDiffChange(
+        { base: "main" },
+        fakeGit({
+          "diff --no-color main": MODIFIED,
+          "rev-parse --show-toplevel": `${repo}\n`,
+        }),
+      );
+
+      expect(changedFileContents).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("rejects a base ref that could be parsed as a git option", async () => {

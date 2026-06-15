@@ -11,6 +11,7 @@ import {
 import { resolveRemoteEndpoint } from "./cli/telemetry-auth.ts";
 import type {
   BreakGlassOverride,
+  ChangedFile,
   ChangeMetadata,
   ChangeRef,
   DiffSummary,
@@ -62,6 +63,8 @@ import {
   TeeTelemetryTransport,
   type TelemetryTransport,
 } from "./index.ts";
+
+const HEAD_CONTENT_FETCH_CONCURRENCY = 8;
 
 // Build the telemetry transport: a durable JSONL file (always) plus an optional remote mirror.
 // The remote is default-off; unset = byte-identical behavior. Each exporter owns its own env
@@ -157,6 +160,7 @@ type ReviewSource =
       config: ReviewConfig;
       priorState?: PriorReviewState;
       fakeFindings: Finding[];
+      changedFileContents?: Record<string, string>;
       adapter?: VcsAdapter;
       conventionsResolution?: ResolvedBaseConfig;
       breakGlassOverride?: BreakGlassOverride;
@@ -304,6 +308,9 @@ async function runCommand(args: string[]): Promise<void> {
             config: source.config,
             ...(source.priorState !== undefined ? { priorState: source.priorState } : {}),
             fakeFindings: source.fakeFindings,
+            ...(source.changedFileContents !== undefined
+              ? { changedFileContents: source.changedFileContents }
+              : {}),
             now,
             ...(stateStore !== undefined ? { stateStore } : {}),
             ...(traceSink !== undefined ? { traceSink } : {}),
@@ -428,7 +435,7 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
       ...(configPath !== undefined ? { path: configPath } : {}),
       base: seedFixture?.config ?? createDefaultReviewConfig(),
     });
-    const { metadata, diff } = await loadGitDiffChange(
+    const { metadata, diff, changedFileContents } = await loadGitDiffChange(
       {
         ...(base !== undefined ? { base } : {}),
         ...(changeId !== undefined ? { changeId } : {}),
@@ -442,6 +449,7 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
       diff,
       config,
       fakeFindings: seedFixture?.fakeFindings ?? [],
+      ...(changedFileContents !== undefined ? { changedFileContents } : {}),
     };
   }
 
@@ -513,6 +521,8 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
     incremental = decideIncrementalReview({ priorState, headSha: metadata.headSha, delta });
   }
 
+  const changedFileContents = await fetchChangedFileContents(adapter, metadata, diff);
+
   return {
     kind: "change",
     metadata,
@@ -520,11 +530,65 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
     config: effectiveConfig,
     ...(priorState !== undefined ? { priorState } : {}),
     fakeFindings: seedFixture?.fakeFindings ?? [],
+    ...(changedFileContents !== undefined ? { changedFileContents } : {}),
     adapter,
     conventionsResolution: resolved,
     ...(breakGlassOverride !== undefined ? { breakGlassOverride } : {}),
     ...(incremental !== undefined ? { incremental } : {}),
   };
+}
+
+async function fetchChangedFileContents(
+  adapter: VcsAdapter,
+  metadata: ChangeMetadata,
+  diff: DiffSummary,
+): Promise<Record<string, string> | undefined> {
+  if (adapter.readChangeFileAtHead === undefined) {
+    return undefined;
+  }
+
+  const readChangeFileAtHead = adapter.readChangeFileAtHead.bind(adapter);
+  const candidates = diff.files.filter(isHeadContentCandidate);
+  const entries = await mapWithConcurrency(
+    candidates,
+    HEAD_CONTENT_FETCH_CONCURRENCY,
+    async (file): Promise<[string, string] | undefined> => {
+      const content = await readChangeFileAtHead(metadata, file.path).catch(() => undefined);
+      return content === undefined ? undefined : [file.path, content];
+    },
+  );
+  const contents: Record<string, string> = {};
+  for (const entry of entries) {
+    if (entry !== undefined) {
+      contents[entry[0]] = entry[1];
+    }
+  }
+
+  return Object.keys(contents).length > 0 ? contents : undefined;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(concurrency, 1), items.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index] as T);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
+function isHeadContentCandidate(file: ChangedFile): boolean {
+  return !file.isBinary && file.status !== "deleted";
 }
 
 function readProviderToken(provider: "github" | "gitlab", args: string[]): string {

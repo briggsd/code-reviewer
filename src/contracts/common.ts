@@ -62,6 +62,7 @@ export type TraceEventType =
   | "agent.completed"
   | "coordinator.completed"
   | "grounding.applied"
+  | "grounding.full_content_corpus"
   | "location.backfill.applied"
   | "acknowledgements.applied"
   | "publisher.completed"

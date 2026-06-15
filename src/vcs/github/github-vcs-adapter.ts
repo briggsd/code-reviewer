@@ -25,6 +25,7 @@ import {
   parseSummaryHiddenMetadata,
 } from "../../publisher/summary-metadata.ts";
 import { breakGlassMatchesHead, GITHUB_TRUSTED_ASSOCIATIONS } from "../break-glass-marker.ts";
+import { decodeBase64Utf8Content } from "../shared/base64-content.ts";
 import type { FetchLike } from "../shared/http-json-client.ts";
 import { HttpJsonClient, HttpRequestError } from "../shared/http-json-client.ts";
 
@@ -377,11 +378,26 @@ export class GitHubVcsAdapter implements VcsAdapter {
     }
 
     const data = (await response.json()) as { content?: unknown; encoding?: unknown };
-    if (data.encoding !== "base64" || typeof data.content !== "string") {
+    return decodeBase64Utf8Content(data);
+  }
+
+  async readChangeFileAtHead(change: ChangeMetadata, path: string): Promise<string | undefined> {
+    try {
+      const owner = change.repository.owner ?? ownerFromSlug(change.repository.slug);
+      const repo = repoNameFromSlug(change.repository.slug, change.repository.name);
+      const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+      const url = `${this.apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}?ref=${encodeURIComponent(change.headSha)}`;
+      const response = await this.fetchImpl(url, { headers: this.headers() });
+      if (!response.ok) {
+        return undefined;
+      }
+
+      const data = (await response.json()) as { content?: unknown; encoding?: unknown };
+      return decodeBase64Utf8Content(data);
+    } catch {
+      // Best-effort deterministic grounding: head-file read failures never fail the review.
       return undefined;
     }
-
-    return Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8");
   }
 
   async publishInlineFindings(

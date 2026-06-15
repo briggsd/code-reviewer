@@ -200,6 +200,12 @@
   as ONE string (so multi-line quotes match); truncated diffs skip grounding. Don't "optimize" any of
   these back — each guards a real false-drop class found in review (multi-line gate-flip; deletion
   findings; partial corpus). No severity exemption (drop is groundability-based by design).
+- Full-file grounding content (#214) is PR/MR-head content: untrusted reviewed-repo data for
+  deterministic matching ONLY. It may be fetched through `readChangeFileAtHead` / local
+  working-tree reads and passed as an internal runner map to `assessFindingGrounding`, but it must
+  never be put on `ReviewContext`, reviewer/coordinator prompts, `change-context.json`, trace
+  payloads, telemetry/rollups, summary hidden metadata, or state records. Counts/bytes-only
+  observability is fine; paths and file bodies are not.
 - Do not ground/drop findings against the narrative `evidence` field (the #54.2 trap). Real
   `evidence` is prose or about-absence, not verbatim quotes → string-matching it false-drops real
   findings (violates principle #1). Grounding requires a contractually-verbatim field

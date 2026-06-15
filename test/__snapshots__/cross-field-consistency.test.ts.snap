@@ -11,7 +11,7 @@ Files reviewed: 1
 Files ignored: 0
 Findings: 0
 
-_2 finding(s) shown at low confidence (kept, non-blocking): cited code was not found in the changed hunks._
+_2 finding(s) shown at low confidence (kept, non-blocking): cited code was not found in the changed-file grounding corpus._
 
 No blocking findings (see low-confidence block below).
 
@@ -19,7 +19,7 @@ No blocking findings (see low-confidence block below).
 
 ### ⚠️ Low-confidence findings (kept, non-blocking)
 
-_Shown at low confidence: cited code was not found in the changed hunks. Excluded from the gate / not counted toward the result._
+_Shown at low confidence: cited code was not found in the changed-file grounding corpus. Excluded from the gate / not counted toward the result._
 
 - **CRITICAL: Fabricated critical 1** (auth/accounts.ts) — fix it
 - **WARNING: Fabricated critical 2** (auth/accounts.ts) — fix it

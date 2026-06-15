@@ -38,7 +38,7 @@ import {
 import { writeReviewContextArtifacts } from "./context-artifacts.ts";
 import { filterDiff, type IgnoredFile } from "./diff-filter.ts";
 import { classifyReviewError } from "./error-classifier.ts";
-import { assessFindingGrounding } from "./evidence-grounding.ts";
+import { assessFindingGrounding, type FindingGroundingCorpusStats } from "./evidence-grounding.ts";
 import { normalizeReviewFixture, type ReviewFixture } from "./fixture.ts";
 import type { IncrementalReviewPlan } from "./incremental-review.ts";
 import { narrowDiffToPaths } from "./incremental-review.ts";
@@ -128,6 +128,7 @@ export interface RunReviewFromChangeOptions extends Omit<RunReviewOptions, "fixt
   runId?: string;
   priorState?: PriorReviewState;
   fakeFindings?: Finding[];
+  changedFileContents?: Record<string, string>;
   breakGlassOverride?: BreakGlassOverride;
   incremental?: IncrementalReviewPlan;
 }
@@ -149,6 +150,7 @@ export async function runReviewFromChange(
     ...(options.config !== undefined ? { config: options.config } : {}),
     ...(options.priorState !== undefined ? { priorState: options.priorState } : {}),
     ...(options.fakeFindings !== undefined ? { fakeFindings: options.fakeFindings } : {}),
+    changedFileContents: options.changedFileContents,
   });
 
   return runReview({
@@ -397,6 +399,7 @@ async function fuseAndDecide(input: {
   reviewedPaths: Set<string> | undefined;
   coordinatorMs: number;
   coordinatorCompletedAt: Date;
+  fullContentBudgetBytes: number;
   clock: () => Date;
 }): Promise<{
   summary: ReviewSummary;
@@ -413,10 +416,15 @@ async function fuseAndDecide(input: {
     reviewedPaths,
     coordinatorMs,
     coordinatorCompletedAt,
+    fullContentBudgetBytes,
     clock,
   } = input;
   const runId = context.runId;
-  const grounding = assessFindingGrounding(runtimeResult.summary.findings, context.diff);
+  const grounding = assessFindingGrounding(runtimeResult.summary.findings, context.diff, {
+    changedFileContents: options.fixture.changedFileContents,
+    fullContentBudgetBytes,
+    sensitivePaths: context.config.sensitivePaths,
+  });
   const groundingDroppedCount = grounding.dropped.length;
   let groundedSummary = runtimeResult.summary;
   if (groundingDroppedCount > 0) {
@@ -426,7 +434,7 @@ async function fuseAndDecide(input: {
       findings: grounding.grounded,
       // #206: derive the body deterministically from the GROUNDED set (not the coordinator's
       // pre-grounding prose, which could narrate withheld findings and is injection-influenceable).
-      body: `${createSummaryBody(context, grounding.grounded)}\n\n_${groundingDroppedCount} finding(s) shown at low confidence (kept, non-blocking): cited code was not found in the changed hunks._`,
+      body: `${createSummaryBody(context, grounding.grounded)}\n\n_${groundingDroppedCount} finding(s) shown at low confidence (kept, non-blocking): cited code was not found in the changed-file grounding corpus._`,
       // #207: down-weight rather than drop — each demoted finding is confidence:"low", shown in
       // the low-confidence block, excluded from gate/title/findingIds, never silently lost.
       groundingWithheld: grounding.dropped.map((f) => ({ ...f, confidence: "low" as const })),
@@ -447,6 +455,12 @@ async function fuseAndDecide(input: {
       },
     });
   }
+  await emitFullContentCorpusTrace({
+    traceSink: options.traceSink,
+    runId,
+    timestamp: clock().toISOString(),
+    stats: grounding.corpusStats,
+  });
   // Deterministically backfill `location` from `quotedCode` for findings that
   // have evidence but no usable line — so they become inline-eligible after
   // assignStableFindingIds keys them at their authoritative coordinates (#87).
@@ -560,6 +574,34 @@ async function fuseAndDecide(input: {
     acknowledgedCount,
     suppressedCount,
   };
+}
+
+async function emitFullContentCorpusTrace(input: {
+  traceSink: TraceSink | undefined;
+  runId: string;
+  timestamp: string;
+  stats: FindingGroundingCorpusStats;
+}): Promise<void> {
+  const { traceSink, runId, timestamp, stats } = input;
+  if (stats.fullContentAvailableCount === 0 && stats.fullContentSkippedByBudgetCount === 0) {
+    return;
+  }
+
+  await emitTrace(traceSink, {
+    type: "grounding.full_content_corpus",
+    runId,
+    role: "coordinator",
+    timestamp,
+    data: {
+      fullContentAvailableCount: stats.fullContentAvailableCount,
+      includedCount: stats.fullContentIncludedCount,
+      skippedByBudgetCount: stats.fullContentSkippedByBudgetCount,
+      includedBytes: stats.fullContentIncludedBytes,
+      ...(stats.fullContentBudgetBytes !== undefined
+        ? { budgetBytes: stats.fullContentBudgetBytes }
+        : {}),
+    },
+  });
 }
 
 async function emitCompletedRunMetrics(input: {
@@ -912,6 +954,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       reviewedPaths,
       coordinatorMs,
       coordinatorCompletedAt,
+      fullContentBudgetBytes: admissionDecision.budgetBytes,
       clock,
     });
 

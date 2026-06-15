@@ -1,3 +1,5 @@
+import { readFile, realpath } from "node:fs/promises";
+import { isAbsolute, join, relative } from "node:path";
 import type {
   ChangedFile,
   ChangedFileStatus,
@@ -15,6 +17,7 @@ import type {
 // without a real repository.
 
 export type GitRunner = (args: readonly string[]) => Promise<string>;
+export type WorkingTreeFileReader = (repoRelativePath: string) => Promise<string>;
 
 export interface GitDiffSourceOptions {
   // Ref to diff the working tree against. Default "HEAD" reviews uncommitted
@@ -23,11 +26,15 @@ export interface GitDiffSourceOptions {
   base?: string;
   // Overrides the synthesized changeId (defaults to the current branch name).
   changeId?: string;
+  // Injected in tests to avoid filesystem I/O. Reads a repo-relative working-tree path.
+  readWorkingTreeFile?: WorkingTreeFileReader;
 }
 
 export interface GitDiffChange {
   metadata: ChangeMetadata;
   diff: DiffSummary;
+  /** Working-tree file bodies for deterministic grounding only; omitted from prompt artifacts. */
+  changedFileContents?: Record<string, string>;
 }
 
 export async function loadGitDiffChange(
@@ -89,7 +96,69 @@ export async function loadGitDiffChange(
     labels: [],
   };
 
-  return { metadata, diff };
+  const changedFileContents = await readChangedFileContents(files, topLevel, options);
+
+  return {
+    metadata,
+    diff,
+    ...(Object.keys(changedFileContents).length > 0 ? { changedFileContents } : {}),
+  };
+}
+
+async function readChangedFileContents(
+  files: readonly ChangedFile[],
+  topLevel: string,
+  options: GitDiffSourceOptions,
+): Promise<Record<string, string>> {
+  const contents: Record<string, string> = {};
+  const reader =
+    options.readWorkingTreeFile ??
+    (topLevel.length > 0
+      ? async (repoRelativePath: string) =>
+          readFile(await resolveRepoFilePath(topLevel, repoRelativePath), "utf8")
+      : undefined);
+
+  if (reader === undefined) {
+    return contents;
+  }
+
+  await Promise.all(
+    files.map(async (file) => {
+      if (file.isBinary || file.status === "deleted") {
+        return;
+      }
+      try {
+        contents[file.path] = await reader(file.path);
+      } catch {
+        // Best-effort local grounding: read failures simply mean no full-file corpus entry.
+      }
+    }),
+  );
+
+  return contents;
+}
+
+async function resolveRepoFilePath(topLevel: string, repoRelativePath: string): Promise<string> {
+  if (isAbsolute(repoRelativePath)) {
+    throw new Error("changed file path must be repo-relative");
+  }
+
+  const candidate = join(topLevel, repoRelativePath);
+  const rel = relative(topLevel, candidate);
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+    throw new Error("changed file path must stay inside the repository");
+  }
+
+  const [realTopLevel, realCandidate] = await Promise.all([
+    realpath(topLevel),
+    realpath(candidate),
+  ]);
+  const realRel = relative(realTopLevel, realCandidate);
+  if (realRel === "" || realRel.startsWith("..") || isAbsolute(realRel)) {
+    throw new Error("changed file path must stay inside the repository");
+  }
+
+  return realCandidate;
 }
 
 async function runValue(run: GitRunner, args: readonly string[]): Promise<string> {

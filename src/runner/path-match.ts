@@ -1,4 +1,4 @@
-export function matchesAnyGlob(path: string, patterns: string[]): boolean {
+export function matchesAnyGlob(path: string, patterns: readonly string[]): boolean {
   return patterns.some((pattern) => matchesGlob(path, pattern));
 }
 

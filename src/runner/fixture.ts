@@ -22,6 +22,8 @@ export interface ReviewFixture {
   risk?: RiskAssessment;
   priorState?: PriorReviewState;
   fakeFindings?: Finding[];
+  /** PR/MR-head changed-file bodies for deterministic grounding only; never prompt/artifact data. */
+  changedFileContents?: Record<string, string>;
 }
 
 export async function loadReviewFixture(path: string): Promise<ReviewFixture> {
@@ -61,11 +63,18 @@ export function normalizeReviewFixture(value: unknown, source = "<inline>"): Rev
       ? { priorState: value.priorState as unknown as PriorReviewState }
       : {}),
     fakeFindings: Array.isArray(value.fakeFindings) ? (value.fakeFindings as Finding[]) : [],
+    ...(isStringRecord(value.changedFileContents)
+      ? { changedFileContents: value.changedFileContents }
+      : {}),
   };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
 }
 
 function isSafetyMode(value: unknown): value is SafetyMode {

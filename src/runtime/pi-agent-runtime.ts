@@ -1518,7 +1518,14 @@ async function readJsonlStream(
       if (providerError !== undefined) {
         throw providerError;
       }
-      throw parseError;
+
+      const skippedEvent = {
+        type: "runtime_json_parse_skipped",
+        error: serializeRuntimeError(parseError),
+      };
+      events.push(skippedEvent);
+      onEvent?.(skippedEvent);
+      return;
     }
 
     // A well-formed `{"type":"error",...}` envelope is a provider error, not an event.

@@ -1,4 +1,6 @@
 import type { DiffSummary, Finding } from "../contracts/index.ts";
+import { isLowSignalPath } from "./diff-filter.ts";
+import { matchesAnyGlob } from "./path-match.ts";
 import { normalizeForMatch as normalize } from "./text-normalize.ts";
 
 // A small floor avoids dropping on trivially short quotes; quotedCode is verbatim
@@ -17,6 +19,28 @@ function normalizePath(path: string): string {
 export interface FindingGroundingAssessment {
   grounded: Finding[]; // keep — order preserved
   dropped: Finding[]; // fabricated-quote findings to withhold
+  corpusStats: FindingGroundingCorpusStats;
+}
+
+export interface FindingGroundingCorpusStats {
+  fullContentAvailableCount: number;
+  fullContentIncludedCount: number;
+  fullContentSkippedByBudgetCount: number;
+  fullContentIncludedBytes: number;
+  fullContentBudgetBytes?: number;
+}
+
+export interface FindingGroundingOptions {
+  /**
+   * Full PR/MR-head file bodies for changed files. Untrusted content for deterministic matching
+   * only; callers must not put this map on ReviewContext, prompt payloads, artifacts, telemetry, or
+   * summaries.
+   */
+  changedFileContents?: Readonly<Record<string, string>> | undefined;
+  /** Byte budget for the full-content corpus. Mirrors the per-tier patch admission budget. */
+  fullContentBudgetBytes?: number;
+  /** Sensitive files are ranked as signal-bearing even if their path resembles low-signal bulk. */
+  sensitivePaths?: readonly string[];
 }
 
 /**
@@ -34,8 +58,15 @@ export interface FindingGroundingAssessment {
  *    spaces exactly as normalize() collapses the newlines inside a multi-line quotedCode entry —
  *    otherwise a multi-line quote could never match (and a dropped critical could flip the gate).
  */
-function buildCorpus(diff: DiffSummary): string {
-  const parts: string[] = [];
+const EMPTY_CORPUS_STATS: FindingGroundingCorpusStats = {
+  fullContentAvailableCount: 0,
+  fullContentIncludedCount: 0,
+  fullContentSkippedByBudgetCount: 0,
+  fullContentIncludedBytes: 0,
+};
+
+function buildPatchCorpusByPath(diff: DiffSummary): Map<string, string> {
+  const partsByPath = new Map<string, string[]>();
 
   for (const file of diff.files) {
     const patch = file.patch;
@@ -43,30 +74,147 @@ function buildCorpus(diff: DiffSummary): string {
       continue;
     }
 
+    const path = normalizePath(file.path);
+    const parts = partsByPath.get(path) ?? [];
     const lines = patch.split("\n");
     for (const line of lines) {
-      // Drop unified-diff scaffolding lines
-      if (
-        line.startsWith("@@") ||
-        line.startsWith("diff ") ||
-        line.startsWith("index ") ||
-        line.startsWith("--- ") ||
-        line.startsWith("+++ ")
-      ) {
+      if (isDiffScaffoldingLine(line)) {
         continue;
       }
 
-      // Strip a single leading column char (+, -, or space); keep the line content.
-      const stripped =
-        line.length > 0 && (line[0] === "+" || line[0] === "-" || line[0] === " ")
-          ? line.slice(1)
-          : line;
+      parts.push(stripUnifiedDiffColumn(line));
+    }
+    partsByPath.set(path, parts);
+  }
 
-      parts.push(stripped);
+  return new Map([...partsByPath].map(([path, parts]) => [path, normalize(parts.join("\n"))]));
+}
+
+function isDiffScaffoldingLine(line: string): boolean {
+  return DIFF_SCAFFOLDING_PREFIXES.some((prefix) => line.startsWith(prefix));
+}
+
+const DIFF_SCAFFOLDING_PREFIXES = ["@@", "diff ", "index ", "--- ", "+++ "] as const;
+
+function stripUnifiedDiffColumn(line: string): string {
+  return line.length > 0 && DIFF_COLUMN_PREFIXES.has(line[0] ?? "") ? line.slice(1) : line;
+}
+
+const DIFF_COLUMN_PREFIXES = new Set(["+", "-", " "]);
+
+interface FullContentCandidate {
+  path: string;
+  content: string;
+  bytes: number;
+  lowSignal: boolean;
+}
+
+function buildFullContentCorpusByPath(
+  diff: DiffSummary,
+  options: FindingGroundingOptions,
+): { corpusByPath: Map<string, string>; stats: FindingGroundingCorpusStats } {
+  const contents = options.changedFileContents;
+  const budgetBytes = options.fullContentBudgetBytes;
+  if (contents === undefined || budgetBytes === undefined || budgetBytes <= 0) {
+    return emptyFullContentCorpus(budgetBytes);
+  }
+
+  const candidates = collectFullContentCandidates(diff, contents, options.sensitivePaths ?? []);
+  const ranked = rankFullContentCandidates(candidates, budgetBytes);
+
+  const included = new Set<string>();
+  let includedBytes = 0;
+  for (const candidate of ranked) {
+    if (includedBytes + candidate.bytes <= budgetBytes) {
+      included.add(candidate.path);
+      includedBytes += candidate.bytes;
     }
   }
 
-  return normalize(parts.join("\n"));
+  const corpusByPath = new Map<string, string>();
+  for (const candidate of candidates) {
+    if (included.has(candidate.path)) {
+      corpusByPath.set(candidate.path, normalize(candidate.content));
+    }
+  }
+
+  return {
+    corpusByPath,
+    stats: {
+      fullContentAvailableCount: candidates.length,
+      fullContentIncludedCount: included.size,
+      fullContentSkippedByBudgetCount: candidates.length - included.size,
+      fullContentIncludedBytes: includedBytes,
+      fullContentBudgetBytes: budgetBytes,
+    },
+  };
+}
+
+function emptyFullContentCorpus(budgetBytes: number | undefined): {
+  corpusByPath: Map<string, string>;
+  stats: FindingGroundingCorpusStats;
+} {
+  return {
+    corpusByPath: new Map(),
+    stats:
+      budgetBytes === undefined
+        ? EMPTY_CORPUS_STATS
+        : { ...EMPTY_CORPUS_STATS, fullContentBudgetBytes: budgetBytes },
+  };
+}
+
+function collectFullContentCandidates(
+  diff: DiffSummary,
+  contents: Readonly<Record<string, string>>,
+  sensitivePaths: readonly string[],
+): FullContentCandidate[] {
+  const contentByNormalizedPath = new Map(
+    Object.entries(contents).map(([path, content]) => [normalizePath(path), content]),
+  );
+  const candidates: FullContentCandidate[] = [];
+
+  for (const file of diff.files) {
+    if (file.isBinary || file.status === "deleted") {
+      continue;
+    }
+
+    const path = normalizePath(file.path);
+    const content = contentByNormalizedPath.get(path);
+    if (content === undefined) {
+      continue;
+    }
+
+    candidates.push({
+      path,
+      content,
+      bytes: Buffer.byteLength(content, "utf8"),
+      lowSignal: !matchesAnyGlob(file.path, sensitivePaths) && isLowSignalPath(file.path),
+    });
+  }
+
+  return candidates;
+}
+
+function rankFullContentCandidates(
+  candidates: readonly FullContentCandidate[],
+  budgetBytes: number,
+): readonly FullContentCandidate[] {
+  const originalBytes = candidates.reduce((sum, candidate) => sum + candidate.bytes, 0);
+  return originalBytes <= budgetBytes
+    ? candidates
+    : [...candidates].sort(compareFullContentCandidates);
+}
+
+function compareFullContentCandidates(a: FullContentCandidate, b: FullContentCandidate): number {
+  const aLow = a.lowSignal ? 1 : 0;
+  const bLow = b.lowSignal ? 1 : 0;
+  if (aLow !== bLow) {
+    return aLow - bLow;
+  }
+  if (a.bytes !== b.bytes) {
+    return a.bytes - b.bytes;
+  }
+  return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 }
 
 /**
@@ -91,15 +239,17 @@ function buildCorpus(diff: DiffSummary): string {
 export function assessFindingGrounding(
   findings: readonly Finding[],
   diff: DiffSummary,
+  options: FindingGroundingOptions = {},
 ): FindingGroundingAssessment {
   // When the diff is truncated the corpus is incomplete, so a legitimate quote may be absent
   // from it. Never drop on a partial corpus — keep every finding (the #54.2 filter must not
   // hide real findings; correctness over savings).
   if (diff.truncated) {
-    return { grounded: [...findings], dropped: [] };
+    return { grounded: [...findings], dropped: [], corpusStats: EMPTY_CORPUS_STATS };
   }
 
-  const corpus = buildCorpus(diff);
+  const patchCorpusByPath = buildPatchCorpusByPath(diff);
+  const fullContent = buildFullContentCorpusByPath(diff, options);
 
   // Build the set of changed-file paths so we can scope the drop gate.
   // Only findings whose location.path is itself a changed file are eligible to be dropped —
@@ -139,8 +289,15 @@ export function assessFindingGrounding(
       continue;
     }
 
-    // Drop iff none of the checkable quotes is a substring of the corpus
-    const anyGrounded = checkableQuotes.some((q) => corpus.includes(q));
+    // Drop iff none of the checkable quotes is a substring of this changed file's corpus.
+    // The hunk corpus keeps deleted-line findings eligible; the optional full-content corpus
+    // promotes real quotes from unchanged regions of the same changed file.
+    const normalizedLocationPath = normalizePath(locationPath);
+    const patchCorpus = patchCorpusByPath.get(normalizedLocationPath) ?? "";
+    const fullContentCorpus = fullContent.corpusByPath.get(normalizedLocationPath) ?? "";
+    const anyGrounded = checkableQuotes.some(
+      (q) => patchCorpus.includes(q) || fullContentCorpus.includes(q),
+    );
     if (anyGrounded) {
       grounded.push(finding);
     } else {
@@ -148,5 +305,5 @@ export function assessFindingGrounding(
     }
   }
 
-  return { grounded, dropped };
+  return { grounded, dropped, corpusStats: fullContent.stats };
 }

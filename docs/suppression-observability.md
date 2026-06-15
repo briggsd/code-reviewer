@@ -64,12 +64,15 @@ three requirements. Citations reference the source at M020 S01 time (branch `mai
 ### Evidence grounding
 
 **What:** `assessFindingGrounding` in `src/runner/evidence-grounding.ts` partitions coordinator
-findings into `grounded` (cited code found in the diff-hunk corpus) and `dropped` (not found).
+findings into `grounded` (cited code found in the changed file's grounding corpus) and `dropped`
+(not found). Patch hunks remain the floor, including deleted lines; when changed-file content is
+available (from PR/MR HEAD or the local git working tree), a budget-bounded full-file corpus
+promotes findings that quote real code from an unchanged region of the same changed file (#214).
 Dropped findings are not silently discarded — they are down-weighted to `confidence: "low"` and
 kept in a labeled non-blocking block (`groundingWithheld`), per the #207 reframe.
 
 **Drop-rate signal.** `groundingDroppedCount` is emitted in `src/runner/run-review.ts` (line
-412) and carried into `run_metrics` telemetry via `src/runner/run-metrics.ts` (lines 163 and
+421) and carried into `run_metrics` telemetry via `src/runner/run-metrics.ts` (lines 163 and
 291-292) as `grounding.droppedFindingCount`. `telemetry:quality` tracks `groundingDropRate`
 (run-level: fraction of runs with any grounding drop) and `groundingWithholdRate` (finding-level:
 demoted ÷ produced) with breaching thresholds in `src/state/quality-report.ts` (lines 46-48,
@@ -78,18 +81,22 @@ demoted ÷ produced) with breaching thresholds in `src/state/quality-report.ts` 
 **Visible-on-drop.** (a) Summary comment: `formatWithheldGroup` in
 `src/publisher/summary-markdown.ts` (lines 296-311) renders a labeled "Low-confidence findings
 (kept, non-blocking)" block listing every demoted finding. (b) JSONL trace: a `grounding.applied`
-event is emitted in `src/runner/run-review.ts` (lines 440-454) with `droppedFindingCount` and
+event is emitted in `src/runner/run-review.ts` (lines 441-454) with `droppedFindingCount` and
 per-dropped metadata (reviewer, severity, category, title — counts + labels only, no diff or
 prompt text).
+
+`grounding.full_content_corpus` is also emitted as a trace-only, counts-only marker when full
+changed-file content was available for grounding. It records availability, inclusion, skipped-by-
+budget count, included bytes, and budget bytes — no paths, file bodies, prompts, or finding text.
 
 **Regression case.** `test/evidence-grounding.test.ts` has 20+ unit tests covering both
 directions: "finding with quotedCode matching a patch line → grounded" and "finding with
 quotedCode NOT in any patch (fabricated) → dropped," plus carve-outs for the no-quote and
-sub-threshold cases. `test/evidence-grounding-spine.test.ts` covers the run-through-coordinator
-integration path. `telemetry:quality` threshold tests are in `test/quality-report.test.ts`
-(lines 50-83). Note: an eval scenario asserting that a valid finding survives grounding in a
-full end-to-end run is tracked in #214 (full-file-corpus promoter) — not yet present in
-`evals/scenarios/`.
+sub-threshold cases and #214 full-file promotion/budget behavior. `test/evidence-grounding-spine.test.ts`
+covers the run-through-coordinator integration path, including a full-content-only quote and a
+`change-context.json` leak guard. `telemetry:quality` threshold tests are in
+`test/quality-report.test.ts` (lines 50-83). #239 can now add the sealed eval/regression scenario
+for valid-finding survival on top of this implemented full-file-corpus promoter.
 
 ---
 
@@ -275,10 +282,9 @@ will triage which to file:
    summary by design." (Issue #222 tracks the false-absence / completeness fix; the drop-rate
    signal and visible-on-drop for the gate itself are a separate follow-up.)
 
-2. **Evidence grounding — no eval scenario for valid-finding survival.** The unit tests assert
-   the correct grounding and drop behavior, but there is no eval scenario (in `evals/scenarios/`)
-   asserting that a valid finding survives the full run's grounding step. This is tracked in #214
-   (full-file-corpus promoter); the regression case should be added alongside or before that issue.
+2. **Evidence grounding — no eval scenario for valid-finding survival.** Unit and spine tests now
+   assert that a valid full-content-only quote survives grounding (#214), but there is still no
+   sealed eval scenario in `evals/scenarios/`. #239 can add that regression on top of the promoter.
 
 ---
 
@@ -289,4 +295,5 @@ will triage which to file:
 - S02 (#209) — false-absence fix (inline-readiness + summary coherence)
 - S03 (#222) — false-absence soundness / prompt-floor for the absent-finding signal
 - S04 (#219) — structured-tool path all-or-nothing gap fix
-- #214 — evidence-grounding full-file-corpus promoter (pending)
+- #214 — evidence-grounding full-file-corpus promoter
+- #239 — sealed eval/regression for valid-finding survival

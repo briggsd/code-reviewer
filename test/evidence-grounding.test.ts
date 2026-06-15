@@ -410,4 +410,156 @@ describe("assessFindingGrounding", () => {
     expect(result.dropped[0]).toBe(fabricated);
     expect(result.grounded).toHaveLength(0);
   });
+
+  // ---------------------------------------------------------------------------
+  // #214: full changed-file grounding corpus
+  // ---------------------------------------------------------------------------
+
+  test("quoted code absent from patch hunks but present in supplied full file content → grounded", () => {
+    const diff = makeDiff("+  return db.accounts.findById(accountId);");
+    const finding = makeFinding({
+      quotedCode: ["const ownerGuard = await loadOwnerGuard(accountId);"],
+    });
+
+    const result = assessFindingGrounding([finding], diff, {
+      changedFileContents: {
+        "auth/accounts.ts": [
+          "export async function getAccount(req) {",
+          "  const ownerGuard = await loadOwnerGuard(accountId);",
+          "  return db.accounts.findById(accountId);",
+          "}",
+        ].join("\n"),
+      },
+      fullContentBudgetBytes: 10_000,
+    });
+
+    expect(result.grounded).toContain(finding);
+    expect(result.dropped).toHaveLength(0);
+    expect(result.corpusStats.fullContentAvailableCount).toBe(1);
+    expect(result.corpusStats.fullContentIncludedCount).toBe(1);
+  });
+
+  test("fabricated quote absent from both patch and full content → dropped", () => {
+    const diff = makeDiff("+  return db.accounts.findById(accountId);");
+    const finding = makeFinding({
+      quotedCode: ["return db.accounts.deleteEverything();"],
+    });
+
+    const result = assessFindingGrounding([finding], diff, {
+      changedFileContents: {
+        "auth/accounts.ts": "export const safe = true;\n",
+      },
+      fullContentBudgetBytes: 10_000,
+    });
+
+    expect(result.grounded).toHaveLength(0);
+    expect(result.dropped).toContain(finding);
+  });
+
+  test("deleted-line quote still grounds from hunk even though absent from head full content", () => {
+    const diff = makeDiff("-  verifyToken(req);\n+  return db.accounts.findById(accountId);");
+    const finding = makeFinding({ quotedCode: ["verifyToken(req);"] });
+
+    const result = assessFindingGrounding([finding], diff, {
+      changedFileContents: {
+        "auth/accounts.ts":
+          "export async function getAccount(req) {\n  return db.accounts.findById(accountId);\n}\n",
+      },
+      fullContentBudgetBytes: 10_000,
+    });
+
+    expect(result.grounded).toContain(finding);
+    expect(result.dropped).toHaveLength(0);
+  });
+
+  test("full content budget excludes over-budget content deterministically; excluded out-of-hunk quote does not promote", () => {
+    const smallContent = "export const keptSignal = true;\n";
+    const bulkContent = `${"x".repeat(200)}\nFULL_ONLY_BULK_SENTINEL\n`;
+    const diff: DiffSummary = {
+      files: [
+        {
+          path: "src/signal.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          isBinary: false,
+          patch: "+export const changed = true;",
+        },
+        {
+          path: "examples/fixtures/bulk.json",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          isBinary: false,
+          patch: '+{"changed":true}',
+        },
+      ],
+      totalAdditions: 2,
+      totalDeletions: 0,
+      truncated: false,
+    };
+    const includedSignal = makeFinding({
+      location: { path: "src/signal.ts" },
+      quotedCode: ["export const keptSignal = true;"],
+    });
+    const excludedBulk = makeFinding({
+      location: { path: "examples/fixtures/bulk.json" },
+      quotedCode: ["FULL_ONLY_BULK_SENTINEL"],
+    });
+
+    const result = assessFindingGrounding([includedSignal, excludedBulk], diff, {
+      changedFileContents: {
+        "src/signal.ts": smallContent,
+        "examples/fixtures/bulk.json": bulkContent,
+      },
+      fullContentBudgetBytes: Buffer.byteLength(smallContent, "utf8") + 1,
+    });
+
+    expect(result.grounded).toContain(includedSignal);
+    expect(result.dropped).toContain(excludedBulk);
+    expect(result.corpusStats.fullContentAvailableCount).toBe(2);
+    expect(result.corpusStats.fullContentIncludedCount).toBe(1);
+    expect(result.corpusStats.fullContentSkippedByBudgetCount).toBe(1);
+  });
+
+  test("out-of-file quote from another changed file does not ground", () => {
+    const diff: DiffSummary = {
+      files: [
+        {
+          path: "auth/accounts.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          isBinary: false,
+          patch: "+  return db.accounts.findById(accountId);",
+        },
+        {
+          path: "auth/tokens.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          isBinary: false,
+          patch: "+  return verifyToken(req);",
+        },
+      ],
+      totalAdditions: 2,
+      totalDeletions: 0,
+      truncated: false,
+    };
+    const finding = makeFinding({
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["return verifyToken(req);"],
+    });
+
+    const result = assessFindingGrounding([finding], diff, {
+      changedFileContents: {
+        "auth/accounts.ts": "export const accounts = true;\n",
+        "auth/tokens.ts": "export function check() { return verifyToken(req); }\n",
+      },
+      fullContentBudgetBytes: 10_000,
+    });
+
+    expect(result.dropped).toContain(finding);
+    expect(result.grounded).toHaveLength(0);
+  });
 });

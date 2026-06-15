@@ -111,6 +111,13 @@ export interface VcsAdapter {
   // First of the base-ref reads (Foundation B; #46's prev-head..head diff will be a sibling later).
   readBaseBranchFile?(change: ChangeMetadata, path: string): Promise<string | undefined>;
 
+  // Read a UTF-8 text file from the change's HEAD commit. This is PR/MR-authored, untrusted
+  // content, used only by deterministic grounding to confirm quoted code from unchanged regions
+  // of changed files. Do not use it for trust-sensitive config, prompts, context artifacts, or
+  // telemetry. Best-effort: absent files, auth/network/API failures, and malformed payloads return
+  // undefined and must not fail the review.
+  readChangeFileAtHead?(change: ChangeMetadata, path: string): Promise<string | undefined>;
+
   // Detect a human "break glass" override from a PR/MR comment by a TRUSTED author (#22 phase 2).
   // Returns the most recent qualifying override, or undefined when none is present. Best-effort:
   // a fetch failure degrades to "no override" (returns undefined), never fails the review — the

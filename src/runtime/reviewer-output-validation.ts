@@ -368,7 +368,13 @@ function maxSeverity(severities: readonly Severity[]): Severity | undefined {
 }
 
 export function parseCoordinatorOutput(text: string, allowedReviewerRoles: readonly string[]) {
-  const parsed = getRecord(parseJsonObject(text));
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = getRecord(parseJsonObject(text));
+  } catch {
+    return undefined;
+  }
+
   if (
     !isReviewDecision(parsed.decision) ||
     !isCiOutcome(parsed.outcome) ||

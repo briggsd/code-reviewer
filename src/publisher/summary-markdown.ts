@@ -364,7 +364,7 @@ function formatWithheldGroup(findings: Finding[]): string[] {
     "",
     "### ⚠️ Low-confidence findings (kept, non-blocking)",
     "",
-    "_Shown at low confidence: cited code was not found in the changed hunks. Excluded from the gate / not counted toward the result._",
+    "_Shown at low confidence: cited code was not found in the changed-file grounding corpus. Excluded from the gate / not counted toward the result._",
     "",
   ];
   for (const finding of sorted) {

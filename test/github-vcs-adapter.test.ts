@@ -885,6 +885,46 @@ describe("GitHubVcsAdapter", () => {
     expect(url).toContain("?ref=release%2Fv2");
   });
 
+  test("readChangeFileAtHead fetches head content at headSha and decodes base64", async () => {
+    let seenUrl = "";
+    const adapter = new GitHubVcsAdapter({
+      fetch: async (input) => {
+        seenUrl = String(input);
+        return jsonResponse({
+          encoding: "base64",
+          content: Buffer.from("export const headOnly = true;\n", "utf8").toString("base64"),
+        });
+      },
+    });
+
+    const result = await adapter.readChangeFileAtHead(changeMetadata, "src/auth/accounts.ts");
+
+    expect(seenUrl).toBe(
+      "https://api.github.com/repos/example/payments-api/contents/src/auth/accounts.ts?ref=headsha123",
+    );
+    expect(result).toBe("export const headOnly = true;\n");
+  });
+
+  test("readChangeFileAtHead returns undefined on non-OK and malformed base64", async () => {
+    const nonOk = new GitHubVcsAdapter({
+      fetch: async () =>
+        new Response(JSON.stringify({ message: "not found" }), {
+          status: 404,
+          statusText: "Not Found",
+        }),
+    });
+    await expect(nonOk.readChangeFileAtHead(changeMetadata, "src/missing.ts")).resolves.toBe(
+      undefined,
+    );
+
+    const malformed = new GitHubVcsAdapter({
+      fetch: async () => jsonResponse({ encoding: "base64", content: "not base64!!!" }),
+    });
+    await expect(
+      malformed.readChangeFileAtHead(changeMetadata, "src/auth/accounts.ts"),
+    ).resolves.toBe(undefined);
+  });
+
   // --- Author-trust / dedup security tests (#84) ---
 
   test("planted marker from a non-bot author does NOT suppress the finding (finding is posted)", async () => {

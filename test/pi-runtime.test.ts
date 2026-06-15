@@ -1998,6 +1998,54 @@ describe("PiAgentRuntime", () => {
     }
   });
 
+  test("BunPiProcessRunner skips malformed non-provider JSONL event fragments", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-malformed-jsonl-"));
+
+    try {
+      const scriptPath = join(outputDirectory, "malformed-jsonl-pi.ts");
+      await writeFile(
+        scriptPath,
+        [
+          'console.log(\'{"type":"message_update","partial":{"path":".ai-review/context"\');',
+          'console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "{\\"findings\\":[]}" }] } }));',
+        ].join("\n"),
+      );
+      const runner = new BunPiProcessRunner({
+        command: "bun",
+        baseArgs: ["run", scriptPath],
+      });
+      const events: unknown[] = [];
+
+      const result = await runner.run({
+        runId: "malformed-jsonl-run",
+        agentRunId: "malformed-jsonl-run:pi:security",
+        role: "security",
+        prompt: "Return findings JSON.",
+        cwd: process.cwd(),
+        timeoutMs: 5_000,
+        toolPolicy: {
+          allowRead: false,
+          allowWrite: false,
+          allowShell: false,
+          allowedTools: [],
+          deniedTools: [],
+        },
+        onEvent: (event) => events.push(event),
+      });
+
+      expect(result.finalText).toBe('{"findings":[]}');
+      expect(events).toContainEqual({
+        type: "runtime_json_parse_skipped",
+        error: {
+          name: "SyntaxError",
+          message: expect.stringContaining("JSON") as unknown as string,
+        },
+      });
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
   test("classifies provider error envelopes in agent and review failure traces", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-provider-error-trace-"));
 
@@ -3049,6 +3097,34 @@ class ProseCoordinatorPiProcessRunner implements PiProcessRunner {
   }
 }
 
+// Coordinator returns NO submit_review event and malformed prose JSON. The runtime should fall
+// back to the deterministic summarizeReview path using validated reviewer findings.
+class MalformedProseCoordinatorPiProcessRunner implements PiProcessRunner {
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "coordinator") {
+      return {
+        finalText: '{"decision":"significant_concerns","outcome":"fail","findings":[',
+        events: [],
+        rawOutput: "",
+      };
+    }
+
+    const findings = input.role === "security" ? [securityFinding()] : [];
+    return {
+      finalText: "Findings delivered via the submit_findings tool.",
+      events: [
+        {
+          type: "tool_execution_start",
+          toolCallId: `toolu_reviewer_malformed_coord_${input.role}`,
+          toolName: "submit_findings",
+          args: { findings },
+        },
+      ],
+      rawOutput: "",
+    };
+  }
+}
+
 // Coordinator calls submit_review with INVALID args (bogus decision) AND valid prose finalText.
 // The invalid tool args must THROW rather than falling back to the prose path.
 class InvalidCoordinatorToolArgsPiProcessRunner implements PiProcessRunner {
@@ -3226,6 +3302,44 @@ describe("PiAgentRuntime structured submit_review wiring (M015 S04, #127)", () =
       expect(result.summary.decision).toBe("significant_concerns");
 
       // Trace: coordinator agent.output has structuredOutput === false (prose path).
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const coordinatorOutput = events.find(
+        (event) => event.type === "agent.output" && event.role === "coordinator",
+      );
+      expect(coordinatorOutput?.data?.structuredOutput).toBe(false);
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("malformed coordinator prose falls back to deterministic summary", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-coord-bad-prose-"));
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runtime = new PiAgentRuntime({
+        processRunner: new MalformedProseCoordinatorPiProcessRunner(),
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      expect(result.summary.decision).toBe("significant_concerns");
+      expect(result.summary.outcome).toBe("fail");
+      expect(result.summary.findings).toHaveLength(1);
+      expect(result.summary.findings[0]?.reviewer).toBe("security");
+
       const events = (await readFile(tracePath, "utf8"))
         .trim()
         .split("\n")
