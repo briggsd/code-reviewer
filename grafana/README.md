@@ -1,7 +1,7 @@
 # Grafana dashboards
 
 Importable Grafana dashboards over the telemetry this project ships to Loki
-(`AI_REVIEW_LOKI_URL`, see [docs/telemetry-export.md](../docs/telemetry-export.md)).
+(`AI_REVIEW_LOKI_URL`, see [docs/developer/telemetry-export.md](../docs/developer/telemetry-export.md)).
 
 ## `dashboards/ai-review-telemetry.json`
 

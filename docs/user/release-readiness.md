@@ -64,7 +64,7 @@ Releases are version-tag driven. The version convention is a `vX.Y.Z` git tag ma
 publish.** To cut a release:
 
 1. **Bump the version.** Set `package.json` `version` to the new `X.Y.Z`.
-2. **Update the changelog.** In [`CHANGELOG.md`](../CHANGELOG.md), promote the `## [Unreleased]`
+2. **Update the changelog.** In [`CHANGELOG.md`](../../CHANGELOG.md), promote the `## [Unreleased]`
    entries into a new `## [X.Y.Z]` section and refresh the comparison links at the bottom.
 3. **Land the bump** on the default branch (normal PR + merge).
 4. **Validate quality (dispatch).** Manually run `.github/workflows/release-package.yml` via

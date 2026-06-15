@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 
 describe("fork safety documentation", () => {
   test("documents the public-repo default and token boundaries", async () => {
-    const guide = await readFile("docs/fork-safety.md", "utf8");
+    const guide = await readFile("docs/user/fork-safety.md", "utf8");
 
     expect(guide).toContain(
       "read-only analysis on `pull_request` plus artifacts/status only for fork PRs",
@@ -17,8 +17,8 @@ describe("fork safety documentation", () => {
   });
 
   test("documents trusted operator resources versus reviewed-repo resources", async () => {
-    const guide = await readFile("docs/fork-safety.md", "utf8");
-    const architecture = await readFile("docs/architecture.md", "utf8");
+    const guide = await readFile("docs/user/fork-safety.md", "utf8");
+    const architecture = await readFile("docs/developer/architecture.md", "utf8");
 
     expect(guide).toContain("Trusted operator resources");
     expect(guide).toContain("Reviewed-repo resources");
@@ -37,10 +37,10 @@ describe("fork safety documentation", () => {
   });
 
   test("CI template docs link to fork safety guidance", async () => {
-    const ciDocs = await readFile("docs/ci-templates.md", "utf8");
+    const ciDocs = await readFile("docs/user/ci-templates.md", "utf8");
     const readme = await readFile("README.md", "utf8");
 
     expect(ciDocs).toContain("[Public repository fork safety](fork-safety.md)");
-    expect(readme).toContain("[Fork safety](docs/fork-safety.md)");
+    expect(readme).toContain("[Fork safety](docs/user/fork-safety.md)");
   });
 });

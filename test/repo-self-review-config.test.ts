@@ -68,7 +68,7 @@ describe("repo .ai-review.json self-review sensitive paths (#77)", () => {
   test("a non-gate change (docs only) is NOT escalated to full tier", async () => {
     const config = await loadProjectReviewConfig();
     const risk = classifyRisk({
-      diff: diffOf("docs/architecture.md"),
+      diff: diffOf("docs/developer/architecture.md"),
       config,
       ignoredFileCount: 0,
     });

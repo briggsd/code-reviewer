@@ -4,9 +4,9 @@ import { readFile } from "node:fs/promises";
 describe("release artifact workflow", () => {
   test("dispatch + tag triggers, builds an npm tarball, no registry publish", async () => {
     const workflow = await readFile(".github/workflows/release-package.yml", "utf8");
-    const guide = await readFile("docs/release-artifacts.md", "utf8");
+    const guide = await readFile("docs/user/release-artifacts.md", "utf8");
     const readme = await readFile("README.md", "utf8");
-    const readiness = await readFile("docs/release-readiness.md", "utf8");
+    const readiness = await readFile("docs/user/release-readiness.md", "utf8");
 
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).not.toContain("pull_request:");
@@ -76,7 +76,7 @@ describe("release artifact workflow", () => {
       expect(workflow.indexOf(key)).toBe(workflow.lastIndexOf(key));
     }
 
-    expect(readme).toContain("[Release artifacts](docs/release-artifacts.md)");
+    expect(readme).toContain("[Release artifacts](docs/user/release-artifacts.md)");
     expect(guide).toContain("does **not** publish to npm");
     expect(guide).toContain("contents: read");
     expect(guide).toContain("immutable URL");

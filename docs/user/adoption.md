@@ -56,8 +56,8 @@ Use the full raw CLI template in `examples/ci/github-actions-ai-review.yml` or t
 - **Packaged external install:** `bun run smoke:external-package` verifies isolated Bun global install plus installed `ai-code-review` execution; a live GitHub provider-backed variant has run successfully.
 - **Packaged Pi runtime:** `AI_REVIEW_LIVE_PI=1 bun run smoke:pi` has run successfully through the packed CLI and Pi JSON mode, producing `run.json`, `summary.json`, and `trace.jsonl` artifacts.
 - **Failure observability:** tests simulate runtime failure and assert persisted `run.json.error` plus a terminal `review.failed` trace event.
-- **GitHub inline publishing:** unit/adapter coverage verifies readiness gating, GitHub review comment creation, skipped reasons, and duplicate suppression. Live smoke status is tracked in `docs/inline-publishing.md` and `docs/workflow-smoke-test.md`.
-- **GitLab inline publishing:** unit/adapter coverage verifies readiness gating, MR diff-discussion creation with `diff_refs` positioning (RIGHT→`new_line`, LEFT→`old_line`), skipped reasons, and duplicate suppression. Not yet live-smoke-tested; MVP limitations (renamed files, single-page discussion dedup) are documented in `docs/inline-publishing.md`.
+- **GitHub inline publishing:** unit/adapter coverage verifies readiness gating, GitHub review comment creation, skipped reasons, and duplicate suppression. Live smoke status is tracked in `inline-publishing.md` and `workflow-smoke-test.md`.
+- **GitLab inline publishing:** unit/adapter coverage verifies readiness gating, MR diff-discussion creation with `diff_refs` positioning (RIGHT→`new_line`, LEFT→`old_line`), skipped reasons, and duplicate suppression. Not yet live-smoke-tested; MVP limitations (renamed files, single-page discussion dedup) are documented in `inline-publishing.md`.
 - **GitLab live summary publishing:** M005 smoke against `test-group-zinga/general` MR #3 verified metadata/diff fetch, summary note publish, and idempotent update of one GitLab note.
 
 ## Not yet live-tested or intentionally deferred

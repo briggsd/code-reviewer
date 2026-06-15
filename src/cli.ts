@@ -184,7 +184,7 @@ async function runCommand(args: string[]): Promise<void> {
   // supply custom reviewer definitions by an explicit `--reviewers <path>` they control. The module
   // is merged onto the factory's trusted set (merge-by-role/operator-wins, or full-replace when the
   // module opts in). This is explicit operator load, never reviewed-repo discovery — fork-safety
-  // (docs/fork-safety.md) is unchanged: a reviewed repo cannot smuggle a reviewer in.
+  // (docs/user/fork-safety.md) is unchanged: a reviewed repo cannot smuggle a reviewer in.
   const reviewersPath = parseReviewersOption(args);
   const reviewerDefinitions =
     reviewersPath === undefined ? undefined : await loadMergedReviewerDefinitions(reviewersPath);

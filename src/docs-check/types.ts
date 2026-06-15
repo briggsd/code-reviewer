@@ -9,7 +9,7 @@
 
 /** A markdown document fed to the checker. */
 export interface DocInput {
-  /** Repo-root-relative path of the markdown file (e.g. `docs/architecture.md`). */
+  /** Repo-root-relative path of the markdown file (e.g. `docs/developer/architecture.md`). */
   path: string;
   /** Full file contents. */
   text: string;

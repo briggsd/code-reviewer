@@ -78,8 +78,8 @@ loaded by the trusted operator, they sit on the **trusted-operator side** of the
 tier as `TRUSTED_REVIEWER_DEFINITIONS` — but a reviewer's *output* is still model-authored and
 untrusted, re-validated through `validateFinding` and pinned to its dispatched role by
 `enforceReviewerRole` exactly as for the built-in reviewers (a custom reviewer cannot self-label its
-findings as another role). See `docs/operator-extension-seam.md` for the full design and the
-merge/role-union decisions, and `docs/extending.md` → "Adopter recipe: author a custom reviewer"
+findings as another role). See `../developer/operator-extension-seam.md` for the full design and the
+merge/role-union decisions, and `../developer/extending.md` → "Adopter recipe: author a custom reviewer"
 for the worked authoring/loading recipe.
 
 Project config may select policy within the supported schema, but it is not a permission boundary and it does not make reviewed-repo content trusted. Use a separate maintainer-approved privileged mode if a job intentionally wants to load repository-local agent resources.

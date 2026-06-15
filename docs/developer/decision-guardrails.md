@@ -18,7 +18,7 @@
   NOT the #16 plugin lifecycle (DEFERRED by S01 —
   premature without a 2nd independent config contributor; both #16's record + the #143
   assessment agree). The seam MUST be **explicit-operator-load only**, never reviewed-repo
-  discovery (mirrors `fork-safety.md:60` `--no-extensions` + explicit `--extension`) — so it
+  discovery (mirrors `../user/fork-safety.md:60` `--no-extensions` + explicit `--extension`) — so it
   can't weaken the lockout it copies. Operator reviewer *definitions* are trusted; their
   *output* still re-validates through `validateFinding`. Keep it **open/denylist, never an
   allowlist** of factory-blessed reviewers (the extensibility philosophy + the closed-set
@@ -92,7 +92,7 @@
   (GitLab/CommonMark) and after `</summary>`. tier/outcome/decision/category/confidence stay
   UNESCAPED in code spans (closed deterministic enums — escaping inside code spans renders
   literal backslashes; the reviewer pushed this and it's technically wrong). The visible comment
-  markdown is NOT a stable interface (documented in adoption.md) — consumers parse
+  markdown is NOT a stable interface (documented in ../user/adoption.md) — consumers parse
   run.json/summary.json/hidden metadata. Hidden metadata block + `### Re-review status` formats
   are load-bearing (dedup PATCH + prior-state reads) — change only with the parser.
 - Do not shape-bound/sanitize/allowlist model-authored reviewer keys at EMISSION or in the local
@@ -127,7 +127,7 @@
   (`src/runner/tier-profile.ts`, PR #104). Do not remove the trivial `["code_quality"]` roster cap or
   the coordinator zero-finding short-circuit guards (`reviewerFailures.length === 0` + every-result-
   empty in `pi-agent-runtime.ts`) — test (c2) locks the mixed-failure case, test (e) locks the
-  empty-roster case (deliberate: deterministic approved, documented footgun in configuration.md).
+  empty-roster case (deliberate: deterministic approved, documented footgun in ../user/configuration.md).
   The trivial security-waiver is BY DESIGN (#101; sensitive paths escalate to full; documented in
   architecture.md) — the reviewer re-litigated it twice, hold the line. Do not reopen #101 / PR #104.
 - Do not re-chase the #98 AI-review JSON-parse failures as a thin-review bug — they were two
@@ -179,7 +179,7 @@
 - Do not set `sensitivePaths`/`ignoredPaths`/`failOn` in `.ai-review.json` expecting them to APPEND to
   defaults — those arrays REPLACE wholesale (`normalizeReviewConfig`); object maps (`reviewerPolicy`/
   `timeouts`/`modelRouting`) merge. The repo `.ai-review.json` deliberately re-lists the 5 default
-  sensitivePaths before its gate-file additions; don't drop them. Documented in `docs/configuration.md`.
+  sensitivePaths before its gate-file additions; don't drop them. Documented in `../user/configuration.md`.
 - #54.2 grounding is now **scoped to changed-file findings (#73, PR #76)** — it only drops a finding
   whose `location.path` is a CHANGED file (set built from `diff.files`, normalized). Findings with no
   location / cross-file / staleness quotes are KEPT. Do not revert this scope gate (it's the first

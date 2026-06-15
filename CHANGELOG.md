@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Releases are cut by pushing a `vX.Y.Z` tag; see
-[Release readiness](docs/release-readiness.md) for the version/tag/release SOP.
+[Release readiness](docs/user/release-readiness.md) for the version/tag/release SOP.
 
 ## [Unreleased]
 

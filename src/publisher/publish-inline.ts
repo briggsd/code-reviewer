@@ -74,7 +74,7 @@ export async function publishReviewInlineFindings(
     }
   }
 
-  // POST-failure fallback (architecture.md:430): the VCS API returns a recoverable status (see
+  // POST-failure fallback (docs/developer/architecture.md:430): the VCS API returns a recoverable status (see
   // SUMMARY_FALLBACK_STATUSES — 422/429) for inline coordinates our local pre-flight
   // (inline-readiness.ts) cannot anticipate. Re-route those findings into the summary body —
   // which already renders every finding — instead of losing them as silent `failed`. Recording
@@ -133,7 +133,7 @@ function emptyInlineResult(
  * HTTP statuses that mean "this inline coordinate is unusable, but the finding is still valid" —
  * 422 (coordinate invalid: multi-line suggestion over unchanged lines, context-line rules) and
  * 429 (rate limit). On these we degrade to the summary body rather than failing the run
- * (architecture.md:430), mirroring PR-Agent's file-level fallback.
+ * (docs/developer/architecture.md:430), mirroring PR-Agent's file-level fallback.
  *
  * 403 is deliberately EXCLUDED. On GitHub's PR-comment endpoints a 403 is an authorization
  * signal (missing token scope, CODEOWNERS-only policy, fork restrictions) — a permanent

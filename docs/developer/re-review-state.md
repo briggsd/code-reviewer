@@ -1,5 +1,7 @@
 # Re-review state
 
+> **Adopter note:** For operational behavior, start with [Fork safety](../user/fork-safety.md) and the [Adoption guide](../user/adoption.md); this page documents the internal state model.
+
 Re-review support starts with stable finding IDs and parseable prior summary metadata. Inline comment/discussion resolution is still deferred, but every completed review summary now has deterministic finding IDs that future re-review logic can compare across runs.
 
 ## Stable finding IDs
@@ -79,7 +81,7 @@ A full review (`reviewedPaths` undefined) treats every absent prior finding as `
 
 - **`findingPaths` is untrusted input.** Prior state loaded from a PR/MR summary comment is
   reviewed-repo content that a comment editor could tamper with (the same trust model the
-  `findingIds` array has always had — see [Fork safety](fork-safety.md)). It influences only
+  `findingIds` array has always had — see [Fork safety](../user/fork-safety.md)). It influences only
   re-review **classification** (new/recurring/fixed/carried_forward), which is analytics —
   it never affects the CI gate, decision, or outcome. `parseSummaryHiddenMetadata` accepts a
   `findingPaths` value only when it has a safe repo-relative shape (no absolute path, no `..`
@@ -197,7 +199,7 @@ Published summary comments/notes include hidden metadata with `schemaVersion: 6`
 
 - **`resolvedLog`** (v6, optional): cross-round resolved-finding history (#279, M026 S02). An array of objects `{ stableId, title, resolvedAtSha }` accumulated across re-review rounds — each entry records a finding that was classified `fixed` in some prior round and the short head SHA where it was resolved. Capped at 50 entries (oldest dropped when exceeded). Absent on first review or when no findings have been resolved yet. Parsed defensively: malformed entries are dropped silently; only non-empty string values with bounded length are accepted. Parsers built on schemaVersion ≤ 5 ignore this field (backward-compatible additive field).
 - **`findingsHash`** (v5, optional): a 16-hex-character SHA-256 prefix of the sorted stable finding-ID set. Empty string when there are no findings. Used by the convergence gate to detect a stable finding set across re-reviews without comparing full ID arrays. Parsers built on schemaVersion ≤ 4 ignore this field (backward-compatible additive field).
-- **`partialBySize`** (v4, optional): admitted/dropped file counts and byte totals when the diff exceeded the patch-size budget. See `docs/adoption.md` for the schemaVersion 3→4 note.
+- **`partialBySize`** (v4, optional): admitted/dropped file counts and byte totals when the diff exceeded the patch-size budget. See `../user/adoption.md` for the schemaVersion 3→4 note.
 
 The metadata is parsed by `parseSummaryHiddenMetadata()` and converted to a minimal `PriorReviewState` by `createPriorReviewStateFromMetadata()`. GitHub and GitLab adapters use this to recover prior run IDs, prior head SHA, and prior stable finding IDs from existing bot summary comments/notes.
 

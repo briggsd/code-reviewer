@@ -28,7 +28,7 @@ mandatory — this repo's reviewer is non-deterministic and confabulation has ha
   Tag the subject by backend (`[codex]` / `[sonnet]`); plain when the coordinator applied a fix.
 - **PR label:** `workflow:Codex+gpt-5-codex` for Codex runs; note the backend in the PR body otherwise.
 - **Tests** live in `test/` (bun:test); fixtures in `examples/fixtures/`. Keep fake/no-network.
-- **`docs/extending.md`** is the test-infra index + integration recipes — **cite it in every
+- **`docs/developer/extending.md`** is the test-infra index + integration recipes — **cite it in every
   spec** (it's the #1 lever for clean completion: which capture fake/fixture to use, where to assert).
 
 ## Parallel work = one worktree per agent (don't share the main checkout)

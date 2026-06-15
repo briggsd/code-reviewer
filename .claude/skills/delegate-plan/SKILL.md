@@ -16,7 +16,7 @@ handoff, never code. When a fork is genuinely the user's to make, recommend then
 1. **Recon before opining (don't re-derive).** Read `continue.md` first (last/next action,
    open threads, **Do not** list), then the relevant `docs/milestones/M0xx-ROADMAP.md`
    (+`-SUMMARY.md`), the contracts/docs the topic touches, and any **decision record** that
-   already weighed this (`docs/runtime-comparison.md`, architecture.md, prior summaries).
+   already weighed this (`docs/developer/runtime-comparison.md`, `docs/developer/architecture.md`, prior summaries).
    Reconcile `continue.md` against real state — `git log --oneline -5`, `git status`, open
    PRs/issues — it's a snapshot and goes stale (a shipped PR or a parallel agent's commit
    may have moved things). Cite `file:line`; don't assert from memory.

@@ -1,6 +1,6 @@
 /**
  * Architecture-boundary rules (#27). These mechanize the load-bearing invariants from
- * docs/architecture.md (design principles #2/#3): deterministic core depends on contracts,
+ * docs/developer/architecture.md (design principles #2/#3): deterministic core depends on contracts,
  * never on concrete adapters. Every rule carries a remediation message so an agent (or
  * human) can self-correct from the error output alone.
  *
@@ -16,7 +16,7 @@ module.exports = {
         "src/runner is the deterministic orchestration core. It must depend on the interfaces in " +
         "src/contracts, never on a concrete adapter (vcs/runtime/publisher/ci). Inject the adapter " +
         "through the runner's options/params instead (see how RunReviewOptions carries `runtime`). " +
-        "See docs/architecture.md 'Adapters at the edges'.",
+        "See docs/developer/architecture.md 'Adapters at the edges'.",
       from: { path: "^src/runner" },
       to: {
         path: "^src/(vcs|publisher|ci|runtime)",
@@ -31,7 +31,7 @@ module.exports = {
       comment:
         "src/contracts defines the adapter interfaces and shared types; it must not import from " +
         "any implementation layer. Move shared types INTO contracts (or a contracts sibling) " +
-        "rather than importing them from runner/adapters. See docs/architecture.md " +
+        "rather than importing them from runner/adapters. See docs/developer/architecture.md " +
         "'Adapters at the edges'.",
       from: { path: "^src/contracts" },
       to: { path: "^src/(?!contracts)" },

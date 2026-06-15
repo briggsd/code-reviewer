@@ -6,29 +6,29 @@ This repository starts as an architecture/design workspace. The implementation t
 
 ## Documents
 
-- [Architecture](docs/architecture.md) — system design, lifecycle, components, security model, and MVP plan.
-- [Runtime comparison](docs/runtime-comparison.md) — OpenCode vs Pi as the review factory agent runtime.
-- [Configuration](docs/configuration.md) — `.ai-review.json` fields, merging behavior, and schema command.
-- [Adoption guide](docs/adoption.md) — recommended install path, live-tested evidence, deferred channels, and adopter checklist.
-- [Fortis GitLab beta onboarding](docs/fortis-gitlab-beta.md) — self-managed GitLab beta setup, variables, debugging, and token rotation.
-- [CI templates](docs/ci-templates.md) — GitHub Actions and GitLab CI starter templates.
-- [GitHub Action wrapper](docs/github-action-wrapper.md) — thin `uses:` wrapper around the packaged CLI.
-- [Fork safety](docs/fork-safety.md) — public-repo fork strategy and secret/write-token boundaries.
+- [Architecture](docs/developer/architecture.md) — system design, lifecycle, components, security model, and MVP plan.
+- [Runtime comparison](docs/developer/runtime-comparison.md) — OpenCode vs Pi as the review factory agent runtime.
+- [Configuration](docs/user/configuration.md) — `.ai-review.json` fields, merging behavior, and schema command.
+- [Adoption guide](docs/user/adoption.md) — recommended install path, live-tested evidence, deferred channels, and adopter checklist.
+- [Fortis GitLab beta onboarding](docs/user/fortis-gitlab-beta.md) — self-managed GitLab beta setup, variables, debugging, and token rotation.
+- [CI templates](docs/user/ci-templates.md) — GitHub Actions and GitLab CI starter templates.
+- [GitHub Action wrapper](docs/user/github-action-wrapper.md) — thin `uses:` wrapper around the packaged CLI.
+- [Fork safety](docs/user/fork-safety.md) — public-repo fork strategy and secret/write-token boundaries.
 - [Security policy](SECURITY.md) — how to privately report a vulnerability, supported versions, and disclosure posture.
-- [Operator-extension seam](docs/operator-extension-seam.md) — M017 design note + #16 disposition: the explicit-load BYO-reviewer seam, the merge-by-role override rule, and free-form operator-keyed roles.
-- [Inline publishing](docs/inline-publishing.md) — experimental opt-in GitHub inline comments with conservative readiness gates.
-- [Packaging](docs/packaging.md) — package artifact contents and smoke test.
-- [Release artifacts](docs/release-artifacts.md) — manual immutable tarball artifact workflow.
-- [Workflow smoke test](docs/workflow-smoke-test.md) — notes for the first same-repo GitHub Actions smoke PR.
-- [Pi live smoke test](docs/pi-live-smoke.md) — opt-in local and GitHub Actions Pi/model smoke instructions.
-- [GitLab live smoke](docs/gitlab-live-smoke.md) — opt-in real GitLab MR smoke for metadata/diff and summary publishing.
-- [Release readiness](docs/release-readiness.md) — checklist for verification, packaging, CI adoption, and release blockers.
-- [Re-review state](docs/re-review-state.md) — stable finding IDs and hidden metadata for future incremental review.
+- [Operator-extension seam](docs/developer/operator-extension-seam.md) — M017 design note + #16 disposition: the explicit-load BYO-reviewer seam, the merge-by-role override rule, and free-form operator-keyed roles.
+- [Inline publishing](docs/user/inline-publishing.md) — experimental opt-in GitHub inline comments with conservative readiness gates.
+- [Packaging](docs/user/packaging.md) — package artifact contents and smoke test.
+- [Release artifacts](docs/user/release-artifacts.md) — manual immutable tarball artifact workflow.
+- [Workflow smoke test](docs/user/workflow-smoke-test.md) — notes for the first same-repo GitHub Actions smoke PR.
+- [Pi live smoke test](docs/user/pi-live-smoke.md) — opt-in local and GitHub Actions Pi/model smoke instructions.
+- [GitLab live smoke](docs/user/gitlab-live-smoke.md) — opt-in real GitLab MR smoke for metadata/diff and summary publishing.
+- [Release readiness](docs/user/release-readiness.md) — checklist for verification, packaging, CI adoption, and release blockers.
+- [Re-review state](docs/developer/re-review-state.md) — stable finding IDs and hidden metadata for future incremental review.
 - [Research findings](research/ci-vcs-runtime-findings.md) — CI/VCS/runtime questions researched before drafting the architecture.
-- [Evals](docs/evals.md) — holdout scenario eval harness: behavioral scoring, holdout hygiene, and how to run.
-- [Telemetry export](docs/telemetry-export.md) — export schema (`ai-review.rollup_export.v1`), identifier policy, shape-bounded key rule, and reserved `ai_review.run_event` vocabulary (#20/#22).
-- [Review-quality loop](docs/review-quality-loop.md) — the manual improvement playbook: telemetry hypothesis queue → investigate → distill a dev scenario → tune-against-dev → holdout-gate → ship (M016).
-- [Doc gardening](docs/doc-gardening.md) — keeping agent-facing docs fresh: the `bun run docs:check` dead-reference linter, staleness advisories, and the recurring gardening pass (#92/#29).
+- [Evals](docs/developer/evals.md) — holdout scenario eval harness: behavioral scoring, holdout hygiene, and how to run.
+- [Telemetry export](docs/developer/telemetry-export.md) — export schema (`ai-review.rollup_export.v1`), identifier policy, shape-bounded key rule, and reserved `ai_review.run_event` vocabulary (#20/#22).
+- [Review-quality loop](docs/developer/review-quality-loop.md) — the manual improvement playbook: telemetry hypothesis queue → investigate → distill a dev scenario → tune-against-dev → holdout-gate → ship (M016).
+- [Doc gardening](docs/developer/doc-gardening.md) — keeping agent-facing docs fresh: the `bun run docs:check` dead-reference linter, staleness advisories, and the recurring gardening pass (#92/#29).
 
 ## Development
 

@@ -41,8 +41,8 @@ describe("package distribution metadata", () => {
 
   test("locks release identity metadata and explicit registry publish blockers", async () => {
     const manifest = JSON.parse(await readFile("package.json", "utf8")) as PackageJson;
-    const packaging = await readFile("docs/packaging.md", "utf8");
-    const releaseReadiness = await readFile("docs/release-readiness.md", "utf8");
+    const packaging = await readFile("docs/user/packaging.md", "utf8");
+    const releaseReadiness = await readFile("docs/user/release-readiness.md", "utf8");
 
     expect(manifest.name).toBe("ai-code-review-factory");
     expect(manifest.version).toBe("0.1.0");
@@ -63,8 +63,8 @@ describe("package distribution metadata", () => {
   });
 
   test("documents external packaged install smoke", async () => {
-    const packaging = await readFile("docs/packaging.md", "utf8");
-    const releaseReadiness = await readFile("docs/release-readiness.md", "utf8");
+    const packaging = await readFile("docs/user/packaging.md", "utf8");
+    const releaseReadiness = await readFile("docs/user/release-readiness.md", "utf8");
     const readme = await readFile("README.md", "utf8");
     const script = await readFile("scripts/external-package-smoke.ts", "utf8");
 
@@ -86,9 +86,9 @@ describe("package distribution metadata", () => {
   });
 
   test("documents immutable install source strategy", async () => {
-    const packaging = await readFile("docs/packaging.md", "utf8");
-    const ciTemplates = await readFile("docs/ci-templates.md", "utf8");
-    const releaseReadiness = await readFile("docs/release-readiness.md", "utf8");
+    const packaging = await readFile("docs/user/packaging.md", "utf8");
+    const ciTemplates = await readFile("docs/user/ci-templates.md", "utf8");
+    const releaseReadiness = await readFile("docs/user/release-readiness.md", "utf8");
 
     for (const guide of [packaging, ciTemplates, releaseReadiness]) {
       expect(guide).toContain("immutable");

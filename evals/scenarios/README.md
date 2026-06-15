@@ -35,4 +35,4 @@ name and by fixture path** — so a tuned dev scenario cannot be silently copied
 re-authored-from-scratch case is covered by the documented discipline above (it is
 indistinguishable from a new scenario at the file level, and that is the point).
 
-See **`docs/evals.md`** for the harness, scoring, and how to add a scenario.
+See **`docs/developer/evals.md`** for the harness, scoring, and how to add a scenario.

@@ -288,11 +288,11 @@ describe("assessFindingGrounding", () => {
   // -------------------------------------------------------------------------
 
   test("staleness finding on an unchanged file → always kept (scope gate)", () => {
-    // The diff only changes auth/accounts.ts; docs/reviewer-conventions.md is unchanged.
+    // The diff only changes auth/accounts.ts; docs/developer/reviewer-conventions.md is unchanged.
     // A staleness finding about docs is legitimate even if its quotedCode isn't in the diff.
     const diff = makeDiff("+  return db.accounts.findById(accountId);");
     const staleness = makeFinding({
-      location: { path: "docs/reviewer-conventions.md" },
+      location: { path: "docs/developer/reviewer-conventions.md" },
       quotedCode: ["acknowledgements are NOT yet implemented"],
     });
 

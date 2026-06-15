@@ -46,7 +46,7 @@ import {
 // the published package, which ships `src/` and `scripts/` as siblings (package.json `files`).
 // Passed to every reviewer `pi` run as `--extension <path>` so the structured tool is the primary
 // delivery path; the file is TRUSTED, factory-owned, and loaded only via this explicit `-e` while
-// `--no-extensions` keeps reviewed-repo extension discovery off (fork-safe — see docs/fork-safety.md).
+// `--no-extensions` keeps reviewed-repo extension discovery off (fork-safe — see docs/user/fork-safety.md).
 const SUBMIT_FINDINGS_EXTENSION_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "../../scripts/pi-extensions/submit-findings-extension.ts",

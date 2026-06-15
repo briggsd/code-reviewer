@@ -826,7 +826,7 @@ This design is grounded in:
 
 - Cloudflare’s production writeup: https://blog.cloudflare.com/ai-code-review/
 - The previously captured vault notes on Cloudflare’s source article and the IndyDevDan commentary.
-- Project research notes: [CI, VCS, runtime, and security interface points](../research/ci-vcs-runtime-findings.md)
+- Project research notes: [CI, VCS, runtime, and security interface points](../../research/ci-vcs-runtime-findings.md)
 
 ### Primary-source deltas (exact values from the Cloudflare article)
 

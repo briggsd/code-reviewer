@@ -461,7 +461,7 @@ describe("Pi runtime short-circuit", () => {
     // config disables code_quality, so NO reviewers dispatch and the short-circuit returns a
     // deterministic approved summary without any model call. Pre-cap semantics were equivalent
     // (a coordinator fusing zero reviewer results also approved); this skips the wasted call.
-    // Documented as a footgun in docs/configuration.md.
+    // Documented as a footgun in docs/user/configuration.md.
     const runner = new CapturingPiProcessRunner();
     const runtime = new PiAgentRuntime({
       processRunner: runner,

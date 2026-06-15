@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * M015 S01 (#124) — live instruct-only hit-rate spike for the `submit_findings` structured-output
- * tool. This is the skipped Phase-1 acceptance test from `docs/runtime-comparison.md:206`
+ * tool. This is the skipped Phase-1 acceptance test from `docs/developer/runtime-comparison.md:206`
  * ("reviewer outputs can be forced into validated JSON"), run honestly: Pi is instruct-only (no
  * `tool_choice`), so it can NUDGE the model to call the terminal tool but cannot FORCE it. This
  * script measures how often the model actually calls it on real reviewer diffs — the go/no-go

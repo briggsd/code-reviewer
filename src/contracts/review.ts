@@ -238,7 +238,7 @@ export type ReReviewFindingStatus =
   | "withheld"
   // Incremental re-review only: a prior finding on a file NOT in this push's delta
   // (or whose path is unknown). It was not re-evaluated, so it cannot be called
-  // "fixed" — it is carried forward as still-open. See docs/re-review-state.md.
+  // "fixed" — it is carried forward as still-open. See docs/developer/re-review-state.md.
   | "carried_forward";
 
 export interface ReReviewFindingClassification {

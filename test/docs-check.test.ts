@@ -10,7 +10,7 @@ const FACTS: KnownFacts = {
     "src/runner/run-review.ts",
     "src/runner/tier-profile.ts",
     "docs",
-    "docs/architecture.md",
+    "docs/developer/architecture.md",
     "examples",
     "examples/fixtures",
     "examples/fixtures/auth-pr.json",
@@ -35,9 +35,9 @@ describe("extractReferences", () => {
 
   test("extracts markdown link targets but skips anchors and URLs", () => {
     const refs = extractReferences(
-      "[a](docs/architecture.md) [b](#section) [c](https://example.com/x)",
+      "[a](docs/developer/architecture.md) [b](#section) [c](https://example.com/x)",
     );
-    expect(refs.linkPaths.map((r) => r.raw)).toEqual(["docs/architecture.md"]);
+    expect(refs.linkPaths.map((r) => r.raw)).toEqual(["docs/developer/architecture.md"]);
   });
 
   test("ignores paths inside fenced code blocks but keeps bun run / env there", () => {
@@ -87,8 +87,10 @@ describe("extractReferences", () => {
   });
 
   test("ignores image targets (![alt](path)) — not a reference-check target", () => {
-    const refs = extractReferences("![diagram](docs/img/d.png) and [real](docs/architecture.md)");
-    expect(refs.linkPaths.map((r) => r.raw)).toEqual(["docs/architecture.md"]);
+    const refs = extractReferences(
+      "![diagram](docs/img/d.png) and [real](docs/developer/architecture.md)",
+    );
+    expect(refs.linkPaths.map((r) => r.raw)).toEqual(["docs/developer/architecture.md"]);
   });
 
   test("reports the opening line of an unclosed fence, not line 1", () => {
@@ -152,7 +154,7 @@ describe("checkDocs — blocking dead references", () => {
 
   test("resolves an existing link relative to the doc dir", () => {
     const report = checkDocs(
-      [{ path: "docs/guide.md", text: "[x](architecture.md)", scope: "live" }],
+      [{ path: "docs/developer/guide.md", text: "[x](architecture.md)", scope: "live" }],
       FACTS,
     );
     expect(report.blocking).toHaveLength(0);
@@ -178,7 +180,7 @@ describe("checkDocs — blocking dead references", () => {
 
   test("resolves a root-anchored (/-prefixed) link against the repo root", () => {
     const ok = checkDocs(
-      [{ path: "docs/guide.md", text: "[x](/docs/architecture.md)", scope: "live" }],
+      [{ path: "docs/guide.md", text: "[x](/docs/developer/architecture.md)", scope: "live" }],
       FACTS,
     );
     expect(ok.blocking).toHaveLength(0);

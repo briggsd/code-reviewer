@@ -30,7 +30,7 @@ describe("Pi live smoke workflow", () => {
 
   test("enabled smoke path uses the packaged CLI from an adopter-like directory", async () => {
     const script = await readFile("scripts/pi-live-smoke.ts", "utf8");
-    const docs = await readFile("docs/pi-live-smoke.md", "utf8");
+    const docs = await readFile("docs/user/pi-live-smoke.md", "utf8");
 
     expect(script).toContain('readOptionalEnv("AI_REVIEW_PI_PROVIDER")');
     expect(script).toContain('readOptionalEnv("AI_REVIEW_PI_MODEL")');

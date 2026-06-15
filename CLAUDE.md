@@ -20,7 +20,7 @@ at v0.x and `release-package.yml` only emits a tarball artifact, not a registry 
 that is the *not-yet*, not the goal. Reviewer definitions are a **shared asset every adopter
 inherits**: a regression in the factory's reviewers degrades all downstream repos on upgrade.
 
-Full design: **docs/architecture.md**. Project purpose & status: **README.md**.
+Full design: **docs/developer/architecture.md**. Project purpose & status: **README.md**.
 
 ## Workflow
 - use the delegate-implement skill when working on an issue — to preserve the coordinator's
@@ -99,7 +99,7 @@ docs/                          # canonical design docs (see README "Documents" i
 continue.md                    # session handoff — LOCAL/UNTRACKED (gitignored), machine-only
 ```
 
-**Extending or testing the codebase?** Start with **docs/extending.md** — integration
+**Extending or testing the codebase?** Start with **docs/developer/extending.md** — integration
 recipes (add a telemetry field / config field / CLI flag / prompt injection) and a
 **test-infra index** (which capture fake/fixture to use, where to assert). Fastest way to
 orient before writing or delegating a change.
@@ -110,7 +110,7 @@ orient before writing or delegating a change.
 risk classifier → shared context builder → coordinator agent → specialist reviewer
 fan-out → coordinator fusion → publisher write-back → CI status → traces/state persisted.`
 
-Details + diagram: **docs/architecture.md**.
+Details + diagram: **docs/developer/architecture.md**.
 
 ## Design principles (load-bearing — violate only deliberately)
 
@@ -130,7 +130,7 @@ Details + diagram: **docs/architecture.md**.
 - User-controlled metadata is sanitized centrally in `src/runtime/prompt-boundary.ts`
   before prompt assembly. Reviewer-definitions are the only trusted prompt source.
 - Reviewed-repo Pi/project-local resources are **disabled** in CI; only factory-owned
-  reviewer definitions run. See **docs/fork-safety.md**.
+  reviewer definitions run. See **docs/user/fork-safety.md**.
 - Never execute untrusted fork code in a privileged CI context.
 - Never expose provider secrets or disable the real-Pi review workflow's default-off gate.
 
@@ -152,7 +152,7 @@ Details + diagram: **docs/architecture.md**.
   it lean: **don't log completed status** (that's GitHub + `git`/`gh` — derive it each turn,
   never copy it in), and don't accumulate per-milestone history (that's the `M0xx-SUMMARY.md`
   records). Both are the recurring bloat sources.
-- **`docs/decision-guardrails.md`** is the committed, shared home for durable "do not revert X"
+- **`docs/developer/decision-guardrails.md`** is the committed, shared home for durable "do not revert X"
   technical invariants (egress boundary, markdown-escape, JSON-repair, holdout discipline, tier
   policy, …). It lives in git — versioned, shared across concurrent coordinators, not clobbered.
   Read it before changing a load-bearing seam; add to it when a shipped decision needs guarding.

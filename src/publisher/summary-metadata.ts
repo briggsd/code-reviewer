@@ -54,7 +54,7 @@ export function parseSummaryHiddenMetadata(
     // string values with a safe repo-relative-path shape (no absolute path, no `..` traversal,
     // no control chars, bounded length); a rejected entry simply leaves that prior finding
     // path-less, which carry-forward classifies as carried_forward (the safe direction — it is
-    // never auto-marked "fixed"). See docs/re-review-state.md and docs/fork-safety.md.
+    // never auto-marked "fixed"). See docs/developer/re-review-state.md and docs/user/fork-safety.md.
     let findingPaths: Record<string, string> | undefined;
     if (isJsonObject(parsed.findingPaths)) {
       const filtered: Record<string, string> = {};

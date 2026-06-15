@@ -117,7 +117,7 @@ suppression. (System notes on GitLab are also skipped — they never carry our m
 The readiness gate is a *pre-flight* check against our local patch reconstruction. The VCS API can
 still reject a coordinate we judged ready — a multi-line suggestion spanning unchanged lines, a
 context-line rule, or a force-push racing our fetch — returning an HTTP error at post time. Rather
-than lose the finding (architecture.md §9: _"publish the finding in the summary instead of failing
+than lose the finding (../developer/architecture.md §9: _"publish the finding in the summary instead of failing
 the whole run"_), `publishReviewInlineFindings()` recovers:
 
 - A `failed` outcome whose adapter-supplied `httpStatus` is **422** (coordinate invalid) or **429**

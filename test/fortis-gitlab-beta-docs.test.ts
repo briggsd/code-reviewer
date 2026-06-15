@@ -3,11 +3,11 @@ import { readFile } from "node:fs/promises";
 
 describe("Fortis GitLab beta onboarding documentation", () => {
   test("documents self-managed GitLab beta onboarding, operations, and safety", async () => {
-    const guide = await readFile("docs/fortis-gitlab-beta.md", "utf8");
+    const guide = await readFile("docs/user/fortis-gitlab-beta.md", "utf8");
     const readme = await readFile("README.md", "utf8");
-    const adoption = await readFile("docs/adoption.md", "utf8");
+    const adoption = await readFile("docs/user/adoption.md", "utf8");
 
-    expect(readme).toContain("[Fortis GitLab beta onboarding](docs/fortis-gitlab-beta.md)");
+    expect(readme).toContain("[Fortis GitLab beta onboarding](docs/user/fortis-gitlab-beta.md)");
     expect(adoption).toContain("[Fortis GitLab beta onboarding](fortis-gitlab-beta.md)");
 
     expect(guide).toContain("Fortis self-managed GitLab beta onboarding");

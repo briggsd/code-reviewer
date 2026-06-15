@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 
 describe("re-review state documentation", () => {
   test("documents stable finding IDs and hidden metadata", async () => {
-    const guide = await readFile("docs/re-review-state.md", "utf8");
+    const guide = await readFile("docs/developer/re-review-state.md", "utf8");
     const readme = await readFile("README.md", "utf8");
 
     expect(guide).toContain("Stable finding IDs");
@@ -24,6 +24,6 @@ describe("re-review state documentation", () => {
     expect(guide).toContain("Future inline/discussion consumption");
     expect(guide).toContain("evaluateInlinePublishReadiness()");
     expect(guide).toContain("new, recurring, fixed, or withheld");
-    expect(readme).toContain("[Re-review state](docs/re-review-state.md)");
+    expect(readme).toContain("[Re-review state](docs/developer/re-review-state.md)");
   });
 });

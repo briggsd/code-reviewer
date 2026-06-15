@@ -21,7 +21,7 @@ export function parseRunPublishOptions(args: string[]): RunPublishOptions {
  * Parse the operator-extension `--reviewers <path>` flag (M017 S03, #143). Returns the explicit
  * path to an operator reviewer-definitions module, or undefined when not supplied (the default —
  * the factory's trusted reviewer set is used). This is an **operator explicit-load** path; it is
- * never derived from the reviewed repo (see docs/fork-safety.md).
+ * never derived from the reviewed repo (see docs/user/fork-safety.md).
  *
  * Throws when `--reviewers` is present but has no following value (last token) or is immediately
  * followed by another flag — a silently-skipped custom reviewer set (the operator's security

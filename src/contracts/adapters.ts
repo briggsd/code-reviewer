@@ -81,7 +81,7 @@ export interface PublishInlineFindingsResult {
   failedInlineCount: number;
   /**
    * Findings re-routed to the summary body after a recoverable inline-publish failure
-   * (architecture.md:430). A subset of the skipped count — surfaced separately so callers can
+   * (docs/developer/architecture.md:430). A subset of the skipped count — surfaced separately so callers can
    * distinguish pre-flight-blocked findings from post-failure degradation without string-matching
    * `reason`. Always set by the factory publisher; adapters (which do not apply fallback policy)
    * report 0. OPTIONAL so adding it stays a non-breaking change for external VcsAdapter

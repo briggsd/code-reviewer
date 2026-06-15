@@ -46,10 +46,10 @@ Before reporting, it helps to understand the trust boundaries the factory is alr
 designed around — many "issues" are deliberate parts of the security model rather than
 defects:
 
-- [Fork safety](docs/fork-safety.md) — the CI fork-safety model: untrusted reviewed-repo
+- [Fork safety](docs/user/fork-safety.md) — the CI fork-safety model: untrusted reviewed-repo
   content, secret/write-token handling for fork PRs, trace redaction in CI artifacts, and
   the trusted-operator vs reviewed-repo resource boundary.
-- [Decision guardrails](docs/decision-guardrails.md) — load-bearing, shipped invariants
+- [Decision guardrails](docs/developer/decision-guardrails.md) — load-bearing, shipped invariants
   (egress/telemetry boundary, prompt/trust boundaries, fail-open vs fail-closed policy)
   that are intentional and not to be reverted.
 

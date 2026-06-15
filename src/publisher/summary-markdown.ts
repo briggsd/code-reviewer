@@ -440,9 +440,9 @@ function formatLowActivityWarning(runStats: NonNullable<ReviewSummary["runStats"
 
 // Absolute URL on purpose: PR/MR comments resolve relative hrefs against the comment
 // page URL (404), and the doc lives in the FACTORY repo — a reviewed consumer repo has
-// no docs/architecture.md (verified against the rendered bodyHTML of PR #110's comment).
+// no docs/developer/architecture.md (verified against the rendered bodyHTML of PR #110's comment).
 const BREAK_GLASS_DOC_URL =
-  "https://github.com/briggsd/ai-code-review-factory/blob/main/docs/architecture.md#break-glass--human-override";
+  "https://github.com/briggsd/ai-code-review-factory/blob/main/docs/developer/architecture.md#break-glass--human-override";
 
 const BREAK_GLASS_FOOTER = `<details><summary>🔓 Break glass — need to merge anyway?</summary>
 

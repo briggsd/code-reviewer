@@ -247,7 +247,7 @@ describe("inline publishing orchestration", () => {
     }
   });
 
-  test("re-routes a per-finding 422 to summary fallback instead of losing it (architecture.md:430)", async () => {
+  test("re-routes a per-finding 422 to summary fallback instead of losing it (docs/developer/architecture.md:430)", async () => {
     const publisher = new FailingInlinePublisher(422);
     const summary: ReviewSummary = {
       decision: "significant_concerns",

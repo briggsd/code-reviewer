@@ -90,8 +90,8 @@ in their own CI** — registers extra reviewer definitions by an explicit `--rev
 they control. The factory core is never forked; on upgrade you keep the factory's built-in
 reviewers and your custom ones merge on top. The reviewed repo can never inject a reviewer:
 the path is operator-supplied and resolved in the trusted CI, never discovered from the
-reviewed repo (same lockout shape as the Pi `--extension`; see `docs/fork-safety.md` →
-"Operator reviewer extensions" and `docs/operator-extension-seam.md` for the full design).
+reviewed repo (same lockout shape as the Pi `--extension`; see `../user/fork-safety.md` →
+"Operator reviewer extensions" and `operator-extension-seam.md` for the full design).
 
 **1. Author the module** against the public API. The package root export
 (`ai-code-review-factory`, mapped to `src/public.ts`) exposes `defineReviewer`

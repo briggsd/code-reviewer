@@ -3,13 +3,13 @@ import { readFile } from "node:fs/promises";
 
 describe("adoption documentation", () => {
   test("documents adopter path, live-tested evidence, deferred work, and failure artifacts", async () => {
-    const adoption = await readFile("docs/adoption.md", "utf8");
+    const adoption = await readFile("docs/user/adoption.md", "utf8");
     const readme = await readFile("README.md", "utf8");
-    const packaging = await readFile("docs/packaging.md", "utf8");
-    const releaseReadiness = await readFile("docs/release-readiness.md", "utf8");
-    const ciTemplates = await readFile("docs/ci-templates.md", "utf8");
+    const packaging = await readFile("docs/user/packaging.md", "utf8");
+    const releaseReadiness = await readFile("docs/user/release-readiness.md", "utf8");
+    const ciTemplates = await readFile("docs/user/ci-templates.md", "utf8");
 
-    expect(readme).toContain("[Adoption guide](docs/adoption.md)");
+    expect(readme).toContain("[Adoption guide](docs/user/adoption.md)");
     expect(packaging).toContain("[Adoption guide](adoption.md)");
     expect(releaseReadiness).toContain("[Adoption guide](adoption.md)");
     expect(ciTemplates).toContain("[Adoption guide](adoption.md)");

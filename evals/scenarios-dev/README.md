@@ -29,7 +29,7 @@ matters.
 
 ## Adding a dev scenario
 
-Same shape as the holdout (see **`docs/evals.md`** → "Adding a new scenario"), but the fixture
+Same shape as the holdout (see **`docs/developer/evals.md`** → "Adding a new scenario"), but the fixture
 **must be distinct** from every holdout fixture (the disjointness guard enforces this):
 
 1. Create a fixture in `evals/fixtures/<name>.json` (real diff, **no** `fakeFindings`), with a

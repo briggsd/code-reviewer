@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 
 describe("release readiness documentation", () => {
   test("documents verification, packaging, safety, and release blockers", async () => {
-    const guide = await readFile("docs/release-readiness.md", "utf8");
+    const guide = await readFile("docs/user/release-readiness.md", "utf8");
 
     expect(guide).toContain("bun run check");
     expect(guide).toContain("bun run pack:smoke");
@@ -20,6 +20,6 @@ describe("release readiness documentation", () => {
   test("README links to the release readiness checklist", async () => {
     const readme = await readFile("README.md", "utf8");
 
-    expect(readme).toContain("[Release readiness](docs/release-readiness.md)");
+    expect(readme).toContain("[Release readiness](docs/user/release-readiness.md)");
   });
 });

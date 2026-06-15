@@ -116,7 +116,7 @@ from your local config — which is exactly how you can test policy rules locall
     - **Banner — any failure.** When **one or more** reviewers fail in an otherwise *completing* run (e.g. timeouts or invalid output, after failback is exhausted), the published summary is marked with a `⚠️ Degraded review — N of M reviewers failed` banner naming the failed roles — so the surviving findings are never mistaken for a clean full review. This fires for a **minority** failure too (banner shown, CI outcome unchanged).
     - **CI escalation — strict majority only.** When a **strict majority** of the attempted reviewers fail *and* the run would otherwise **pass**, the outcome is escalated like `review_failed`: in **blocking** mode it becomes `fail` (fail-closed); in **advisory** mode it becomes `neutral` (fail-open, **exit code stays 0** — only the `outcome` field changes from `pass` to `neutral`). This is **escalation-only**: a real blocking finding from a surviving reviewer still fails regardless, and a minority of failed reviewers never changes the outcome.
 
-    The per-run reviewer-failure rate (any failure) is tracked as the `reviewerFailureRate` quality metric (see `docs/review-quality-loop.md`).
+    The per-run reviewer-failure rate (any failure) is tracked as the `reviewerFailureRate` quality metric (see `../developer/review-quality-loop.md`).
 - `failOn`: finding severities that fail CI in blocking mode. Default: `["critical"]` (the built-in defaults are printed by `bun run src/cli.ts schemas` and live in `src/runner/default-config.ts`).
 - `sensitivePaths`: glob-like path patterns that escalate risk.
 - `ignoredPaths`: glob-like path patterns filtered out before review.
@@ -130,7 +130,7 @@ from your local config — which is exactly how you can test policy rules locall
   (e.g. "scripts/* are maintainer-run tools; don't apply an untrusted-input threat model"). Rendered
   as inert, sanitized untrusted data in the reviewer/coordinator prompts (never as instructions).
   **In the GitHub provider path these are read from the base/target branch, not the PR head** (a PR
-  cannot grant itself an exception); see `docs/reviewer-conventions.md`. Bounded: ≤50 entries, ≤500
+  cannot grant itself an exception); see `../developer/reviewer-conventions.md`. Bounded: ≤50 entries, ≤500
   chars each.
 - `compliancePolicy`: array of prose rules the **compliance reviewer** checks the diff against (e.g.
   "All network egress must route through the telemetry transport boundary"; "No new runtime
@@ -306,7 +306,7 @@ status only) records — one per egressed event — then query your backend (for
 runs are dropped at the egress boundary (#194), so no `runtime` filter is needed to clean them —
 add `| json | runtime="pi"` only if you also query `run_event` subtypes (whose dummy orphans are
 not egress-filtered). Full reference, label scheme, counts-only guarantees, and the per-exporter
-namespace convention: **[Telemetry export](telemetry-export.md)**.
+namespace convention: **[Telemetry export](../developer/telemetry-export.md)**.
 
 ## Safety note
 

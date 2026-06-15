@@ -37,7 +37,7 @@ The `release` job (**`v*` tag push only**) downloads the tarball artifact and ru
 The quality stamp (`ai-review.quality_stamp.v2`) contains per-scenario satisfaction scores, a
 `blocked` boolean, per-run satisfaction distributions, min/max/variance diagnostics, flaky
 markers, and per-criterion pass-rate results. It is produced by the dispatch-only `holdout-gate`
-job and uploaded as a standalone validation artifact. See `docs/evals.md` for the stamp schema,
+job and uploaded as a standalone validation artifact. See `../developer/evals.md` for the stamp schema,
 v1-to-v2 migration note, and the `--stamp` flag documentation.
 
 On a `v*` tag push, a separate tag-only `release` job creates a GitHub Release for the tag and attaches the tarball via `gh release create` (a CLI run-step, not a third-party action, so no SHA pin is needed). The release runs only after the `pack` build job succeeds. It does **not** attach a quality stamp — no stamp is generated on the publish-only tag path; quality is validated separately via a `workflow_dispatch` run before tagging (see [Release readiness](release-readiness.md)).

@@ -11,7 +11,7 @@ import {
  *
  * This is the operator-extension seam: an adopter, acting as the trusted operator in their own CI,
  * supplies their own `ReviewerDefinition[]` by an explicit `--reviewers <path>` they control. It
- * mirrors the proven Pi lockout shape (`docs/fork-safety.md`): exactly like the factory's single
+ * mirrors the proven Pi lockout shape (`docs/user/fork-safety.md`): exactly like the factory's single
  * `--extension <…>` load, the path is operator-supplied and resolved in the trusted CI — it is
  * **never discovered from the reviewed repo**, so a reviewed repo cannot smuggle a reviewer in.
  *

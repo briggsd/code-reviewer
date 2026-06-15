@@ -18,7 +18,7 @@
  * Trust / fork-safety: this file is TRUSTED, factory-owned code. It is loaded ONLY via an
  * explicit `pi -e <this path>` while `--no-extensions` keeps reviewed-repo extension discovery
  * OFF (Pi's loader documents "explicit -e paths still work" under `--no-extensions`). It must
- * never be loaded from a reviewed repo. See docs/fork-safety.md.
+ * never be loaded from a reviewed repo. See docs/user/fork-safety.md.
  *
  * It is intentionally OUTSIDE `src/**` (and so outside `tsc --noEmit` / `bun run check`): it is
  * never imported by our TypeScript. Pi loads it with its own `jiti` loader, which aliases

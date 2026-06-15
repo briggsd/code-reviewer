@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 
 describe("inline publishing documentation", () => {
   test("documents the opt-in GitHub inline path and conservative readiness gates", async () => {
-    const guide = await readFile("docs/inline-publishing.md", "utf8");
+    const guide = await readFile("docs/user/inline-publishing.md", "utf8");
     const readme = await readFile("README.md", "utf8");
 
     expect(guide).toContain("experimental, opt-in");
@@ -18,6 +18,6 @@ describe("inline publishing documentation", () => {
     expect(guide).toContain("`inlineFindings`");
     expect(guide).toContain("malformed hidden metadata");
     expect(guide).toContain("starter CI templates do **not** pass `--publish-inline`");
-    expect(readme).toContain("[Inline publishing](docs/inline-publishing.md)");
+    expect(readme).toContain("[Inline publishing](docs/user/inline-publishing.md)");
   });
 });

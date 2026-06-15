@@ -71,7 +71,7 @@ existing `definitions` parameter.
 
 ## Trust boundary — explicit load, never discovery (reuse the proven pattern)
 
-The seam reuses the fork-safety invariant verbatim (`docs/fork-safety.md`): the distinction is
+The seam reuses the fork-safety invariant verbatim (`../user/fork-safety.md`): the distinction is
 **discovery vs explicit load**, not "no extensions at all." The Pi adapter already runs
 `--no-extensions` (kills reviewed-repo extension *discovery*) and **separately** loads exactly one
 factory-owned extension by explicit path (`--extension …/submit-findings-extension.ts`, M015 S03

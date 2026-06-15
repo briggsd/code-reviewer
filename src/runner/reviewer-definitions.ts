@@ -334,7 +334,7 @@ export interface OperatorReviewerExtension {
 
 /**
  * Merge operator reviewer definitions onto the trusted set per the M017 S01 decision-of-record
- * (docs/operator-extension-seam.md): **merge-by-role, operator-wins**, with an explicit
+ * (docs/developer/operator-extension-seam.md): **merge-by-role, operator-wins**, with an explicit
  * **full-replace** opt-in.
  *
  *   - default (merge): key on `role`, last-writer-wins → a new role appends (extend), a role that

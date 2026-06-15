@@ -244,7 +244,7 @@ describe("M009 prompt quality sweep", () => {
   });
 
   test("architecture docs record completed coordinator rubric instead of stale over-block note", async () => {
-    const architecture = await readFile("docs/architecture.md", "utf8");
+    const architecture = await readFile("docs/developer/architecture.md", "utf8");
 
     expect(architecture).toContain(
       "Deterministic fallback summaries enforce a minimum quality floor",

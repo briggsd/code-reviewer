@@ -1,5 +1,7 @@
 # Holdout scenario eval harness
 
+> **Adopter note:** For release and smoke guidance, use [Release readiness](../user/release-readiness.md) and [Pi live smoke test](../user/pi-live-smoke.md); eval authoring details stay here.
+
 ## What it is
 
 The holdout eval harness is the **outer verification layer** for the review factory — a set of
@@ -258,7 +260,7 @@ release holdout gate (M016 S02, `release-package.yml`).
   negative signal. `--gate` is never used here because it would always "fail" under dummy.
 
 For the full improvement loop — hypothesis → dev scenario → reviewer-definition tuning → holdout
-release gate — see `docs/review-quality-loop.md`. For scenario vocabulary and the authoring
+release gate — see `review-quality-loop.md`. For scenario vocabulary and the authoring
 rules, see [Scenario reliability taxonomy](#scenario-reliability-taxonomy).
 
 ## How scoring works
@@ -364,7 +366,7 @@ satisfaction is high enough.
 
 ## Adding a new scenario
 
-See **`docs/review-quality-loop.md`** for the end-to-end improvement loop: how a quality-report
+See **`review-quality-loop.md`** for the end-to-end improvement loop: how a quality-report
 hypothesis becomes an investigation, then a distilled dev scenario, then a tuning change, then a
 holdout-gated release.
 

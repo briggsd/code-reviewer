@@ -3,11 +3,11 @@ import { readFile } from "node:fs/promises";
 
 describe("GitLab live smoke documentation", () => {
   test("documents opt-in GitLab smoke prerequisites and safety posture", async () => {
-    const guide = await readFile("docs/gitlab-live-smoke.md", "utf8");
+    const guide = await readFile("docs/user/gitlab-live-smoke.md", "utf8");
     const readme = await readFile("README.md", "utf8");
     const script = await readFile("scripts/gitlab-live-smoke.ts", "utf8");
 
-    expect(readme).toContain("[GitLab live smoke](docs/gitlab-live-smoke.md)");
+    expect(readme).toContain("[GitLab live smoke](docs/user/gitlab-live-smoke.md)");
     expect(readme).toContain("smoke:gitlab");
     expect(guide).toContain("AI_REVIEW_LIVE_GITLAB=1");
     expect(guide).toContain("AI_REVIEW_GITLAB_REPO");

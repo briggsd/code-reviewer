@@ -1,5 +1,7 @@
 # Per-repo reviewer conventions & acknowledged findings
 
+> **Adopter note:** If you only need to configure repo conventions or acknowledgements, start with [Configuration](../user/configuration.md); this page records the factory-side design rationale.
+
 > Status: **all phases shipped for GitHub** (issue [#60] closed). P1 (`conventions`) + P2
 > (base-branch read) + P3 (`acknowledgements`). GitLab P2/P3 deferred (degrades to P1 advisory).
 > Pairs with the coordinator precision gate (#54) and mechanized boundary rules (#27).
