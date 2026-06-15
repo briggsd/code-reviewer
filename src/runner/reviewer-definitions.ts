@@ -189,6 +189,7 @@ export const TRUSTED_REVIEWER_DEFINITIONS: ReviewerDefinition[] = [
       "Requests for broad new docs unrelated to the changed behavior.",
       "Documentation preferences when the current wording is accurate and actionable.",
       "Speculative confusion without pointing to a specific reader action that would go wrong.",
+      "Dead links or dead path / bun-run script references in tracked *.md files — the docs:check gate (scripts/check-docs.ts, BLOCKING in CI) owns those definitively; do not re-report what that linter already catches.",
     ],
     allowedSeverities: ["warning", "suggestion"],
     severityCalibration: [

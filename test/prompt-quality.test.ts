@@ -228,6 +228,21 @@ describe("M009 prompt quality sweep", () => {
     }
   });
 
+  test("documentation reviewer doNotFlag defers dead-reference detection to docs:check gate (#197)", () => {
+    const definitionsByRole = Object.fromEntries(
+      TRUSTED_REVIEWER_DEFINITIONS.map((definition) => [definition.role, definition]),
+    );
+
+    // Entry-level: the doNotFlag array contains the deferral.
+    expect(definitionsByRole.documentation?.guidance.doNotFlag.join("\n")).toContain("docs:check");
+
+    // Assembled-prompt level: the deferral reaches the rendered prompt (#222 pattern).
+    const definition = definitionsByRole.documentation;
+    expect(definition).toBeDefined();
+    const rendered = formatReviewerDefinitionForPrompt(definition!);
+    expect(rendered).toContain("docs:check");
+  });
+
   test("architecture docs record completed coordinator rubric instead of stale over-block note", async () => {
     const architecture = await readFile("docs/architecture.md", "utf8");
 
