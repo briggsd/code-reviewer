@@ -236,12 +236,22 @@ export class GitHubVcsAdapter implements VcsAdapter {
   }
 
   async getPriorReviewState(ref: ChangeRef): Promise<PriorReviewState | undefined> {
-    const comments = await this.http.requestAllPages<GitHubIssueCommentResponse>(
-      this.issueCommentsPath(ref),
-    );
-    const existing = comments.findLast(
-      (comment) => parseSummaryHiddenMetadata(comment.body) !== undefined,
-    );
+    // Mirror the #84 bot-author guard from findExistingSummaryComment: only load prior state
+    // from a comment authored by the bot itself. Any PR participant can post a comment with a
+    // crafted <!-- ai-code-review-factory --> block — without an author check, a forged comment
+    // would be loaded as prior state and influence convergence (#149), resolvedLog (#279), and
+    // disposition (#256). Safe-on-failure: if botId is unresolved, return undefined (first review)
+    // rather than falling back to the author-blind selection (the unsafe direction).
+    const [comments, botId] = await Promise.all([
+      this.http.requestAllPages<GitHubIssueCommentResponse>(this.issueCommentsPath(ref)),
+      this.resolveBotUserId(),
+    ]);
+
+    if (botId === undefined) {
+      return undefined;
+    }
+
+    const existing = comments.findLast((comment) => this.isOwnSummaryComment(comment, botId));
     const metadata = parseSummaryHiddenMetadata(existing?.body);
 
     return metadata === undefined ? undefined : createPriorReviewStateFromMetadata(metadata, ref);
@@ -503,6 +513,15 @@ export class GitHubVcsAdapter implements VcsAdapter {
     return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/comments/${encodeURIComponent(String(commentId))}`;
   }
 
+  // Returns true when a comment was authored by the bot AND carries the hidden-metadata marker.
+  // This is the single trust point for both findExistingSummaryComment (publish dedup) and
+  // getPriorReviewState (prior-state loading) — both paths must use the same predicate (#84/#263).
+  private isOwnSummaryComment(comment: GitHubIssueCommentResponse, botId: number): boolean {
+    return (
+      comment.body?.includes("<!-- ai-code-review-factory") === true && comment.user?.id === botId
+    );
+  }
+
   private async findExistingSummaryComment(
     change: ChangeMetadata,
   ): Promise<GitHubIssueCommentResponse | undefined> {
@@ -517,12 +536,11 @@ export class GitHubVcsAdapter implements VcsAdapter {
       this.resolveBotUserId(),
     ]);
 
-    return comments.findLast(
-      (comment) =>
-        comment.body?.includes("<!-- ai-code-review-factory") === true &&
-        botId !== undefined &&
-        comment.user?.id === botId,
-    );
+    if (botId === undefined) {
+      return undefined;
+    }
+
+    return comments.findLast((comment) => this.isOwnSummaryComment(comment, botId));
   }
 
   private async findExistingInlineComments(

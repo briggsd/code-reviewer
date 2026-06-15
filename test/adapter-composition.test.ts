@@ -124,6 +124,11 @@ function githubFixtureFetch(): FetchLike {
   return async (input) => {
     const url = String(input);
 
+    // Bot identity — required by getPriorReviewState author-trust guard (#263).
+    if (url === "https://api.github.com/user") {
+      return jsonResponse({ id: 77, login: "ai-review-bot" });
+    }
+
     if (url === "https://api.github.com/repos/example/payments-api/pulls/42") {
       return jsonResponse(await readFixture("github", "pull.json"));
     }
@@ -144,6 +149,8 @@ function githubFixtureFetch(): FetchLike {
       return jsonResponse([
         {
           id: 123,
+          // Comment must be authored by the bot (id 77) to be loaded as prior state (#263).
+          user: { id: 77, login: "ai-review-bot" },
           body: [
             "<!-- ai-code-review-factory",
             JSON.stringify({
@@ -166,6 +173,11 @@ function gitlabFixtureFetch(): GitLabFetchLike {
   return async (input) => {
     const url = String(input);
 
+    // Bot identity — required by getPriorReviewState author-trust guard (#263).
+    if (url === "https://gitlab.com/api/v4/user") {
+      return jsonResponse({ id: 88, username: "ai-review-bot" });
+    }
+
     if (url === "https://gitlab.com/api/v4/projects/example%2Fpayments-api/merge_requests/7") {
       return jsonResponse(await readFixture("gitlab", "merge-request.json"));
     }
@@ -182,6 +194,8 @@ function gitlabFixtureFetch(): GitLabFetchLike {
       return jsonResponse([
         {
           id: 123,
+          // Note must be authored by the bot (id 88) to be loaded as prior state (#263).
+          author: { id: 88, username: "ai-review-bot" },
           body: [
             "<!-- ai-code-review-factory",
             JSON.stringify({

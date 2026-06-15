@@ -236,8 +236,22 @@ export class GitLabVcsAdapter implements VcsAdapter {
   }
 
   async getPriorReviewState(ref: ChangeRef): Promise<PriorReviewState | undefined> {
-    const notes = await this.http.request<GitLabNoteResponse[]>(this.mergeRequestNotesPath(ref));
-    const existing = notes.findLast((note) => parseSummaryHiddenMetadata(note.body) !== undefined);
+    // Mirror the #84 bot-author guard from findExistingSummaryNote: only load prior state
+    // from a note authored by the bot itself. Any MR participant can post a note with a
+    // crafted <!-- ai-code-review-factory --> block — without an author check, a forged note
+    // would be loaded as prior state and influence convergence (#149), resolvedLog (#279), and
+    // disposition (#256). Safe-on-failure: if botId is unresolved, return undefined (first review)
+    // rather than falling back to the author-blind selection (the unsafe direction).
+    const [notes, botId] = await Promise.all([
+      this.http.request<GitLabNoteResponse[]>(this.mergeRequestNotesPath(ref)),
+      this.resolveBotUserId(),
+    ]);
+
+    if (botId === undefined) {
+      return undefined;
+    }
+
+    const existing = notes.findLast((note) => this.isOwnSummaryNote(note, botId));
     const metadata = parseSummaryHiddenMetadata(existing?.body);
 
     return metadata === undefined ? undefined : createPriorReviewStateFromMetadata(metadata, ref);
@@ -623,6 +637,18 @@ export class GitLabVcsAdapter implements VcsAdapter {
     return `${this.mergeRequestNotesPath(change)}/${encodeURIComponent(String(noteId))}`;
   }
 
+  // Returns true when a note was authored by the bot, is not a system note, and carries the
+  // hidden-metadata marker. This is the single trust point for both findExistingSummaryNote
+  // (publish dedup) and getPriorReviewState (prior-state loading) — both paths must use the
+  // same predicate (#84/#263).
+  private isOwnSummaryNote(note: GitLabNoteResponse, botId: number): boolean {
+    return (
+      note.system !== true &&
+      note.body?.includes("<!-- ai-code-review-factory") === true &&
+      note.author?.id === botId
+    );
+  }
+
   private async findExistingSummaryNote(
     change: ChangeMetadata,
   ): Promise<GitLabNoteResponse | undefined> {
@@ -636,13 +662,11 @@ export class GitLabVcsAdapter implements VcsAdapter {
       this.resolveBotUserId(),
     ]);
 
-    return notes.findLast(
-      (note) =>
-        note.system !== true &&
-        note.body?.includes("<!-- ai-code-review-factory") === true &&
-        botId !== undefined &&
-        note.author?.id === botId,
-    );
+    if (botId === undefined) {
+      return undefined;
+    }
+
+    return notes.findLast((note) => this.isOwnSummaryNote(note, botId));
   }
 
   private headers(hasJsonBody = false): HeadersInit {
