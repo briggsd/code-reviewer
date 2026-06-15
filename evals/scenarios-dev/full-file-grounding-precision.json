@@ -1,0 +1,19 @@
+{
+  "name": "full-file-grounding-precision",
+  "description": "Primary reliability dimension: Grounding/completeness. Full changed-file grounding should let valid findings cite unchanged real code around a small hunk while deterministic grounding still suppresses fabricated quotes.",
+  "fixture": "evals/fixtures/full-file-grounding-precision.json",
+  "threshold": 1,
+  "criteria": [
+    {
+      "kind": "has_finding",
+      "label": "flags the project report ownership-scope risk with real surrounding code evidence",
+      "minSeverity": "warning",
+      "textIncludes": "owner"
+    },
+    {
+      "kind": "decision_in",
+      "label": "decision reflects a grounded report-access concern",
+      "values": ["approved_with_comments", "minor_issues", "significant_concerns", "review_failed"]
+    }
+  ]
+}

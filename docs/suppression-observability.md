@@ -93,10 +93,13 @@ budget count, included bytes, and budget bytes — no paths, file bodies, prompt
 directions: "finding with quotedCode matching a patch line → grounded" and "finding with
 quotedCode NOT in any patch (fabricated) → dropped," plus carve-outs for the no-quote and
 sub-threshold cases and #214 full-file promotion/budget behavior. `test/evidence-grounding-spine.test.ts`
-covers the run-through-coordinator integration path, including a full-content-only quote and a
-`change-context.json` leak guard. `telemetry:quality` threshold tests are in
-`test/quality-report.test.ts` (lines 50-83). #239 can now add the sealed eval/regression scenario
-for valid-finding survival on top of this implemented full-file-corpus promoter.
+covers the run-through-coordinator integration path, including #214's full-content-only quote
+promotion and #239's precision regression: a valid critical finding cites unchanged real code from
+`changedFileContents`, a fabricated critical quote is down-weighted to the non-blocking
+`groundingWithheld` block, and trace/telemetry/context-artifact assertions prove the full-file-only
+code remains counts-only. `evals/scenarios-dev/full-file-grounding-precision.json` is the matching
+dev-split live-eval scenario for valid-finding survival under full-file grounding. `telemetry:quality`
+threshold tests are in `test/quality-report.test.ts` (lines 50-83).
 
 ---
 

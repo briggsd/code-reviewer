@@ -1,0 +1,46 @@
+{
+  "runId": "eval-full-file-grounding-precision",
+  "metadata": {
+    "provider": "github",
+    "repository": {
+      "provider": "github",
+      "owner": "example",
+      "name": "factory",
+      "slug": "example/factory",
+      "defaultBranch": "main"
+    },
+    "changeId": "239",
+    "headSha": "239005",
+    "baseSha": "239004",
+    "sourceBranch": "security/project-report-filter",
+    "targetBranch": "main",
+    "title": "Relax project report filter",
+    "description": "Simplifies report lookup after moving ownership checks into the caller.",
+    "author": {
+      "username": "dev"
+    },
+    "labels": []
+  },
+  "diff": {
+    "files": [
+      {
+        "path": "src/reports/project-report.ts",
+        "status": "modified",
+        "additions": 1,
+        "deletions": 1,
+        "isBinary": false,
+        "patch": "@@ -9 +9 @@ export async function loadProjectReport(userId: string, projectId: string) {\n-  const project = ownerScope.find((entry) => entry.id === projectId && entry.active);\n+  const project = ownerScope.find((entry) => entry.id === projectId);"
+      }
+    ],
+    "totalAdditions": 1,
+    "totalDeletions": 1,
+    "truncated": false
+  },
+  "changedFileContents": {
+    "src/reports/project-report.ts": "export async function loadProjectReport(userId: string, projectId: string) {\n  const ownerScope = await loadOwnedProjects(userId);\n  const project = ownerScope.find((entry) => entry.id === projectId);\n  if (project === undefined) {\n    throw new Error(\"project not found\");\n  }\n  return renderReport(project);\n}\n"
+  },
+  "config": {
+    "mode": "blocking",
+    "failOn": ["critical"]
+  }
+}

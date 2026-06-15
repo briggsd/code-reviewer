@@ -252,7 +252,7 @@ release holdout gate (M016 S02, `release-package.yml`).
 - **Advisory / non-blocking** — the eval step uses `continue-on-error: true` so a harness crash
   never blocks the PR.
 - **Deterministic result** — the dummy runtime produces "2/5 passed" over the holdout split
-  (`evals/scenarios`) and "2/6 passed" over the dev split (`evals/scenarios-dev`): recall scenarios
+  (`evals/scenarios`) and "2/7 passed" over the dev split (`evals/scenarios-dev`): recall scenarios
   score 0 with no findings, precision scenarios pass. Both are expected and are NOT failures (these
   baselines shift as scenarios are added/removed). Only a harness crash (nonzero exit) is the
   negative signal. `--gate` is never used here because it would always "fail" under dummy.
@@ -352,6 +352,7 @@ satisfaction is high enough.
 | `quality-stamp-schema-rename` | Recall | Catches silent serialized contract drift in the persisted release quality stamp | `has_finding` minSeverity=warning, textIncludes=schemaVersion; decision in [approved_with_comments, minor_issues, significant_concerns, review_failed]; threshold=1.0 |
 | `timeout-fallback-integration-coverage` | Recall | Catches degraded timeout fallback changes that only add helper-level tests instead of integration/policy coverage | `has_finding` minSeverity=warning, textIncludes=timeout; decision in [approved_with_comments, minor_issues, significant_concerns, review_failed]; threshold=1.0 |
 | `large-diff-code-quality-delivery` | Survival under stress | Full-tier dev stress scenario for #238: large fixture/generated/test-data bulk is visibly demoted while `code_quality` completes and an admitted discount logic bug remains catchable by live runs | `reviewer_not_failed` for code_quality, critical; `partial_by_size` minDroppedFileCount=1 minAdmittedFileCount=1; `has_finding` reviewer=code_quality minSeverity=warning textIncludes=discount; decision in [approved_with_comments, minor_issues, significant_concerns, review_failed]; threshold=1.0 |
+| `full-file-grounding-precision` | Grounding/completeness | Full changed-file grounding precision scenario for #239: a small patch has real unchanged surrounding code available through `changedFileContents`, so valid out-of-hunk evidence can survive without putting full file bodies into prompt artifacts | `has_finding` minSeverity=warning textIncludes=owner; decision in [approved_with_comments, minor_issues, significant_concerns, review_failed]; threshold=1.0 |
 
 > **Criterion authoring lesson (from the first live pi run).** Prefer `textIncludes` (searches a
 > finding's title/body/recommendation/evidence/quotedCode) over `pathIncludes` to detect *whether a

@@ -233,6 +233,121 @@ describe("evidence grounding spine integration", () => {
     expect(JSON.stringify(telemetrySink.events)).not.toContain(fullContentOnlySentinel);
   });
 
+  test("#239 full-file corpus grounds real out-of-hunk code and withholds fabricated quotes without leaking text", async () => {
+    const fixture = await loadReviewFixture("evals/fixtures/full-file-grounding-precision.json");
+    const telemetrySink = new RecordingTelemetrySink();
+    const traceSink = new RecordingTraceSink();
+    const fullContentOnlySentinel = "const ownerScope = await loadOwnedProjects(userId);";
+    const fabricatedQuote = "await transferAllPayrollWithoutApproval();";
+
+    const groundedCritical: Finding = {
+      reviewer: "security",
+      severity: "critical",
+      category: "access_control",
+      title: "Grounded out-of-hunk ownership scope",
+      body: "The changed lookup now relies on an owner-scoped collection; reviewers may need to cite the unchanged owner-scope line to explain the access-control boundary.",
+      confidence: "high",
+      evidence: ["The owner-scope collection is built before the changed lookup."],
+      recommendation: "Keep the active/project ownership invariant explicit near the lookup.",
+      location: { path: "src/reports/project-report.ts" },
+      quotedCode: [fullContentOnlySentinel],
+    };
+    const fabricatedCritical: Finding = {
+      reviewer: "security",
+      severity: "critical",
+      category: "access_control",
+      title: "Fabricated payroll transfer",
+      body: "This quote does not exist in the patch or changed-file content.",
+      confidence: "high",
+      evidence: ["Fabricated quote must be down-weighted."],
+      recommendation: "Do not block on invented evidence.",
+      location: { path: "src/reports/project-report.ts" },
+      quotedCode: [fabricatedQuote],
+    };
+
+    expect(fixture.fakeFindings).toHaveLength(0);
+    const fixturePatches = fixture.diff.files.map((f) => f.patch ?? "").join("\n");
+    expect(fixturePatches).not.toContain(fullContentOnlySentinel);
+    expect(fixturePatches).not.toContain(fabricatedQuote);
+    expect(fixture.changedFileContents?.["src/reports/project-report.ts"]).toContain(
+      fullContentOnlySentinel,
+    );
+    expect(fixture.changedFileContents?.["src/reports/project-report.ts"]).not.toContain(
+      fabricatedQuote,
+    );
+
+    fixture.fakeFindings = [groundedCritical, fabricatedCritical];
+
+    const result = await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-15T00:00:00.000Z"),
+      telemetrySink,
+      traceSink,
+    });
+
+    const { summary } = result;
+    expect(summary.findings.map((f) => f.title)).toContain("Grounded out-of-hunk ownership scope");
+    expect(summary.findings.map((f) => f.title)).not.toContain("Fabricated payroll transfer");
+    expect(summary.groundingWithheld).toHaveLength(1);
+    expect(summary.groundingWithheld?.[0]?.title).toBe("Fabricated payroll transfer");
+    expect(summary.groundingWithheld?.[0]?.confidence).toBe("low");
+    expect(summary.decision).toBe("significant_concerns");
+    expect(summary.outcome).toBe("fail");
+
+    const groundingTrace = traceSink.events.find((e) => e.type === "grounding.applied");
+    expect(groundingTrace).toBeDefined();
+    expect(groundingTrace?.data?.droppedFindingCount).toBe(1);
+
+    const fullContentTrace = traceSink.events.find(
+      (e) => e.type === "grounding.full_content_corpus",
+    );
+    expect(fullContentTrace).toBeDefined();
+    const fullContentBytes = Buffer.byteLength(
+      fixture.changedFileContents?.["src/reports/project-report.ts"] ?? "",
+      "utf8",
+    );
+    const fullContentTraceData = fullContentTrace?.data;
+    if (fullContentTraceData === undefined) {
+      throw new Error("expected grounding.full_content_corpus trace data");
+    }
+    expect(Object.keys(fullContentTraceData).sort()).toEqual([
+      "budgetBytes",
+      "fullContentAvailableCount",
+      "includedBytes",
+      "includedCount",
+      "skippedByBudgetCount",
+    ]);
+    expect(fullContentTraceData.fullContentAvailableCount).toBe(1);
+    expect(fullContentTraceData.includedCount).toBe(1);
+    expect(fullContentTraceData.skippedByBudgetCount).toBe(0);
+    expect(fullContentTraceData.includedBytes).toBe(fullContentBytes);
+    const budgetBytes = fullContentTraceData.budgetBytes;
+    if (typeof budgetBytes !== "number") {
+      throw new Error("expected numeric full-content grounding budget");
+    }
+    expect(budgetBytes).toBeGreaterThan(fullContentBytes);
+
+    const metrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
+    expect(metrics).toBeDefined();
+    expect(
+      (metrics?.data?.grounding as { droppedFindingCount: number } | undefined)
+        ?.droppedFindingCount,
+    ).toBe(1);
+
+    const changeContextPath = result.context.contextArtifacts?.changeContextPath;
+    expect(changeContextPath).toBeDefined();
+    const changeContext = await readFile(
+      join(result.context.workingDirectory, changeContextPath ?? ""),
+      "utf8",
+    );
+    expect(changeContext).not.toContain(fullContentOnlySentinel);
+    expect(changeContext).not.toContain(fabricatedQuote);
+    expect(JSON.stringify(traceSink.events)).not.toContain(fullContentOnlySentinel);
+    expect(JSON.stringify(traceSink.events)).not.toContain(fabricatedQuote);
+    expect(JSON.stringify(telemetrySink.events)).not.toContain(fullContentOnlySentinel);
+    expect(JSON.stringify(telemetrySink.events)).not.toContain(fabricatedQuote);
+  });
+
   test("grounding is a no-op when all findings have no quotedCode (existing data stays unchanged)", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
     const telemetrySink = new RecordingTelemetrySink();
