@@ -77,3 +77,27 @@ describe("repo .ai-review.json self-review sensitive paths (#77)", () => {
     expect(risk.sensitivePaths).toEqual([]);
   });
 });
+
+describe("repo .ai-review.json conventions (#162)", () => {
+  test("loads conventions array with expected entries", async () => {
+    const config = await loadProjectReviewConfig();
+
+    // Non-empty array — at least the 10 entries added in #162 Step 1.
+    expect(Array.isArray(config.conventions)).toBe(true);
+    expect((config.conventions ?? []).length).toBeGreaterThanOrEqual(8);
+
+    // Spot-check: one Tier 2 entry (silent-contract rule) and one Tier 3 entry (zero-width-space).
+    expect(config.conventions?.some((c) => c.includes("silent contract"))).toBe(true);
+    expect(config.conventions?.some((c) => c.includes("Zero-width-space"))).toBe(true);
+  });
+
+  test("all convention entries satisfy schema bounds (≤500 chars, ≤50 entries)", async () => {
+    const config = await loadProjectReviewConfig();
+    const entries = config.conventions ?? [];
+
+    expect(entries.length).toBeLessThanOrEqual(50);
+    for (const entry of entries) {
+      expect(entry.length).toBeLessThanOrEqual(500);
+    }
+  });
+});

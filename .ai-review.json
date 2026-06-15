@@ -9,5 +9,17 @@
     "src/runtime/prompt-boundary.ts",
     "src/ci/**",
     "src/publisher/**"
+  ],
+  "conventions": [
+    "No silent contract/default/roster/serialized-shape change: a change to a persisted type, telemetry-event shape, hidden-metadata schema, or .ai-review.json-facing contract should ship a migration note and an optional-field / backward-compatible path.",
+    "Validate untrusted data (model output, subprocess JSON, VCS API responses) at the boundary before use, via the centralized validators (validateFinding / structured-tool-output), rather than trusting its shape.",
+    "Error, timeout, and short-circuit branches should ship an integration-level test that exercises the real path end-to-end, not an isolation-only mock (the false-confidence trap).",
+    "Counts-only telemetry (M008): run_metrics / trace events carry integers and identifiers only — never finding, diff, prompt, or secret text.",
+    "Do not flag input-validation or path-traversal guards for callers that do not exist yet (e.g. a function whose only caller passes a constant literal).",
+    "Do not flag race conditions the runtime contract already precludes (e.g. synchronous, in-order event emission).",
+    "Do not demand TTL or size caps on internal data structures whose producers are already bounded.",
+    "Zero-width-space-in-code-fence (U+200B) findings are a known fabricated-evidence false positive — do not raise them.",
+    "Do not recommend allowlisting runtime-kind or job-kind to a closed set — those extension points are intentionally open.",
+    "Do not flag missing markdown-escaping of values rendered inside a code span or fenced code block: fenced/code-span content is literal and escaping there corrupts it (e.g. JSON snippets). Escaping applies to plain-markdown context only."
   ]
 }
