@@ -47,7 +47,7 @@ bun run schema:config
     "performance": "full_only"
   },
   "timeouts": {
-    "reviewerMs": 360000,
+    "reviewerMs": 480000,
     "coordinatorMs": 240000,
     "overallMs": 900000
   },
@@ -165,7 +165,7 @@ from your local config — which is exactly how you can test policy rules locall
 - `timeouts`: reviewer/coordinator/overall budgets in milliseconds.
   - Reviewer agents run in parallel; the coordinator runs after all reviewers complete.
   - `overallMs` is an enforced wall-clock ceiling for the whole runtime phase and should be at least `reviewerMs + coordinatorMs` plus headroom.
-  - The default full-tier budget is 15 minutes: 6 minutes per reviewer attempt, 4 minutes for coordinator synthesis, plus 5 minutes of wall-clock headroom for model latency and one early retry.
+  - The default full-tier budget is 15 minutes: 8 minutes per reviewer attempt, 4 minutes for coordinator synthesis, plus 3 minutes of wall-clock headroom for model latency and one early retry.
   - Retryable reviewer failures are retried only when the remaining full/lite/trivial wall-clock budget can still cover another reviewer attempt, the coordinator budget, and a retry reserve. The reserve is an internal headroom buffer (not a `.ai-review.json` field; default 2 minutes at full tier) that is scaled by the same risk tier as the other budgets, so the guard inequality is `overallMs - elapsed >= reviewerMs + coordinatorMs + reserve`, all terms at the active tier.
   - The configured values are full-review ceilings. Effective limits are scaled by risk tier: full uses 100%, lite uses 50%, and trivial uses 25%. At the default config the resulting overall ceilings are full 15 min, lite 7.5 min (450000 ms), and trivial 3.75 min (225000 ms); the per-reviewer/coordinator budgets and the retry reserve scale identically.
   - Defaults were raised after PR #9 live Pi smoke and later full-tier dogfooding exposed model-backed review latency. Lower them for tighter CI budgets or raise them for slower self-hosted/model paths.

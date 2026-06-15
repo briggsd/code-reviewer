@@ -35,7 +35,7 @@ export function createDefaultReviewConfig(): ReviewConfig {
       performance: "full_only",
     },
     timeouts: {
-      reviewerMs: 360_000,
+      reviewerMs: 480_000,
       coordinatorMs: 240_000,
       overallMs: 900_000,
     },
