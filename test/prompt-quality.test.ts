@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import type { Finding } from "../src/index.ts";
 import {
   formatCompliancePolicyPrompt,
+  formatReviewerDefinitionForPrompt,
   normalizeReviewFixture,
   runReview,
   stringifyPromptData,
@@ -211,6 +212,20 @@ describe("M009 prompt quality sweep", () => {
     ]);
     expect(result.summary.decision).toBe("approved_with_comments");
     expect(result.summary.outcome).toBe("pass");
+  });
+
+  test("false-absence rule (#222) reaches the assembled reviewer prompt via formatReviewerDefinitionForPrompt", () => {
+    const definitionsByRole = Object.fromEntries(
+      TRUSTED_REVIEWER_DEFINITIONS.map((definition) => [definition.role, definition]),
+    );
+
+    for (const role of ["security", "code_quality", "documentation"]) {
+      const definition = definitionsByRole[role];
+      expect(definition).toBeDefined();
+      const rendered = formatReviewerDefinitionForPrompt(definition!);
+      expect(rendered).toContain("Shared mandatory rules");
+      expect(rendered).toContain("may exist elsewhere in the repo");
+    }
   });
 
   test("architecture docs record completed coordinator rubric instead of stale over-block note", async () => {

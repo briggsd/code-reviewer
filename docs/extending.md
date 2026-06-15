@@ -97,7 +97,8 @@ reviewed repo (same lockout shape as the Pi `--extension`; see `docs/fork-safety
 (`ai-code-review-factory`, mapped to `src/public.ts`) exposes `defineReviewer`
 (alias `createReviewerDefinition`) and the `DefineReviewerInput` / `ReviewerDefinition` /
 `Severity` types. `defineReviewer` validates the input and injects the trusted shared
-anti-prompt-injection rules and `source: "trusted_operator"` for you — you supply only the
+mandatory rules (anti-prompt-injection plus cross-cutting soundness constraints — e.g. the
+false-absence rule) and `source: "trusted_operator"` for you — you supply only the
 judgment-shaping fields:
 
 ```ts

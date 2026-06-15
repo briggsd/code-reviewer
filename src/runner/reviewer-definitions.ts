@@ -12,6 +12,7 @@ const SHARED_MANDATORY_RULES = [
   "Prefer silence over speculative, generic, or style-only feedback.",
   "Keep findings actionable and scoped to this change.",
   "Reporting zero findings is a correct and common result; never invent, inflate, or pad with low-confidence findings to meet a perceived quota.",
+  "Do not assert the absence of an artifact (tests, docs, validation, a guard) that would live in a file outside the review context; the changed-hunk view is partial and such an artifact may exist elsewhere in the repo — downgrade an absence observation to a conditional or question (e.g. 'if no test exists elsewhere, consider …'), not a stated finding.",
 ];
 
 const VALID_SEVERITIES = new Set<string>(["critical", "warning", "suggestion"]);
