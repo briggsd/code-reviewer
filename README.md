@@ -14,6 +14,7 @@ This repository starts as an architecture/design workspace. The implementation t
 - [CI templates](docs/ci-templates.md) — GitHub Actions and GitLab CI starter templates.
 - [GitHub Action wrapper](docs/github-action-wrapper.md) — thin `uses:` wrapper around the packaged CLI.
 - [Fork safety](docs/fork-safety.md) — public-repo fork strategy and secret/write-token boundaries.
+- [Security policy](SECURITY.md) — how to privately report a vulnerability, supported versions, and disclosure posture.
 - [Operator-extension seam](docs/operator-extension-seam.md) — M017 design note + #16 disposition: the explicit-load BYO-reviewer seam, the merge-by-role override rule, and free-form operator-keyed roles.
 - [Inline publishing](docs/inline-publishing.md) — experimental opt-in GitHub inline comments with conservative readiness gates.
 - [Packaging](docs/packaging.md) — package artifact contents and smoke test.
