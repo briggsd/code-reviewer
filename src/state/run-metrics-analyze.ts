@@ -204,190 +204,165 @@ interface AccumulatedAcceptance {
   withheldExcluded: number;
 }
 
-export function analyzeRunMetrics(
-  events: readonly TelemetryEvent[],
-  options?: AnalyzeOptions,
-): RunMetricsAnalysis {
-  const realEvents = events.filter(isRunMetricsEvent);
-  const runCount = realEvents.length;
+// ─── per-event accumulation helpers ─────────────────────────────────────────
 
-  // Collect the set of runIds that belong to real-runtime run_metrics events.
-  // run_event events whose runId is not in this set are "orphans" and are ignored.
-  const realRunIds = new Set(
-    realEvents.map((e) => e.runId).filter((id): id is string => id !== undefined),
-  );
+/** Accumulate decision and outcome counts from a single run_metrics event. */
+function accumulateDecisionsAndOutcomes(
+  data: RunMetricsEventData,
+  decisionCounts: Map<string, number>,
+  outcomeCounts: Map<string, number>,
+): void {
+  if (typeof data.decision === "string" && data.decision.length > 0) {
+    incrementMap(decisionCounts, data.decision, 1);
+  }
+  if (typeof data.outcome === "string" && data.outcome.length > 0) {
+    incrementMap(outcomeCounts, data.outcome, 1);
+  }
+}
 
-  const tierAccumulators = new Map<string, TierAccumulator>();
-  const findingsByReviewer = new Map<string, number>();
-  const decisionCounts = new Map<string, number>();
-  const outcomeCounts = new Map<string, number>();
-
-  let groundingRunCount = 0;
-  let groundingDemotedTotal = 0;
-  let locationBackfillRunCount = 0;
-  let acknowledgementRunCount = 0;
-  let thinReviewRunCount = 0;
-  let totalFindings = 0;
-  let structuredOutputStructuredCount = 0;
-  let structuredOutputTotalCount = 0;
-  let reviewerFailureRunCount = 0;
-  const reviewerFailureCountByRoleMap = new Map<string, number>();
-
-  for (const event of realEvents) {
-    const data = event.data;
-
-    const tier =
-      typeof data.riskTier === "string" && data.riskTier.length > 0 ? data.riskTier : "unknown";
-
-    const tierAcc = getOrCreateTierAccumulator(tierAccumulators, tier);
-    tierAcc.runCount += 1;
-
-    if (typeof data.decision === "string" && data.decision.length > 0) {
-      incrementMap(decisionCounts, data.decision, 1);
-    }
-
-    if (typeof data.outcome === "string" && data.outcome.length > 0) {
-      incrementMap(outcomeCounts, data.outcome, 1);
-    }
-
-    // Count findings and accumulate per-reviewer totals
-    const findingsRecord = data.findingsByReviewer;
-    let runFindings = 0;
-    if (findingsRecord !== undefined && isPlainObject(findingsRecord)) {
-      for (const [reviewer, count] of Object.entries(findingsRecord)) {
-        if (typeof count === "number" && Number.isFinite(count)) {
-          incrementMap(findingsByReviewer, reviewer, count);
-          runFindings += count;
-          totalFindings += count;
-        }
-      }
-    } else if (typeof data.findingCount === "number" && Number.isFinite(data.findingCount)) {
-      runFindings = data.findingCount;
-      totalFindings += data.findingCount;
-    }
-    tierAcc.totalFindings += runFindings;
-
-    // Token totals
-    const tokens = data.tokens;
-    let outputTokens = 0;
-    let inputTokens = 0;
-    let cacheWriteTokens = 0;
-    let cacheReadTokens = 0;
-    let costUsd = 0;
-    if (tokens !== undefined && isPlainObject(tokens)) {
-      outputTokens = asNumber(tokens.outputTokens);
-      inputTokens = asNumber(tokens.inputTokens);
-      cacheWriteTokens = asNumber(tokens.cacheWriteTokens);
-      cacheReadTokens = asNumber(tokens.cacheReadTokens);
-      costUsd = asNumber(tokens.estimatedCostUsd);
-    }
-    tierAcc.totalOutputTokens += outputTokens;
-    tierAcc.totalInputTokens += inputTokens;
-    tierAcc.totalCacheWriteTokens += cacheWriteTokens;
-    tierAcc.totalCacheReadTokens += cacheReadTokens;
-    tierAcc.totalCostUsd += costUsd;
-
-    // Duration
-    const durationMs = asNumber(data.durationMs);
-    tierAcc.totalDurationMs += durationMs;
-
-    // Sub-durations: fanOutMs / fusionMs from data.durationsMs (#196)
-    const durationsMs = data.durationsMs;
-    if (durationsMs !== undefined && isPlainObject(durationsMs)) {
-      tierAcc.totalFanOutMs += asNumber(durationsMs.fanOutMs);
-      tierAcc.totalFusionMs += asNumber(durationsMs.fusionMs);
-    }
-
-    // Thin-review classification (#91): contextual floor from assessThinReview(), which
-    // uses riskTier and reviewedFileCount to compute the expected minimum. Trivial runs
-    // are never flagged. Explicit --thin-floor wins for all events; otherwise legacy
-    // events lacking reviewedFileCount fall back to the flat pre-#91 floor (see comment
-    // at LEGACY_FLAT_THIN_FLOOR) so historical analyze output stays comparable.
-    const hasFileCount =
-      typeof data.reviewedFileCount === "number" && Number.isFinite(data.reviewedFileCount);
-    const flatFloor =
-      options?.thinReviewOutputTokenFloor ?? (hasFileCount ? undefined : LEGACY_FLAT_THIN_FLOOR);
-    const assessment = assessThinReview(
-      {
-        riskTier: tier,
-        reviewedFileCount: hasFileCount ? (data.reviewedFileCount as number) : 0,
-        outputTokens,
-      },
-      flatFloor !== undefined ? { flatFloor } : undefined,
-    );
-    if (assessment.thin) {
-      tierAcc.thinReviewRunCount += 1;
-      thinReviewRunCount += 1;
-    }
-
-    // Optional block presence rates
-    const groundingBlock = data.grounding;
-    if (
-      groundingBlock !== undefined &&
-      isPlainObject(groundingBlock) &&
-      Object.keys(groundingBlock).length > 0
-    ) {
-      groundingRunCount += 1;
-      // asNumber() (not bare Number()) so a non-numeric droppedFindingCount can't propagate NaN
-      // into produced/the rate and past buildQualityReport's null-check — matching every other
-      // numeric accumulation in this function.
-      groundingDemotedTotal += asNumber(groundingBlock.droppedFindingCount);
-    }
-
-    const locationBackfillBlock = data.locationBackfill;
-    if (
-      locationBackfillBlock !== undefined &&
-      isPlainObject(locationBackfillBlock) &&
-      Object.keys(locationBackfillBlock).length > 0
-    ) {
-      locationBackfillRunCount += 1;
-    }
-
-    const acknowledgementsBlock = data.acknowledgements;
-    if (
-      acknowledgementsBlock !== undefined &&
-      isPlainObject(acknowledgementsBlock) &&
-      Object.keys(acknowledgementsBlock).length > 0
-    ) {
-      acknowledgementRunCount += 1;
-    }
-
-    const structuredOutputBlock = data.structuredOutput;
-    if (structuredOutputBlock !== undefined && isPlainObject(structuredOutputBlock)) {
-      structuredOutputStructuredCount += asNumber(structuredOutputBlock.structuredCount) ?? 0;
-      structuredOutputTotalCount += asNumber(structuredOutputBlock.totalCount) ?? 0;
-    }
-
-    // Reviewer-failure run count (#212): count a run AT MOST ONCE toward reviewerFailureRunCount
-    // even if it has multiple failed reviewers; but per-role counts increment once per DISTINCT
-    // failed role in that run (so the per-role denominator stays "runs", consistent with runCount).
-    const failuresBlock = data.failures;
-    if (Array.isArray(failuresBlock)) {
-      const reviewerFailureEntries = failuresBlock.filter(
-        (entry): entry is Record<string, JsonValue> =>
-          isPlainObject(entry) && entry.kind === "reviewer",
-      );
-      if (reviewerFailureEntries.length > 0) {
-        reviewerFailureRunCount += 1;
-        // De-duplicate roles within this run before incrementing per-role counts
-        const rolesInThisRun = new Set<string>();
-        for (const entry of reviewerFailureEntries) {
-          if (typeof entry.role === "string" && entry.role.length > 0) {
-            // Roles are MODEL-AUTHORED free text (validateFinding accepts any string). Strip
-            // CR/LF + cap length before using as a key — this value is later interpolated into
-            // the line-oriented analytics text report, where an embedded newline would inject a
-            // synthetic key:value line. Mirrors the #74 discipline in summary-markdown.ts.
-            rolesInThisRun.add(entry.role.replace(/[\r\n]+/g, " ").slice(0, 128));
-          }
-        }
-        for (const role of rolesInThisRun) {
-          incrementMap(reviewerFailureCountByRoleMap, role, 1);
-        }
+/** Accumulate per-reviewer finding counts from a single run_metrics event.
+ *  Returns the total findings in this run (for updating the tier accumulator). */
+function accumulateFindingsByReviewer(
+  data: RunMetricsEventData,
+  findingsByReviewer: Map<string, number>,
+): { runFindings: number; totalDelta: number } {
+  const findingsRecord = data.findingsByReviewer;
+  let runFindings = 0;
+  let totalDelta = 0;
+  if (findingsRecord !== undefined && isPlainObject(findingsRecord)) {
+    for (const [reviewer, count] of Object.entries(findingsRecord)) {
+      if (typeof count === "number" && Number.isFinite(count)) {
+        incrementMap(findingsByReviewer, reviewer, count);
+        runFindings += count;
+        totalDelta += count;
       }
     }
+  } else if (typeof data.findingCount === "number" && Number.isFinite(data.findingCount)) {
+    runFindings = data.findingCount;
+    totalDelta = data.findingCount;
+  }
+  return { runFindings, totalDelta };
+}
+
+interface TokenAccumulation {
+  outputTokens: number;
+  inputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  costUsd: number;
+}
+
+/** Extract token counts from a single run_metrics event's tokens block. */
+function extractTokens(data: RunMetricsEventData): TokenAccumulation {
+  const tokens = data.tokens;
+  let outputTokens = 0;
+  let inputTokens = 0;
+  let cacheWriteTokens = 0;
+  let cacheReadTokens = 0;
+  let costUsd = 0;
+  if (tokens !== undefined && isPlainObject(tokens)) {
+    outputTokens = asNumber(tokens.outputTokens);
+    inputTokens = asNumber(tokens.inputTokens);
+    cacheWriteTokens = asNumber(tokens.cacheWriteTokens);
+    cacheReadTokens = asNumber(tokens.cacheReadTokens);
+    costUsd = asNumber(tokens.estimatedCostUsd);
+  }
+  return { outputTokens, inputTokens, cacheWriteTokens, cacheReadTokens, costUsd };
+}
+
+/** Accumulate optional-block presence rates (grounding, locationBackfill, acknowledgements,
+ *  structuredOutput) from a single run_metrics event.
+ *  Mutates the provided counters in-place. */
+function accumulateOptionalBlocks(
+  data: RunMetricsEventData,
+  counters: {
+    groundingRunCount: number;
+    groundingDemotedTotal: number;
+    locationBackfillRunCount: number;
+    acknowledgementRunCount: number;
+    structuredOutputStructuredCount: number;
+    structuredOutputTotalCount: number;
+  },
+): void {
+  const groundingBlock = data.grounding;
+  if (
+    groundingBlock !== undefined &&
+    isPlainObject(groundingBlock) &&
+    Object.keys(groundingBlock).length > 0
+  ) {
+    counters.groundingRunCount += 1;
+    // asNumber() (not bare Number()) so a non-numeric droppedFindingCount can't propagate NaN
+    // into produced/the rate and past buildQualityReport's null-check — matching every other
+    // numeric accumulation in this function.
+    counters.groundingDemotedTotal += asNumber(groundingBlock.droppedFindingCount);
   }
 
-  // Build byTier with stable key ordering
+  const locationBackfillBlock = data.locationBackfill;
+  if (
+    locationBackfillBlock !== undefined &&
+    isPlainObject(locationBackfillBlock) &&
+    Object.keys(locationBackfillBlock).length > 0
+  ) {
+    counters.locationBackfillRunCount += 1;
+  }
+
+  const acknowledgementsBlock = data.acknowledgements;
+  if (
+    acknowledgementsBlock !== undefined &&
+    isPlainObject(acknowledgementsBlock) &&
+    Object.keys(acknowledgementsBlock).length > 0
+  ) {
+    counters.acknowledgementRunCount += 1;
+  }
+
+  const structuredOutputBlock = data.structuredOutput;
+  if (structuredOutputBlock !== undefined && isPlainObject(structuredOutputBlock)) {
+    counters.structuredOutputStructuredCount +=
+      asNumber(structuredOutputBlock.structuredCount) ?? 0;
+    counters.structuredOutputTotalCount += asNumber(structuredOutputBlock.totalCount) ?? 0;
+  }
+}
+
+/** Accumulate reviewer-failure counts from a single run_metrics event.
+ *  Mutates the provided counters in-place. */
+function accumulateReviewerFailures(
+  data: RunMetricsEventData,
+  reviewerFailureCountByRoleMap: Map<string, number>,
+): { didFailThisRun: boolean } {
+  const failuresBlock = data.failures;
+  if (!Array.isArray(failuresBlock)) {
+    return { didFailThisRun: false };
+  }
+  const reviewerFailureEntries = failuresBlock.filter(
+    (entry): entry is Record<string, JsonValue> =>
+      isPlainObject(entry) && entry.kind === "reviewer",
+  );
+  if (reviewerFailureEntries.length === 0) {
+    return { didFailThisRun: false };
+  }
+  // De-duplicate roles within this run before incrementing per-role counts
+  const rolesInThisRun = new Set<string>();
+  for (const entry of reviewerFailureEntries) {
+    if (typeof entry.role === "string" && entry.role.length > 0) {
+      // Roles are MODEL-AUTHORED free text (validateFinding accepts any string). Strip
+      // CR/LF + cap length before using as a key — this value is later interpolated into
+      // the line-oriented analytics text report, where an embedded newline would inject a
+      // synthetic key:value line. Mirrors the #74 discipline in summary-markdown.ts.
+      rolesInThisRun.add(entry.role.replace(/[\r\n]+/g, " ").slice(0, 128));
+    }
+  }
+  for (const role of rolesInThisRun) {
+    incrementMap(reviewerFailureCountByRoleMap, role, 1);
+  }
+  return { didFailThisRun: true };
+}
+
+// ─── record-assembly helpers ─────────────────────────────────────────────────
+
+/** Build the `byTier` record with stable key ordering from accumulated tier data. */
+function buildByTierRecord(
+  tierAccumulators: Map<string, TierAccumulator>,
+): Record<string, TierSegment> {
   const byTier: Record<string, TierSegment> = {};
   for (const key of Array.from(tierAccumulators.keys()).sort()) {
     const acc = tierAccumulators.get(key);
@@ -414,8 +389,14 @@ export function analyzeRunMetrics(
       thinReviewRate: tierRunCount === 0 ? 0 : acc.thinReviewRunCount / tierRunCount,
     };
   }
+  return byTier;
+}
 
-  // Build byReviewer and reviewerShare with stable key ordering
+/** Build `byReviewer` and `reviewerShare` records with stable key ordering. */
+function buildByReviewerRecords(
+  findingsByReviewer: Map<string, number>,
+  totalFindings: number,
+): { byReviewer: Record<string, number>; reviewerShare: Record<string, number> } {
   const byReviewer: Record<string, number> = {};
   const reviewerShare: Record<string, number> = {};
   for (const key of Array.from(findingsByReviewer.keys()).sort()) {
@@ -423,8 +404,14 @@ export function analyzeRunMetrics(
     byReviewer[key] = count;
     reviewerShare[key] = totalFindings === 0 ? 0 : count / totalFindings;
   }
+  return { byReviewer, reviewerShare };
+}
 
-  // Build decisionCounts and outcomeCounts with stable key ordering
+/** Build `decisionCounts` and `outcomeCounts` records with stable key ordering. */
+function buildDecisionAndOutcomeRecords(
+  decisionCounts: Map<string, number>,
+  outcomeCounts: Map<string, number>,
+): { decisionCountsRecord: Record<string, number>; outcomeCountsRecord: Record<string, number> } {
   const decisionCountsRecord: Record<string, number> = {};
   for (const key of Array.from(decisionCounts.keys()).sort()) {
     decisionCountsRecord[key] = decisionCounts.get(key) ?? 0;
@@ -434,11 +421,11 @@ export function analyzeRunMetrics(
   for (const key of Array.from(outcomeCounts.keys()).sort()) {
     outcomeCountsRecord[key] = outcomeCounts.get(key) ?? 0;
   }
+  return { decisionCountsRecord, outcomeCountsRecord };
+}
 
-  // Non-trivial run count for thin-review rate denominator
-  const nonTrivialRunCount = runCount - (tierAccumulators.get("trivial")?.runCount ?? 0);
-
-  // Overall (fleet-wide) cache-hit rate: pool totals across all tiers
+/** Compute pooled fleet-wide cache-hit rate across all tier accumulators. */
+function computeFleetCacheHitRate(tierAccumulators: Map<string, TierAccumulator>): number | null {
   let fleetTotalInputTokens = 0;
   let fleetTotalCacheReadTokens = 0;
   let fleetTotalCacheWriteTokens = 0;
@@ -449,8 +436,122 @@ export function analyzeRunMetrics(
   }
   const fleetCacheHitDenom =
     fleetTotalInputTokens + fleetTotalCacheReadTokens + fleetTotalCacheWriteTokens;
-  const overallCacheHitRate =
-    fleetCacheHitDenom === 0 ? null : fleetTotalCacheReadTokens / fleetCacheHitDenom;
+  return fleetCacheHitDenom === 0 ? null : fleetTotalCacheReadTokens / fleetCacheHitDenom;
+}
+
+export function analyzeRunMetrics(
+  events: readonly TelemetryEvent[],
+  options?: AnalyzeOptions,
+): RunMetricsAnalysis {
+  const realEvents = events.filter(isRunMetricsEvent);
+  const runCount = realEvents.length;
+
+  // Collect the set of runIds that belong to real-runtime run_metrics events.
+  // run_event events whose runId is not in this set are "orphans" and are ignored.
+  const realRunIds = new Set(
+    realEvents.map((e) => e.runId).filter((id): id is string => id !== undefined),
+  );
+
+  const tierAccumulators = new Map<string, TierAccumulator>();
+  const findingsByReviewer = new Map<string, number>();
+  const decisionCounts = new Map<string, number>();
+  const outcomeCounts = new Map<string, number>();
+
+  const optionalBlockCounters = {
+    groundingRunCount: 0,
+    groundingDemotedTotal: 0,
+    locationBackfillRunCount: 0,
+    acknowledgementRunCount: 0,
+    structuredOutputStructuredCount: 0,
+    structuredOutputTotalCount: 0,
+  };
+
+  let thinReviewRunCount = 0;
+  let totalFindings = 0;
+  let reviewerFailureRunCount = 0;
+  const reviewerFailureCountByRoleMap = new Map<string, number>();
+
+  for (const event of realEvents) {
+    const data = event.data;
+
+    const tier =
+      typeof data.riskTier === "string" && data.riskTier.length > 0 ? data.riskTier : "unknown";
+
+    const tierAcc = getOrCreateTierAccumulator(tierAccumulators, tier);
+    tierAcc.runCount += 1;
+
+    accumulateDecisionsAndOutcomes(data, decisionCounts, outcomeCounts);
+
+    // Count findings and accumulate per-reviewer totals
+    const { runFindings, totalDelta } = accumulateFindingsByReviewer(data, findingsByReviewer);
+    tierAcc.totalFindings += runFindings;
+    totalFindings += totalDelta;
+
+    // Token totals
+    const tokenAccum = extractTokens(data);
+    tierAcc.totalOutputTokens += tokenAccum.outputTokens;
+    tierAcc.totalInputTokens += tokenAccum.inputTokens;
+    tierAcc.totalCacheWriteTokens += tokenAccum.cacheWriteTokens;
+    tierAcc.totalCacheReadTokens += tokenAccum.cacheReadTokens;
+    tierAcc.totalCostUsd += tokenAccum.costUsd;
+
+    // Duration
+    const durationMs = asNumber(data.durationMs);
+    tierAcc.totalDurationMs += durationMs;
+
+    // Sub-durations: fanOutMs / fusionMs from data.durationsMs (#196)
+    const durationsMs = data.durationsMs;
+    if (durationsMs !== undefined && isPlainObject(durationsMs)) {
+      tierAcc.totalFanOutMs += asNumber(durationsMs.fanOutMs);
+      tierAcc.totalFusionMs += asNumber(durationsMs.fusionMs);
+    }
+
+    // Thin-review classification (#91): contextual floor from assessThinReview(), which
+    // uses riskTier and reviewedFileCount to compute the expected minimum. Trivial runs
+    // are never flagged. Explicit --thin-floor wins for all events; otherwise legacy
+    // events lacking reviewedFileCount fall back to the flat pre-#91 floor (see comment
+    // at LEGACY_FLAT_THIN_FLOOR) so historical analyze output stays comparable.
+    const hasFileCount =
+      typeof data.reviewedFileCount === "number" && Number.isFinite(data.reviewedFileCount);
+    const flatFloor =
+      options?.thinReviewOutputTokenFloor ?? (hasFileCount ? undefined : LEGACY_FLAT_THIN_FLOOR);
+    const assessment = assessThinReview(
+      {
+        riskTier: tier,
+        reviewedFileCount: hasFileCount ? (data.reviewedFileCount as number) : 0,
+        outputTokens: tokenAccum.outputTokens,
+      },
+      flatFloor !== undefined ? { flatFloor } : undefined,
+    );
+    if (assessment.thin) {
+      tierAcc.thinReviewRunCount += 1;
+      thinReviewRunCount += 1;
+    }
+
+    // Optional block presence rates
+    accumulateOptionalBlocks(data, optionalBlockCounters);
+
+    // Reviewer-failure run count (#212): count a run AT MOST ONCE toward reviewerFailureRunCount
+    // even if it has multiple failed reviewers; but per-role counts increment once per DISTINCT
+    // failed role in that run (so the per-role denominator stays "runs", consistent with runCount).
+    const { didFailThisRun } = accumulateReviewerFailures(data, reviewerFailureCountByRoleMap);
+    if (didFailThisRun) {
+      reviewerFailureRunCount += 1;
+    }
+  }
+
+  const byTier = buildByTierRecord(tierAccumulators);
+  const { byReviewer, reviewerShare } = buildByReviewerRecords(findingsByReviewer, totalFindings);
+  const { decisionCountsRecord, outcomeCountsRecord } = buildDecisionAndOutcomeRecords(
+    decisionCounts,
+    outcomeCounts,
+  );
+
+  // Non-trivial run count for thin-review rate denominator
+  const nonTrivialRunCount = runCount - (tierAccumulators.get("trivial")?.runCount ?? 0);
+
+  // Overall (fleet-wide) cache-hit rate: pool totals across all tiers
+  const overallCacheHitRate = computeFleetCacheHitRate(tierAccumulators);
 
   // S06: run_event analysis — filter to run_event events, match to real runs
   const runEventAnalysis = buildRunEventsAnalysis(events, realRunIds);
@@ -460,6 +561,15 @@ export function analyzeRunMetrics(
   for (const key of Array.from(reviewerFailureCountByRoleMap.keys()).sort()) {
     reviewerFailureCountByRole[key] = reviewerFailureCountByRoleMap.get(key) ?? 0;
   }
+
+  const {
+    groundingRunCount,
+    groundingDemotedTotal,
+    locationBackfillRunCount,
+    acknowledgementRunCount,
+    structuredOutputStructuredCount,
+    structuredOutputTotalCount,
+  } = optionalBlockCounters;
 
   return {
     runCount,
@@ -649,13 +759,11 @@ function buildAcceptanceRecord(
   return out;
 }
 
-export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
+// ─── formatRunMetricsAnalysis section helpers ────────────────────────────────
+
+/** Render the per-tier table section. */
+function formatTierTableSection(analysis: RunMetricsAnalysis): string[] {
   const lines: string[] = [];
-
-  lines.push(`=== Run Metrics Analysis (${analysis.runCount} runs) ===`);
-  lines.push("");
-
-  // Per-tier table
   lines.push("--- By Risk Tier ---");
   const tierKeys = Object.keys(analysis.byTier).sort();
   if (tierKeys.length === 0) {
@@ -704,13 +812,15 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
       );
     }
   }
-
   lines.push(
     `Overall cache-hit rate: ${analysis.cacheHitRate === null ? "n/a" : `${(analysis.cacheHitRate * 100).toFixed(1)}%`}`,
   );
-  lines.push("");
+  return lines;
+}
 
-  // Reviewer share
+/** Render the by-reviewer section. */
+function formatReviewerSection(analysis: RunMetricsAnalysis): string[] {
+  const lines: string[] = [];
   lines.push("--- By Reviewer ---");
   const reviewerKeys = Object.keys(analysis.byReviewer).sort();
   if (reviewerKeys.length === 0) {
@@ -724,8 +834,12 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
       );
     }
   }
+  return lines;
+}
 
-  lines.push("");
+/** Render decision and outcome distribution sections. */
+function formatDecisionAndOutcomeSections(analysis: RunMetricsAnalysis): string[] {
+  const lines: string[] = [];
 
   // Decision counts
   lines.push("--- Decision Distribution ---");
@@ -751,9 +865,12 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
     }
   }
 
-  lines.push("");
+  return lines;
+}
 
-  // Rates
+/** Render the rates section. */
+function formatRatesSection(analysis: RunMetricsAnalysis): string[] {
+  const lines: string[] = [];
   lines.push("--- Rates ---");
   const r = analysis.rates;
   lines.push(`  groundingDropRunRate      ${(r.groundingDropRunRate * 100).toFixed(1)}%`);
@@ -777,86 +894,118 @@ export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
     );
     lines.push(`  reviewerFailureByRole     ${byRoleParts.join(", ")}`);
   }
+  return lines;
+}
 
-  // Run events section (present only when run_event data exists)
-  if (analysis.runEvents !== undefined) {
-    const re = analysis.runEvents;
-    lines.push("");
-    lines.push("--- Run Events ---");
-    lines.push(`  startCount                ${re.startCount}`);
-    lines.push(`  completedCount            ${re.completedCount}`);
-    lines.push(`  correctionCount           ${re.correctionCount}`);
-    const rateStr = re.completionRate === null ? "n/a" : `${(re.completionRate * 100).toFixed(1)}%`;
-    lines.push(`  completionRate            ${rateStr}`);
+/** Render the run-events section (returns empty array when no run_event data). */
+function formatRunEventsSection(analysis: RunMetricsAnalysis): string[] {
+  if (analysis.runEvents === undefined) {
+    return [];
+  }
+  const re = analysis.runEvents;
+  const lines: string[] = [];
+  lines.push("");
+  lines.push("--- Run Events ---");
+  lines.push(`  startCount                ${re.startCount}`);
+  lines.push(`  completedCount            ${re.completedCount}`);
+  lines.push(`  correctionCount           ${re.correctionCount}`);
+  const rateStr = re.completionRate === null ? "n/a" : `${(re.completionRate * 100).toFixed(1)}%`;
+  lines.push(`  completionRate            ${rateStr}`);
 
-    lines.push("");
+  lines.push("");
+  lines.push(
+    `--- Acceptance by Reviewer (directional — longitudinal signal, ${re.correctionRunCount} correction runs) ---`,
+  );
+  const reviewerKeys = Object.keys(re.acceptanceByReviewer).sort();
+  if (reviewerKeys.length === 0) {
+    lines.push("  (no data)");
+  } else {
     lines.push(
-      `--- Acceptance by Reviewer (directional — longitudinal signal, ${re.correctionRunCount} correction runs) ---`,
+      padRight("Reviewer", 22) +
+        padLeft("Accepted", 10) +
+        padLeft("NotAccepted", 13) +
+        padLeft("Rejected", 10) +
+        padLeft("Withheld", 10) +
+        padLeft("AccRate", 9),
     );
-    const reviewerKeys = Object.keys(re.acceptanceByReviewer).sort();
-    if (reviewerKeys.length === 0) {
-      lines.push("  (no data)");
-    } else {
-      lines.push(
-        padRight("Reviewer", 22) +
-          padLeft("Accepted", 10) +
-          padLeft("NotAccepted", 13) +
-          padLeft("Rejected", 10) +
-          padLeft("Withheld", 10) +
-          padLeft("AccRate", 9),
-      );
-      for (const reviewer of reviewerKeys) {
-        const stat = re.acceptanceByReviewer[reviewer];
-        if (stat === undefined) {
-          continue;
-        }
-        const rateDisplay =
-          stat.acceptanceRate !== undefined ? `${(stat.acceptanceRate * 100).toFixed(1)}%` : "n/a";
-        lines.push(
-          padRight(reviewer, 22) +
-            padLeft(String(stat.accepted), 10) +
-            padLeft(String(stat.notAccepted), 13) +
-            padLeft(String(stat.rejected), 10) +
-            padLeft(String(stat.withheldExcluded), 10) +
-            padLeft(rateDisplay, 9),
-        );
+    for (const reviewer of reviewerKeys) {
+      const stat = re.acceptanceByReviewer[reviewer];
+      if (stat === undefined) {
+        continue;
       }
-    }
-
-    lines.push("");
-    lines.push(
-      `--- Acceptance by Tier (directional — longitudinal signal, ${re.correctionRunCount} correction runs) ---`,
-    );
-    const tierKeys = Object.keys(re.acceptanceByTier).sort();
-    if (tierKeys.length === 0) {
-      lines.push("  (no data)");
-    } else {
+      const rateDisplay =
+        stat.acceptanceRate !== undefined ? `${(stat.acceptanceRate * 100).toFixed(1)}%` : "n/a";
       lines.push(
-        padRight("Tier", 12) +
-          padLeft("Accepted", 10) +
-          padLeft("NotAccepted", 13) +
-          padLeft("Rejected", 10) +
-          padLeft("Withheld", 10) +
-          padLeft("AccRate", 9),
+        padRight(reviewer, 22) +
+          padLeft(String(stat.accepted), 10) +
+          padLeft(String(stat.notAccepted), 13) +
+          padLeft(String(stat.rejected), 10) +
+          padLeft(String(stat.withheldExcluded), 10) +
+          padLeft(rateDisplay, 9),
       );
-      for (const tier of tierKeys) {
-        const stat = re.acceptanceByTier[tier];
-        if (stat === undefined) {
-          continue;
-        }
-        const rateDisplay =
-          stat.acceptanceRate !== undefined ? `${(stat.acceptanceRate * 100).toFixed(1)}%` : "n/a";
-        lines.push(
-          padRight(tier, 12) +
-            padLeft(String(stat.accepted), 10) +
-            padLeft(String(stat.notAccepted), 13) +
-            padLeft(String(stat.rejected), 10) +
-            padLeft(String(stat.withheldExcluded), 10) +
-            padLeft(rateDisplay, 9),
-        );
-      }
     }
   }
+
+  lines.push("");
+  lines.push(
+    `--- Acceptance by Tier (directional — longitudinal signal, ${re.correctionRunCount} correction runs) ---`,
+  );
+  const tierKeys = Object.keys(re.acceptanceByTier).sort();
+  if (tierKeys.length === 0) {
+    lines.push("  (no data)");
+  } else {
+    lines.push(
+      padRight("Tier", 12) +
+        padLeft("Accepted", 10) +
+        padLeft("NotAccepted", 13) +
+        padLeft("Rejected", 10) +
+        padLeft("Withheld", 10) +
+        padLeft("AccRate", 9),
+    );
+    for (const tier of tierKeys) {
+      const stat = re.acceptanceByTier[tier];
+      if (stat === undefined) {
+        continue;
+      }
+      const rateDisplay =
+        stat.acceptanceRate !== undefined ? `${(stat.acceptanceRate * 100).toFixed(1)}%` : "n/a";
+      lines.push(
+        padRight(tier, 12) +
+          padLeft(String(stat.accepted), 10) +
+          padLeft(String(stat.notAccepted), 13) +
+          padLeft(String(stat.rejected), 10) +
+          padLeft(String(stat.withheldExcluded), 10) +
+          padLeft(rateDisplay, 9),
+      );
+    }
+  }
+
+  return lines;
+}
+
+export function formatRunMetricsAnalysis(analysis: RunMetricsAnalysis): string {
+  const lines: string[] = [];
+
+  lines.push(`=== Run Metrics Analysis (${analysis.runCount} runs) ===`);
+  lines.push("");
+
+  // Per-tier table
+  lines.push(...formatTierTableSection(analysis));
+  lines.push("");
+
+  // Reviewer share
+  lines.push(...formatReviewerSection(analysis));
+  lines.push("");
+
+  // Decision counts and CI outcome distribution
+  lines.push(...formatDecisionAndOutcomeSections(analysis));
+  lines.push("");
+
+  // Rates
+  lines.push(...formatRatesSection(analysis));
+
+  // Run events section (present only when run_event data exists)
+  lines.push(...formatRunEventsSection(analysis));
 
   return lines.join("\n");
 }

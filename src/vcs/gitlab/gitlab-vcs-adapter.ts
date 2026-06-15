@@ -432,31 +432,60 @@ export class GitLabVcsAdapter implements VcsAdapter {
       diffRefs.start_sha === undefined ||
       diffRefs.head_sha === undefined
     ) {
-      const outcomes: PublishInlineFindingsResult["findings"] = input.findings.map((finding) => ({
-        ...(finding.id !== undefined ? { findingId: finding.id } : {}),
-        disposition: "skipped" as const,
-        reason: "missing_diff_refs",
-      }));
-
-      return {
-        provider: "gitlab",
-        attemptedInlineCount: input.findings.length,
-        postedInlineCount: 0,
-        skippedInlineCount: input.findings.length,
-        failedInlineCount: 0,
-        summaryFallbackCount: 0,
-        findings: outcomes,
-      };
+      return this.buildMissingDiffRefsResult(input);
     }
 
     const { base_sha: baseSha, start_sha: startSha, head_sha: headSha } = diffRefs;
 
-    // Fetch existing discussions and the bot user id concurrently, then build a dedup map
-    // keyed by inlineCommentKey(findingId, headSha).
-    // Single-page fetch — mirrors findExistingSummaryNote (no pagination; acceptable MVP limit).
-    // Safe-on-failure: if botId is undefined the filter matches nothing and the map stays
-    // empty — worst case is a duplicate comment, which is the safe direction; suppression
-    // (skipping a real finding) is the unsafe one (#84).
+    const existingByKey = await this.buildExistingDiscussionsMap(input);
+
+    const outcomes: PublishInlineFindingsResult["findings"] = await this.postFindingOutcomes(
+      input,
+      { baseSha, startSha, headSha },
+      existingByKey,
+    );
+
+    return {
+      provider: "gitlab",
+      attemptedInlineCount: input.findings.length,
+      postedInlineCount: outcomes.filter((outcome) => outcome.disposition === "posted").length,
+      skippedInlineCount: outcomes.filter((outcome) => outcome.disposition === "skipped").length,
+      failedInlineCount: outcomes.filter((outcome) => outcome.disposition === "failed").length,
+      // Adapters report what happened; the publisher owns summary-fallback policy, so 0 here.
+      summaryFallbackCount: 0,
+      findings: outcomes,
+    };
+  }
+
+  /** Build the early-return result when diff_refs are missing. */
+  private buildMissingDiffRefsResult(
+    input: PublishInlineFindingsInput,
+  ): PublishInlineFindingsResult {
+    const outcomes: PublishInlineFindingsResult["findings"] = input.findings.map((finding) => ({
+      ...(finding.id !== undefined ? { findingId: finding.id } : {}),
+      disposition: "skipped" as const,
+      reason: "missing_diff_refs",
+    }));
+
+    return {
+      provider: "gitlab",
+      attemptedInlineCount: input.findings.length,
+      postedInlineCount: 0,
+      skippedInlineCount: input.findings.length,
+      failedInlineCount: 0,
+      summaryFallbackCount: 0,
+      findings: outcomes,
+    };
+  }
+
+  /** Fetch existing discussions and build a dedup map keyed by inlineCommentKey(findingId, headSha).
+   *  Single-page fetch — mirrors findExistingSummaryNote (no pagination; acceptable MVP limit).
+   *  Safe-on-failure: if botId is undefined the filter matches nothing and the map stays
+   *  empty — worst case is a duplicate comment, which is the safe direction; suppression
+   *  (skipping a real finding) is the unsafe one (#84). */
+  private async buildExistingDiscussionsMap(
+    input: PublishInlineFindingsInput,
+  ): Promise<Map<string, GitLabDiscussionNote>> {
     const [discussions, botId] = await Promise.all([
       this.http.request<GitLabDiscussionResponse[]>(
         `${this.mergeRequestPath(input.change)}/discussions`,
@@ -483,10 +512,19 @@ export class GitLabVcsAdapter implements VcsAdapter {
       }
     }
 
+    return existingByKey;
+  }
+
+  /** Iterate over findings and post/skip/fail each one, returning the outcomes array. */
+  private async postFindingOutcomes(
+    input: PublishInlineFindingsInput,
+    diffRefs: { baseSha: string; startSha: string; headSha: string },
+    existingByKey: Map<string, GitLabDiscussionNote>,
+  ): Promise<PublishInlineFindingsResult["findings"]> {
     const outcomes: PublishInlineFindingsResult["findings"] = [];
 
     for (const finding of input.findings) {
-      const position = gitlabPositionForFinding(finding, { baseSha, startSha, headSha });
+      const position = gitlabPositionForFinding(finding, diffRefs);
       if (position === undefined) {
         outcomes.push({
           ...(finding.id !== undefined ? { findingId: finding.id } : {}),
@@ -551,16 +589,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
       }
     }
 
-    return {
-      provider: "gitlab",
-      attemptedInlineCount: input.findings.length,
-      postedInlineCount: outcomes.filter((outcome) => outcome.disposition === "posted").length,
-      skippedInlineCount: outcomes.filter((outcome) => outcome.disposition === "skipped").length,
-      failedInlineCount: outcomes.filter((outcome) => outcome.disposition === "failed").length,
-      // Adapters report what happened; the publisher owns summary-fallback policy, so 0 here.
-      summaryFallbackCount: 0,
-      findings: outcomes,
-    };
+    return outcomes;
   }
 
   private mergeRequestPath(ref: ChangeRef): string {
