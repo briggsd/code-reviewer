@@ -25,9 +25,11 @@ The workflow:
 8. creates `dist/*.tgz` with `npm pack`,
 9. uploads the tarball **and** the `dist/quality-stamp.json` as a GitHub Actions artifact named with the source commit SHA.
 
-The quality stamp (`ai-review.quality_stamp.v1`) contains per-scenario satisfaction scores and a
-`blocked` boolean. It is uploaded alongside the tarball as a cross-version stability signal.
-See `docs/evals.md` for the stamp schema and the `--stamp` flag documentation.
+The quality stamp (`ai-review.quality_stamp.v2`) contains per-scenario satisfaction scores, a
+`blocked` boolean, per-run satisfaction distributions, min/max/variance diagnostics, flaky
+markers, and per-criterion pass-rate results. It is uploaded alongside the tarball as a
+cross-version stability signal. See `docs/evals.md` for the stamp schema, v1-to-v2 migration note,
+and the `--stamp` flag documentation.
 
 It does **not** publish to npm and does not require write permissions. Workflow permissions are `contents: read` only.
 

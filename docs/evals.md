@@ -129,6 +129,7 @@ Optional flags:
 | `--threshold T` | 0.8 | Minimum satisfaction to pass (0.0–1.0) |
 | `--scenarios <dir>` | `evals/scenarios` | Directory of scenario JSON files (the sealed holdout by default; pass `evals/scenarios-dev` for the dev split) |
 | `--gate` | off | Exit nonzero if any scenario fails threshold |
+| `--keep-summaries <dir>` | off | Trusted-local debugging only: preserve raw per-run `summary.json` files in the given directory; rejected when CI is detected via `CI` or a known runner env var |
 
 Optional env vars (must be paired):
 ```bash
@@ -152,16 +153,23 @@ regresses.
 #### `--stamp <path>` flag
 
 Pass `--stamp dist/quality-stamp.json` to emit a machine-readable quality stamp alongside the gate
-result. The stamp uses the schema `ai-review.quality_stamp.v1` and contains **counts/scores only**
-— per-scenario satisfaction, threshold, pass/fail, and run count; plus aggregate passed/total/mean
-and a `blocked` boolean. No finding bodies, diffs, or prompts are included.
+result. The stamp uses the schema `ai-review.quality_stamp.v2` and contains **counts/scores only**
+— per-scenario satisfaction, per-run satisfaction numbers, min/max/variance/flaky diagnostics,
+per-criterion pass rates, threshold, pass/fail, and run count; plus aggregate passed/total/mean and
+a `blocked` boolean. No raw summaries, finding bodies, diffs, prompts, or review output are
+included.
+
+Migration note for v2 consumers: all v1 fields are preserved, and v2 adds score-only reliability
+diagnostics (`runSatisfactions`, `minSatisfaction`, `maxSatisfaction`, `variance`, `flaky`, and
+`perCriterion`). Consumers that only read existing fields can continue to do so, but strict
+`schemaVersion` checks must accept `ai-review.quality_stamp.v2`.
 
 `scenarios` lists **every** scenario that ran (not just the passing ones), so a `blocked: true`
 stamp shows exactly which scenario(s) regressed:
 
 ```json
 {
-  "schemaVersion": "ai-review.quality_stamp.v1",
+  "schemaVersion": "ai-review.quality_stamp.v2",
   "generatedAt": "2026-01-01T00:00:00.000Z",
   "commit": "abc123",
   "runtime": "pi",
@@ -173,8 +181,40 @@ stamp shows exactly which scenario(s) regressed:
   "meanSatisfaction": 0.65,
   "blocked": true,
   "scenarios": [
-    { "name": "auth-sqli", "satisfaction": 1.0, "threshold": 0.8, "passed": true, "runCount": 3 },
-    { "name": "logic-bug", "satisfaction": 0.3, "threshold": 0.8, "passed": false, "runCount": 3 }
+    {
+      "name": "auth-sqli",
+      "satisfaction": 1.0,
+      "threshold": 0.8,
+      "passed": true,
+      "runSatisfactions": [1.0, 1.0, 1.0],
+      "minSatisfaction": 1.0,
+      "maxSatisfaction": 1.0,
+      "variance": 0,
+      "flaky": false,
+      "perCriterion": [
+        {
+          "label": "flags SQL injection",
+          "passRate": 1.0,
+          "critical": true,
+          "requiredPassRate": 1.0,
+          "passed": true
+        }
+      ],
+      "runCount": 3
+    },
+    {
+      "name": "logic-bug",
+      "satisfaction": 0.3,
+      "threshold": 0.8,
+      "passed": false,
+      "runSatisfactions": [0, 0.5, 0.4],
+      "minSatisfaction": 0,
+      "maxSatisfaction": 0.5,
+      "variance": 0.0467,
+      "flaky": true,
+      "perCriterion": [],
+      "runCount": 3
+    }
   ]
 }
 ```
@@ -182,6 +222,13 @@ stamp shows exactly which scenario(s) regressed:
 The `blocked` field mirrors the gate decision: `true` means the release gate would block (any
 scenario failed, or the holdout was empty). The stamp is uploaded as a release artifact alongside
 the tarball so it serves as a cross-version stability signal.
+
+`--keep-summaries <dir>` is deliberately separate from `--stamp`: it preserves raw `summary.json`
+files for trusted local debugging only. Those summaries can contain finding bodies and other raw
+review text, so the runner rejects this flag when CI is detected via `CI` or a known runner env var
+(`GITHUB_ACTIONS`, `GITLAB_CI`, `CIRCLECI`, `BUILDKITE`, or `TF_BUILD`); do not use it in
+release/fleet workflows and do not upload its directory as a CI artifact. When the flag is omitted,
+the runner deletes its temporary per-run directories as before.
 
 ### Advisory PR signal (dummy runtime, free)
 
@@ -232,7 +279,13 @@ Over K runs, the **scenario satisfaction** is the mean:
 scenario_satisfaction = mean(run_satisfaction over K runs)
 ```
 
-A scenario **passes** if `scenario_satisfaction >= threshold`.
+A scenario **passes** if `scenario_satisfaction >= threshold` and every criterion-level gate passes.
+
+The scorer also returns `runSatisfactions`, `minSatisfaction`, `maxSatisfaction`, `variance`, and
+`flaky` for each scenario. `flaky` means the repeated runs did not all produce the same satisfaction
+score. Reliability work should look at these fields before changing reviewer definitions:
+low satisfaction with low variance is a stable miss, while high variance or a `flaky` marker means
+the behavior is unstable and may need clearer reviewer guidance, narrower criteria, or more runs.
 
 ### Criterion kinds
 
@@ -251,6 +304,25 @@ Severity rank: `critical` (3) > `warning` (2) > `suggestion` (1).
 
 The runner also reports, for each criterion, the fraction of runs where it was met.
 This is useful for diagnosing flaky criteria (high variance between runs).
+
+Criteria may also carry optional pass-rate gates:
+
+```json
+{
+  "kind": "has_finding",
+  "label": "flags SQL injection at critical severity",
+  "minSeverity": "critical",
+  "textIncludes": "inject",
+  "critical": true
+}
+```
+
+`critical: true` is shorthand for a criterion-level gate with a default required pass rate of `1.0`
+(every run must meet it). `minPassRate` sets an explicit gate such as `0.8` whether or not
+`critical` is present; when both are specified, `minPassRate` is the explicit requirement and
+overrides the `critical` default. These gates are evaluated in addition to the scenario mean
+threshold, so a scenario can fail because a gated criterion is unreliable even when the average
+satisfaction is high enough.
 
 ## Existing scenario categories
 

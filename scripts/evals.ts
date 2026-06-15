@@ -9,11 +9,11 @@
  *
  * Usage:
  *   AI_REVIEW_LIVE_EVAL=1 bun run evals [--runtime dummy|pi] [--runs K]
- *     [--threshold T] [--scenarios <dir>] [--gate]
+ *     [--threshold T] [--scenarios <dir>] [--gate] [--keep-summaries <dir>]
  *   Optional: AI_REVIEW_PI_PROVIDER=<provider> AI_REVIEW_PI_MODEL=<model>
  */
 
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ReviewSummary, RiskAssessment } from "../src/contracts/index.ts";
@@ -42,6 +42,21 @@ function readOptionalEnv(name: string): string | undefined {
   return value === undefined || value.length === 0 ? undefined : value;
 }
 
+const FALSEY_ENV_VALUES = new Set(["0", "false", "no"]);
+const CI_RUNNER_ENV_VARS = ["GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI", "BUILDKITE", "TF_BUILD"];
+
+function isTruthyEnvValue(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized !== undefined && normalized.length > 0 && !FALSEY_ENV_VALUES.has(normalized);
+}
+
+function isCiEnvironment(): boolean {
+  return (
+    isTruthyEnvValue(process.env.CI) ||
+    CI_RUNNER_ENV_VARS.some((name) => isTruthyEnvValue(process.env[name]))
+  );
+}
+
 const runtime = readFlag("--runtime") ?? "pi";
 const defaultRuns = runtime === "dummy" ? 1 : 3;
 const runs = parseInt(readFlag("--runs") ?? String(defaultRuns), 10);
@@ -49,6 +64,7 @@ const threshold = parseFloat(readFlag("--threshold") ?? "0.8");
 const scenariosDir = resolve(readFlag("--scenarios") ?? "evals/scenarios");
 const gate = hasFlag("--gate");
 const stampPath = readFlag("--stamp");
+const keepSummariesPath = readFlag("--keep-summaries");
 
 // Validate numeric flags up front: an unparsed/NaN/out-of-range value would otherwise silently
 // produce 0 runs (NaN > 0 is false) or always-fail thresholds (x >= NaN is false), reporting a
@@ -69,6 +85,17 @@ if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
   );
   process.exit(1);
 }
+if (
+  hasFlag("--keep-summaries") &&
+  (keepSummariesPath === undefined || keepSummariesPath.trim().length === 0)
+) {
+  console.error("Invalid --keep-summaries value: expected a directory path.");
+  process.exit(1);
+}
+if (keepSummariesPath !== undefined && isCiEnvironment()) {
+  console.error("--keep-summaries preserves raw review output and must not be used in CI.");
+  process.exit(1);
+}
 
 const provider = readOptionalEnv("AI_REVIEW_PI_PROVIDER");
 const model = readOptionalEnv("AI_REVIEW_PI_MODEL");
@@ -81,7 +108,7 @@ const enabled = runtime === "dummy" || process.env.AI_REVIEW_LIVE_EVAL === "1";
 if (!enabled) {
   console.log("Skipping eval harness (runtime=pi requires AI_REVIEW_LIVE_EVAL=1 to run).");
   console.log("Usage: AI_REVIEW_LIVE_EVAL=1 bun run evals [--runtime dummy|pi] [--runs K]");
-  console.log("         [--threshold T] [--scenarios <dir>] [--gate]");
+  console.log("         [--threshold T] [--scenarios <dir>] [--gate] [--keep-summaries <dir>]");
   console.log("Optional: AI_REVIEW_PI_PROVIDER=<provider> AI_REVIEW_PI_MODEL=<model>");
   process.exit(0);
 }
@@ -116,7 +143,24 @@ const EMPTY_SUMMARY: ReviewSummary = {
 // Spawn helper: run one CLI invocation, return parsed summary
 // ---------------------------------------------------------------------------
 
-async function runOnce(scenario: EvalScenario): Promise<ReviewSummary> {
+function safeSummaryName(scenarioName: string, runNumber: number): string {
+  const safeScenarioName =
+    scenarioName.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^\.+/, "") || "scenario";
+  return `${safeScenarioName}-run-${runNumber}.summary.json`;
+}
+
+async function preserveSummary(
+  scenario: EvalScenario,
+  runNumber: number,
+  rawSummary: string,
+): Promise<void> {
+  if (keepSummariesPath === undefined) return;
+  const destinationDir = resolve(keepSummariesPath);
+  await mkdir(destinationDir, { recursive: true });
+  await writeFile(join(destinationDir, safeSummaryName(scenario.name, runNumber)), rawSummary);
+}
+
+async function runOnce(scenario: EvalScenario, runNumber: number): Promise<ReviewSummary> {
   const tmpDir = await mkdtemp(join(tmpdir(), "ai-review-eval-"));
   try {
     const command = [
@@ -179,7 +223,14 @@ async function runOnce(scenario: EvalScenario): Promise<ReviewSummary> {
       return EMPTY_SUMMARY;
     }
 
-    return JSON.parse(raw) as ReviewSummary;
+    const parsed = JSON.parse(raw) as ReviewSummary;
+    try {
+      await preserveSummary(scenario, runNumber, raw);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`  [warn] could not preserve raw summary: ${msg.slice(0, 200)}`);
+    }
+    return parsed;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`  [warn] run failed: ${msg.slice(0, 200)}`);
@@ -201,6 +252,9 @@ if (scenarioFiles.length === 0) {
 
 console.log(`\nEval harness — runtime=${runtime}, runs=${runs}, threshold=${threshold}`);
 console.log(`Scenarios dir: ${scenariosDir}`);
+if (keepSummariesPath !== undefined) {
+  console.log(`Keeping raw summaries in trusted-local dir: ${resolve(keepSummariesPath)}`);
+}
 console.log(`Scenarios: ${scenarioFiles.join(", ")}\n`);
 
 const results: ScenarioScore[] = [];
@@ -236,7 +290,7 @@ for (const file of scenarioFiles) {
   const summaries: ReviewSummary[] = [];
   for (let i = 0; i < effectiveRuns; i++) {
     process.stdout.write(`  run ${i + 1}/${effectiveRuns}... `);
-    const summary = await runOnce(scenario);
+    const summary = await runOnce(scenario, i + 1);
     summaries.push(summary);
     process.stdout.write(
       `done (${summary.findings.length} findings, outcome=${summary.outcome})\n`,
@@ -248,12 +302,21 @@ for (const file of scenarioFiles) {
 
   // Per-scenario table
   const passStr = score.passed ? "PASS" : "FAIL";
+  const runDistribution = score.runSatisfactions.map((s) => `${(s * 100).toFixed(1)}%`).join(", ");
+  const flakyMarker = score.flaky ? " FLAKY" : "";
   console.log(
     `  ${score.name}: satisfaction=${(score.satisfaction * 100).toFixed(1)}% (threshold=${(score.threshold * 100).toFixed(0)}%) → ${passStr}`,
   );
+  console.log(
+    `    runs=[${runDistribution}] min=${(score.minSatisfaction * 100).toFixed(1)}% max=${(score.maxSatisfaction * 100).toFixed(1)}% variance=${score.variance.toFixed(4)}${flakyMarker}`,
+  );
   for (const c of score.perCriterion) {
     const pct = (c.passRate * 100).toFixed(0).padStart(3);
-    console.log(`    ${pct}%  ${c.label}`);
+    const requirement =
+      c.requiredPassRate === null
+        ? ""
+        : ` [${c.critical ? "critical " : ""}>=${(c.requiredPassRate * 100).toFixed(0)}% ${c.passed ? "OK" : "FAIL"}]`;
+    console.log(`    ${pct}%  ${c.label}${requirement}`);
   }
   console.log();
 }

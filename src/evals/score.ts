@@ -119,14 +119,44 @@ export interface ScenarioScore {
   satisfaction: number;
   threshold: number;
   passed: boolean;
-  perCriterion: Array<{ label: string; passRate: number }>;
+  runSatisfactions: number[];
+  minSatisfaction: number;
+  maxSatisfaction: number;
+  variance: number;
+  flaky: boolean;
+  perCriterion: CriterionScore[];
   runCount: number;
+}
+
+export interface CriterionScore {
+  label: string;
+  passRate: number;
+  critical: boolean;
+  requiredPassRate: number | null;
+  passed: boolean;
+}
+
+function criterionRequiredPassRate(criterion: EvalCriterion): number | null {
+  const requiredPassRate = criterion.minPassRate ?? (criterion.critical === true ? 1 : null);
+  if (
+    requiredPassRate !== null &&
+    (!Number.isFinite(requiredPassRate) || requiredPassRate < 0 || requiredPassRate > 1)
+  ) {
+    throw new Error(`Criterion "${criterion.label}" minPassRate must be a finite number in [0, 1]`);
+  }
+  return requiredPassRate;
+}
+
+function variance(values: readonly number[], mean: number): number {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
 }
 
 /**
  * Aggregates K run summaries into a scenario-level satisfaction score.
  * `satisfaction` = mean of per-run satisfaction fractions.
  * `perCriterion[i].passRate` = fraction of runs where criterion i was met.
+ * `passed` requires the mean satisfaction threshold AND every criterion-level pass-rate gate.
  */
 export function scoreScenario(
   scenario: EvalScenario,
@@ -141,25 +171,58 @@ export function scoreScenario(
       satisfaction: 0,
       threshold,
       passed: false,
-      perCriterion: scenario.criteria.map((c) => ({ label: c.label, passRate: 0 })),
+      runSatisfactions: [],
+      minSatisfaction: 0,
+      maxSatisfaction: 0,
+      variance: 0,
+      flaky: false,
+      perCriterion: scenario.criteria.map((c) => {
+        const requiredPassRate = criterionRequiredPassRate(c);
+        return {
+          label: c.label,
+          passRate: 0,
+          critical: c.critical === true,
+          requiredPassRate,
+          passed: requiredPassRate === null || requiredPassRate === 0,
+        };
+      }),
       runCount: 0,
     };
   }
 
   const runScores = summaries.map((s) => scoreRun(scenario, s));
-  const satisfaction = runScores.reduce((sum, r) => sum + r.satisfaction, 0) / runScores.length;
+  const runSatisfactions = runScores.map((r) => r.satisfaction);
+  const satisfaction =
+    runSatisfactions.reduce((sum, value) => sum + value, 0) / runSatisfactions.length;
+  const minSatisfaction = Math.min(...runSatisfactions);
+  const maxSatisfaction = Math.max(...runSatisfactions);
+  const satisfactionVariance = variance(runSatisfactions, satisfaction);
 
   // perCriterion: for each criterion index, fraction of runs where it was met
   const perCriterion = scenario.criteria.map((criterion, i) => {
     const metCount = runScores.filter((r) => r.results[i]?.met === true).length;
-    return { label: criterion.label, passRate: metCount / runScores.length };
+    const passRate = metCount / runScores.length;
+    const requiredPassRate = criterionRequiredPassRate(criterion);
+    return {
+      label: criterion.label,
+      passRate,
+      critical: criterion.critical === true,
+      requiredPassRate,
+      passed: requiredPassRate === null || passRate >= requiredPassRate,
+    };
   });
+  const criteriaPassed = perCriterion.every((criterion) => criterion.passed);
 
   return {
     name: scenario.name,
     satisfaction,
     threshold,
-    passed: satisfaction >= threshold,
+    passed: satisfaction >= threshold && criteriaPassed,
+    runSatisfactions,
+    minSatisfaction,
+    maxSatisfaction,
+    variance: satisfactionVariance,
+    flaky: minSatisfaction !== maxSatisfaction,
     perCriterion,
     runCount: summaries.length,
   };

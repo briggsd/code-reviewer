@@ -377,6 +377,11 @@ describe("scoreScenario", () => {
     const s2 = makeSummary([], "significant_concerns", "pass");
     const result = scoreScenario(scenarioWithTwoCriteria, [s1, s2], 0.8);
     expect(result.satisfaction).toBe(0.75);
+    expect(result.runSatisfactions).toEqual([1, 0.5]);
+    expect(result.minSatisfaction).toBe(0.5);
+    expect(result.maxSatisfaction).toBe(1);
+    expect(result.variance).toBe(0.0625);
+    expect(result.flaky).toBe(true);
     expect(result.runCount).toBe(2);
   });
 
@@ -386,6 +391,9 @@ describe("scoreScenario", () => {
     const result = scoreScenario(scenarioWithTwoCriteria, [s1, s2], 0.8);
     // "pass" outcome: met in both runs → 1.0
     expect(result.perCriterion[0]?.passRate).toBe(1.0);
+    expect(result.perCriterion[0]?.critical).toBe(false);
+    expect(result.perCriterion[0]?.requiredPassRate).toBeNull();
+    expect(result.perCriterion[0]?.passed).toBe(true);
     // "approved" decision: met only in run 1 → 0.5
     expect(result.perCriterion[1]?.passRate).toBe(0.5);
   });
@@ -411,7 +419,37 @@ describe("scoreScenario", () => {
     expect(result.satisfaction).toBe(0);
     expect(result.passed).toBe(false);
     expect(result.runCount).toBe(0);
+    expect(result.runSatisfactions).toEqual([]);
+    expect(result.minSatisfaction).toBe(0);
+    expect(result.maxSatisfaction).toBe(0);
+    expect(result.variance).toBe(0);
+    expect(result.flaky).toBe(false);
     expect(result.perCriterion[0]?.passRate).toBe(0);
+  });
+
+  test("zero summaries still apply explicit zero pass-rate gates consistently", () => {
+    const scenario: EvalScenario = {
+      ...baseScenario,
+      criteria: [
+        {
+          kind: "decision_in",
+          label: "zero-rate gate",
+          values: ["approved"],
+          minPassRate: 0,
+        },
+      ],
+    };
+
+    const result = scoreScenario(scenario, [], 0.8);
+
+    expect(result.perCriterion[0]).toEqual({
+      label: "zero-rate gate",
+      passRate: 0,
+      critical: false,
+      requiredPassRate: 0,
+      passed: true,
+    });
+    expect(result.passed).toBe(false);
   });
 
   test("threshold uses scenario.threshold when set, defaultThreshold otherwise", () => {
@@ -422,6 +460,94 @@ describe("scoreScenario", () => {
     const result = scoreScenario(scenarioWithThreshold, [s1, s2], 0.9);
     expect(result.threshold).toBe(0.5);
     expect(result.passed).toBe(true);
+  });
+
+  test("critical criteria fail the scenario when pass rate misses the default 100% requirement", () => {
+    const scenario: EvalScenario = {
+      ...baseScenario,
+      criteria: [
+        { kind: "outcome_is", label: "pass", value: "pass" },
+        { kind: "decision_in", label: "approved every run", values: ["approved"], critical: true },
+      ],
+    };
+    const s1 = makeSummary([], "approved", "pass");
+    const s2 = makeSummary([], "significant_concerns", "pass");
+    const result = scoreScenario(scenario, [s1, s2], 0.5);
+
+    expect(result.satisfaction).toBe(0.75);
+    expect(result.perCriterion[1]).toEqual({
+      label: "approved every run",
+      passRate: 0.5,
+      critical: true,
+      requiredPassRate: 1,
+      passed: false,
+    });
+    expect(result.passed).toBe(false);
+  });
+
+  test("minPassRate can set an explicit criterion gate below 100%", () => {
+    const scenario: EvalScenario = {
+      ...baseScenario,
+      criteria: [
+        { kind: "outcome_is", label: "pass", value: "pass" },
+        {
+          kind: "decision_in",
+          label: "mostly approved",
+          values: ["approved"],
+          critical: true,
+          minPassRate: 0.5,
+        },
+      ],
+    };
+    const s1 = makeSummary([], "approved", "pass");
+    const s2 = makeSummary([], "significant_concerns", "pass");
+    const result = scoreScenario(scenario, [s1, s2], 0.5);
+
+    expect(result.perCriterion[1]?.requiredPassRate).toBe(0.5);
+    expect(result.perCriterion[1]?.passed).toBe(true);
+    expect(result.passed).toBe(true);
+  });
+
+  test("minPassRate gates a scenario even when critical is omitted", () => {
+    const scenario: EvalScenario = {
+      ...baseScenario,
+      criteria: [
+        { kind: "outcome_is", label: "pass", value: "pass" },
+        {
+          kind: "decision_in",
+          label: "mostly approved",
+          values: ["approved"],
+          minPassRate: 0.75,
+        },
+      ],
+    };
+    const s1 = makeSummary([], "approved", "pass");
+    const s2 = makeSummary([], "significant_concerns", "pass");
+    const result = scoreScenario(scenario, [s1, s2], 0.5);
+
+    expect(result.satisfaction).toBe(0.75);
+    expect(result.perCriterion[1]?.critical).toBe(false);
+    expect(result.perCriterion[1]?.requiredPassRate).toBe(0.75);
+    expect(result.perCriterion[1]?.passed).toBe(false);
+    expect(result.passed).toBe(false);
+  });
+
+  test("minPassRate outside [0,1] is rejected", () => {
+    const scenario: EvalScenario = {
+      ...baseScenario,
+      criteria: [
+        {
+          kind: "decision_in",
+          label: "impossible gate",
+          values: ["approved"],
+          minPassRate: 1.5,
+        },
+      ],
+    };
+
+    expect(() => scoreScenario(scenario, [makeSummary([], "approved", "pass")], 0.8)).toThrow(
+      /minPassRate must be a finite number in \[0, 1\]/,
+    );
   });
 });
 

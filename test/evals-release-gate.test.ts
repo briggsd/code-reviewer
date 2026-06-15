@@ -190,7 +190,7 @@ describe("buildQualityStamp", () => {
     const stamp = buildQualityStamp(results, meta);
     const runSummary = summarizeEvalRun(results);
 
-    expect(stamp.schemaVersion).toBe("ai-review.quality_stamp.v1");
+    expect(stamp.schemaVersion).toBe("ai-review.quality_stamp.v2");
     expect(stamp.blocked).toBe(runSummary.blocked);
     expect(stamp.blocked).toBe(true); // because one scenario failed
   });
@@ -236,6 +236,12 @@ describe("buildQualityStamp", () => {
     expect(goodScenario?.satisfaction).toBe(goodScore.satisfaction);
     expect(goodScenario?.threshold).toBe(goodScore.threshold);
     expect(goodScenario?.passed).toBe(true);
+    expect(goodScenario?.runSatisfactions).toEqual(goodScore.runSatisfactions);
+    expect(goodScenario?.minSatisfaction).toBe(goodScore.minSatisfaction);
+    expect(goodScenario?.maxSatisfaction).toBe(goodScore.maxSatisfaction);
+    expect(goodScenario?.variance).toBe(goodScore.variance);
+    expect(goodScenario?.flaky).toBe(goodScore.flaky);
+    expect(goodScenario?.perCriterion).toEqual(goodScore.perCriterion);
     expect(goodScenario?.runCount).toBe(1);
 
     const badScenario = stamp.scenarios[1];
@@ -277,10 +283,22 @@ describe("buildQualityStamp", () => {
     if (scenario !== undefined) {
       const scenarioKeys = Object.keys(scenario);
       expect(scenarioKeys).toEqual(
-        expect.arrayContaining(["name", "satisfaction", "threshold", "passed", "runCount"]),
+        expect.arrayContaining([
+          "name",
+          "satisfaction",
+          "threshold",
+          "passed",
+          "runSatisfactions",
+          "minSatisfaction",
+          "maxSatisfaction",
+          "variance",
+          "flaky",
+          "perCriterion",
+          "runCount",
+        ]),
       );
-      // Exactly these 5 keys — no extra fields
-      expect(scenarioKeys).toHaveLength(5);
+      // Exactly these score-only keys — no raw summary, finding, diff, or prompt fields.
+      expect(scenarioKeys).toHaveLength(11);
     }
   });
 });

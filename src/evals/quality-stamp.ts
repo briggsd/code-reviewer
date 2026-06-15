@@ -23,6 +23,18 @@ export interface QualityStampScenario {
   satisfaction: number;
   threshold: number;
   passed: boolean;
+  runSatisfactions: number[];
+  minSatisfaction: number;
+  maxSatisfaction: number;
+  variance: number;
+  flaky: boolean;
+  perCriterion: Array<{
+    label: string;
+    passRate: number;
+    critical: boolean;
+    requiredPassRate: number | null;
+    passed: boolean;
+  }>;
   runCount: number;
 }
 
@@ -42,7 +54,7 @@ export interface QualityStampMeta {
 }
 
 export interface QualityStamp {
-  schemaVersion: "ai-review.quality_stamp.v1";
+  schemaVersion: "ai-review.quality_stamp.v2";
   generatedAt: string;
   commit: string | null;
   runtime: string;
@@ -64,7 +76,7 @@ export function buildQualityStamp(
 ): QualityStamp {
   const { passed, total, meanSatisfaction, blocked } = summarizeEvalRun(results);
   return {
-    schemaVersion: "ai-review.quality_stamp.v1",
+    schemaVersion: "ai-review.quality_stamp.v2",
     generatedAt: meta.generatedAt,
     commit: meta.commit,
     runtime: meta.runtime,
@@ -80,6 +92,18 @@ export function buildQualityStamp(
       satisfaction: r.satisfaction,
       threshold: r.threshold,
       passed: r.passed,
+      runSatisfactions: r.runSatisfactions,
+      minSatisfaction: r.minSatisfaction,
+      maxSatisfaction: r.maxSatisfaction,
+      variance: r.variance,
+      flaky: r.flaky,
+      perCriterion: r.perCriterion.map((criterion) => ({
+        label: criterion.label,
+        passRate: criterion.passRate,
+        critical: criterion.critical,
+        requiredPassRate: criterion.requiredPassRate,
+        passed: criterion.passed,
+      })),
       runCount: r.runCount,
     })),
   };
