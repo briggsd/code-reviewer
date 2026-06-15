@@ -4582,6 +4582,13 @@ describe("PiAgentRuntime — coordinator failback-on-failure (#217 S02)", () => 
         { provider: "anthropic", model: "claude-opus" },
         { provider: "openai", model: "gpt-4" },
       ]);
+      expect(typeof completedCoordinator?.data?.coordinatorTotalSynthesisMs).toBe("number");
+      // Total synthesis spans the failed attempt(s) + the winning attempt, so it must be >= the
+      // winning-attempt-only fusionMs (#248). fusionMs is on the returned coordinatorResult, not the
+      // event payload — assert the meaningful invariant against it rather than a bare >= 0.
+      expect(completedCoordinator?.data?.coordinatorTotalSynthesisMs).toBeGreaterThanOrEqual(
+        result.coordinatorResult?.fusionMs ?? 0,
+      );
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
     }

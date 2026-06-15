@@ -371,6 +371,8 @@ export class PiAgentRuntime implements AgentRuntime {
       // without a successful result, so these are always assigned when the loop exits normally.
       let fusionMs = 0;
       let processResult: Awaited<ReturnType<PiProcessRunner["run"]>> | undefined;
+      const synthesisLoopStartedAt = Date.now();
+      let totalSynthesisMs = 0;
 
       for (let attempt = 1; attempt <= maxCoordinatorAttempts; attempt += 1) {
         const resolvedModel = this.modelArgs(currentCoordinatorModel);
@@ -410,6 +412,9 @@ export class PiAgentRuntime implements AgentRuntime {
           // fusionMs = post-fan-out synthesis call latency (the time spent on the winning call,
           // not cumulative across retries). attemptStartedAt is captured per-attempt above.
           fusionMs = Date.now() - attemptStartedAt;
+          // Total synthesis wall-clock across failed + winning attempts (#248). Distinct from fusionMs
+          // (winning attempt only, M018 #196) — surfaces the true cost when a coordinator failover hopped.
+          totalSynthesisMs = Date.now() - synthesisLoopStartedAt;
 
           if (streamedEventCount === 0) {
             this.forwardPiEvents(input.runId, agentRunId, "coordinator", processResult.events);
@@ -562,6 +567,7 @@ export class PiAgentRuntime implements AgentRuntime {
         // Coordinator failback telemetry (#217): counts/identifiers only (M008). Surfaced via the
         // agent.completed event so the run_metrics pipeline captures it without new contract fields.
         ...(coordinatorHopCount > 0 ? { coordinatorFailbackHopCount: coordinatorHopCount } : {}),
+        ...(coordinatorHopCount > 0 ? { coordinatorTotalSynthesisMs: totalSynthesisMs } : {}),
         ...(coordinatorAttemptedModels.length > 0 ? { coordinatorAttemptedModels } : {}),
       });
 
