@@ -342,42 +342,184 @@ export class PiAgentRuntime implements AgentRuntime {
       }
 
       const coordinatorPrompt = buildCoordinatorPrompt(input, reviewerResults, reviewerFailures);
+
+      // Failback (#217 S02): the coordinator synthesis now runs the same selectStart → attempt →
+      // recordFailureAndSelectNext hop loop that runReviewer uses (#137 S04). This closes the last
+      // single-point-of-failure in the model path: a provider failure mid-synthesis hops to the
+      // next non-degraded provider instead of degrading the whole run to a coordinator failure.
+      //
       // Failback (#137): the coordinator's synthesis runs AFTER the reviewer fan-out, so respect
       // provider health here too — a provider degraded during fan-out is skipped for synthesis.
       // When every chain provider is degraded, selectStart returns undefined and we fall back to
       // input.model as a best-effort (a degraded provider may still be transiently usable, and a
-      // synthesis on a shaky provider beats no review at all). This only respects degraded state at
-      // start; full coordinator failback-on-failure (a hop loop like runReviewer's) is a follow-up.
-      const coordinatorModel =
+      // synthesis on a shaky provider beats no review at all).
+      let currentCoordinatorModel =
         input.failbackChain !== undefined && input.providerHealth !== undefined
           ? (input.providerHealth.selectStart(input.failbackChain) ?? input.model)
           : input.model;
-      const resolvedModel = this.modelArgs(coordinatorModel);
-      const effectiveModel = resolvedModel.model?.model;
-      let streamedEventCount = 0;
-      const fusionStartedAt = Date.now();
-      const processResult = await this.processRunner.run({
-        runId: input.runId,
-        agentRunId,
-        role: "coordinator",
-        prompt: coordinatorPrompt,
-        cwd: input.context.workingDirectory,
-        timeoutMs: input.timeoutMs,
-        heartbeatIntervalMs: defaultHeartbeatIntervalMs(input.timeoutMs),
-        toolPolicy: input.toolPolicy,
-        // The coordinator delivers its fused summary via the factory-owned submit_review tool;
-        // allowlist it so it stays callable even when the read/shell/write policy emits --no-tools.
-        requiredTools: [SUBMIT_REVIEW_TOOL_NAME],
-        onEvent: (event) => {
-          streamedEventCount += 1;
-          this.forwardPiEvent(input.runId, agentRunId, "coordinator", event);
-        },
-        ...resolvedModel,
-      });
-      const fusionMs = Date.now() - fusionStartedAt;
-      if (streamedEventCount === 0) {
-        this.forwardPiEvents(input.runId, agentRunId, "coordinator", processResult.events);
+
+      // Track attempted provider+model pairs for telemetry (counts/identifiers only, M008).
+      const coordinatorAttemptedModels: Array<{ provider: string; model: string }> = [];
+      let coordinatorHopCount = 0;
+
+      const maxCoordinatorAttempts = normalizeRetryAttemptCount(
+        this.reviewerRetryPolicy.maxAttempts,
+      );
+
+      // Failback loop: runs until success (break), chain exhaustion, or reserve-gate stop (throw).
+      // On success, assigns processResult and fusionMs. The loop always throws before exhausting
+      // without a successful result, so these are always assigned when the loop exits normally.
+      let fusionMs = 0;
+      let processResult: Awaited<ReturnType<PiProcessRunner["run"]>> | undefined;
+
+      for (let attempt = 1; attempt <= maxCoordinatorAttempts; attempt += 1) {
+        const resolvedModel = this.modelArgs(currentCoordinatorModel);
+
+        // Record this attempt's provider+model (identifiers only, M008).
+        if (resolvedModel.model !== undefined) {
+          coordinatorAttemptedModels.push({
+            provider: resolvedModel.model.provider,
+            model: resolvedModel.model.model,
+          });
+        }
+
+        let streamedEventCount = 0;
+        const attemptStartedAt = Date.now();
+
+        try {
+          const attemptResult = await this.processRunner.run({
+            runId: input.runId,
+            agentRunId,
+            role: "coordinator",
+            prompt: coordinatorPrompt,
+            cwd: input.context.workingDirectory,
+            timeoutMs: input.timeoutMs,
+            heartbeatIntervalMs: defaultHeartbeatIntervalMs(input.timeoutMs),
+            toolPolicy: input.toolPolicy,
+            // The coordinator delivers its fused summary via the factory-owned submit_review tool;
+            // allowlist it so it stays callable even when the read/shell/write policy emits --no-tools.
+            requiredTools: [SUBMIT_REVIEW_TOOL_NAME],
+            onEvent: (event) => {
+              streamedEventCount += 1;
+              this.forwardPiEvent(input.runId, agentRunId, "coordinator", event);
+            },
+            ...resolvedModel,
+          });
+          processResult = attemptResult;
+          // Measure only the successful attempt's latency to preserve M018's defined semantic:
+          // fusionMs = post-fan-out synthesis call latency (the time spent on the winning call,
+          // not cumulative across retries). attemptStartedAt is captured per-attempt above.
+          fusionMs = Date.now() - attemptStartedAt;
+
+          if (streamedEventCount === 0) {
+            this.forwardPiEvents(input.runId, agentRunId, "coordinator", processResult.events);
+          }
+
+          // Synthesis succeeded — break out of the failback loop.
+          break;
+        } catch (error) {
+          const durationMs = Date.now() - attemptStartedAt;
+          const failure = createReviewerFailure(
+            input.runId,
+            agentRunId,
+            "coordinator",
+            error,
+            durationMs,
+            { attemptCount: attempt, retryCount: attempt - 1 },
+          );
+
+          // Compute the reserve gate: a failback hop is just another attempt and MUST be subject
+          // to the same wall-clock reserve (Seam 1). For the coordinator, `coordinatorTimeoutMs`
+          // is 0 — we ARE the coordinator, so there is no additional synthesis phase to reserve
+          // for. `nextAttemptTimeoutMs` is input.timeoutMs (another full coordinator synthesis).
+          const effectiveTimeouts = getEffectiveTimeouts(input.context);
+          const reserveAllowsRetry = shouldRetryReviewerFailure({
+            classification: failure.errorClassification,
+            attempt,
+            maxAttempts: maxCoordinatorAttempts,
+            // Elapsed since fan-out began (the coordinator's wall-clock start for this run).
+            elapsedMs: Date.now() - reviewerBudgetStartedAt,
+            nextAttemptTimeoutMs: input.timeoutMs,
+            // coordinatorTimeoutMs=0: we ARE the coordinator, no separate synthesis phase to
+            // reserve for. The reserve still covers a re-attempt (nextAttemptTimeoutMs) and
+            // the minimum buffer — symmetric with the reviewer guard.
+            coordinatorTimeoutMs: 0,
+            overallTimeoutMs: effectiveTimeouts.overallMs,
+            minimumRemainingMs: scaleTimeoutForRiskTier(
+              this.reviewerRetryPolicy.minimumRemainingMs,
+              input.context.risk.tier,
+            ),
+          });
+
+          // Failback hop (#217): atomically record the failure and decide whether to hop.
+          let failbackExhausted = false;
+          if (input.failbackChain !== undefined && input.providerHealth !== undefined) {
+            const decision = input.providerHealth.recordFailureAndSelectNext({
+              failed: currentCoordinatorModel,
+              classification: failure.errorClassification,
+              chain: input.failbackChain,
+            });
+
+            if (
+              isFailbackEligible(failure.errorClassification) &&
+              decision.next !== undefined &&
+              reserveAllowsRetry
+            ) {
+              // Hop to the next provider — the loop continues.
+              currentCoordinatorModel = decision.next;
+              coordinatorHopCount += decision.hopCount;
+            } else if (isFailbackEligible(failure.errorClassification) && decision.exhausted) {
+              // Failback-eligible and chain exhausted (single- or multi-provider) — do not
+              // pointlessly retry the same degraded provider. Flag it; we throw after the
+              // agent.failed event (always emit the event before throwing).
+              //
+              // Note: this differs from runReviewer, which falls through to same-model retry for
+              // a single-provider chain. The coordinator runs AFTER the reviewer fan-out, so a
+              // single degraded provider that already failed once is very likely to fail again —
+              // failing fast is the better trade-off here.
+              failbackExhausted = true;
+            }
+          }
+
+          const willRetry = !failbackExhausted && reserveAllowsRetry;
+
+          this.emitAgentEvent("agent.failed", input.runId, agentRunId, "coordinator", {
+            errorName: failure.errorName,
+            errorMessage: failure.errorMessage,
+            errorClassification: failure.errorClassification,
+            errorCategory: failure.errorClassification.category,
+            retryable: failure.errorClassification.retryable,
+            durationMs: failure.durationMs ?? 0,
+            attempt,
+            maxAttempts: maxCoordinatorAttempts,
+            retryCount: attempt - 1,
+            willRetry,
+            ...(failbackExhausted ? { failbackExhausted: true } : {}),
+          });
+
+          if (!willRetry) {
+            annotateRetryMetadata(error, {
+              attemptCount: attempt,
+              retryCount: attempt - 1,
+              ...(failbackExhausted ? { failbackExhausted: true } : {}),
+              ...(coordinatorHopCount > 0 ? { failbackHopCount: coordinatorHopCount } : {}),
+              ...(coordinatorAttemptedModels.length > 0
+                ? { attemptedModels: coordinatorAttemptedModels }
+                : {}),
+            });
+            throw error;
+          }
+        }
       }
+
+      // processResult is defined when the loop breaks on success; the loop always throws when
+      // all attempts fail, so reaching here with processResult undefined is unreachable.
+      if (processResult === undefined) {
+        throw new Error("Pi coordinator synthesis loop exhausted unexpectedly");
+      }
+
+      const resolvedModel = this.modelArgs(currentCoordinatorModel);
+      const effectiveModel = resolvedModel.model?.model;
 
       assertNotTruncatedOutput(processResult.events, agentRunId);
       const allowedReviewerRoles = [
@@ -417,6 +559,10 @@ export class PiAgentRuntime implements AgentRuntime {
         reviewerCount: reviewerResults.length,
         failedReviewerCount: reviewerFailures.length,
         ...(processResult.usage !== undefined ? { usage: processResult.usage } : {}),
+        // Coordinator failback telemetry (#217): counts/identifiers only (M008). Surfaced via the
+        // agent.completed event so the run_metrics pipeline captures it without new contract fields.
+        ...(coordinatorHopCount > 0 ? { coordinatorFailbackHopCount: coordinatorHopCount } : {}),
+        ...(coordinatorAttemptedModels.length > 0 ? { coordinatorAttemptedModels } : {}),
       });
 
       return {

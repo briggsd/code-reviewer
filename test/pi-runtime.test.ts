@@ -4220,3 +4220,370 @@ describe("PiAgentRuntime — cross-provider failback (#137 S04)", () => {
     expect(coordinatorCall?.model?.provider).toBe("openai");
   });
 });
+
+// Coordinator failback-on-failure (#217 S02)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fails the coordinator on `anthropic` on the first call, then succeeds on `openai`.
+ * Reviewers always succeed regardless of provider.
+ */
+class CoordinatorFailbackSuccessPiProcessRunner implements PiProcessRunner {
+  readonly calls: PiProcessRunInput[] = [];
+  private coordinatorCallCount = 0;
+
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    this.calls.push(input);
+
+    if (input.role === "coordinator") {
+      this.coordinatorCallCount += 1;
+      if (this.coordinatorCallCount <= 1 && input.model?.provider === "anthropic") {
+        throw new Error("503 service unavailable: anthropic overloaded");
+      }
+    }
+
+    const output =
+      input.role === "coordinator"
+        ? {
+            decision: "approved",
+            outcome: "pass",
+            title: "AI review approved",
+            body: "No significant concerns.",
+            findings: [],
+            risk: {
+              tier: "lite",
+              reason: "Low-risk change.",
+              matchedRules: [],
+              sensitivePaths: [],
+              reviewedFileCount: 1,
+              ignoredFileCount: 0,
+            },
+          }
+        : { findings: [] };
+    const finalText = JSON.stringify(output);
+
+    return {
+      finalText,
+      events: [
+        { type: "agent_start" },
+        {
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: finalText }],
+            usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: { total: 0.001 } },
+          },
+        },
+        { type: "agent_end", messages: [] },
+      ],
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        estimatedCostUsd: 0.001,
+      },
+      rawOutput: "",
+    };
+  }
+}
+
+/**
+ * Always fails the coordinator regardless of provider.
+ * Reviewers always succeed.
+ */
+class CoordinatorAlwaysFailsPiProcessRunner implements PiProcessRunner {
+  readonly calls: PiProcessRunInput[] = [];
+
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    this.calls.push(input);
+    if (input.role === "coordinator") {
+      throw new Error("503 service unavailable: all providers overloaded");
+    }
+    const finalText = JSON.stringify({ findings: [] });
+    return {
+      finalText,
+      events: [
+        { type: "agent_start" },
+        {
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: finalText }],
+            usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: { total: 0.001 } },
+          },
+        },
+        { type: "agent_end", messages: [] },
+      ],
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        estimatedCostUsd: 0.001,
+      },
+      rawOutput: "",
+    };
+  }
+}
+
+/**
+ * Fails the coordinator with a timeout on the first call (non-failback-eligible: timeout is not
+ * retryable_transient so it must NOT trigger a failback hop). Succeeds on the second call.
+ */
+class CoordinatorTimeoutFirstCallPiProcessRunner implements PiProcessRunner {
+  readonly calls: PiProcessRunInput[] = [];
+  private firstCoordinatorCall = true;
+
+  async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    this.calls.push(input);
+    if (input.role === "coordinator" && this.firstCoordinatorCall) {
+      this.firstCoordinatorCall = false;
+      throw new Error("timed out waiting for coordinator response");
+    }
+    const output =
+      input.role === "coordinator"
+        ? {
+            decision: "approved",
+            outcome: "pass",
+            title: "AI review approved",
+            body: "No concerns.",
+            findings: [],
+            risk: {
+              tier: "lite",
+              reason: "Low-risk.",
+              matchedRules: [],
+              sensitivePaths: [],
+              reviewedFileCount: 1,
+              ignoredFileCount: 0,
+            },
+          }
+        : { findings: [] };
+    const finalText = JSON.stringify(output);
+    return {
+      finalText,
+      events: [
+        { type: "agent_start" },
+        {
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: finalText }],
+            usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: { total: 0.001 } },
+          },
+        },
+        { type: "agent_end", messages: [] },
+      ],
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        estimatedCostUsd: 0.001,
+      },
+      rawOutput: "",
+    };
+  }
+}
+
+describe("PiAgentRuntime — coordinator failback-on-failure (#217 S02)", () => {
+  test("retryable_transient coordinator failure hops to the next chain provider and succeeds", async () => {
+    // Coordinator configured on anthropic; default chain includes openai. First coordinator call
+    // 503s on anthropic → hop to openai → succeeds. Mirrors the reviewer failback test (F1).
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    fixture.config.modelRouting = {
+      default: { provider: "openai", model: "gpt-4" },
+      roles: { coordinator: { provider: "anthropic", model: "claude-opus" } },
+    };
+
+    const runner = new CoordinatorFailbackSuccessPiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-opus" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+      reviewerRetryPolicy: { maxAttempts: 3 },
+    });
+
+    const result = await runReview({
+      fixture,
+      runtime,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    const coordinatorCalls = runner.calls.filter((c) => c.role === "coordinator");
+    // Attempt 1 on anthropic (fails 503), attempt 2 on openai (succeeds).
+    expect(coordinatorCalls).toHaveLength(2);
+    expect(coordinatorCalls[0]?.model?.provider).toBe("anthropic");
+    expect(coordinatorCalls[1]?.model?.provider).toBe("openai");
+
+    // Total coordinator calls ≤ maxAttempts (no blowup).
+    expect(coordinatorCalls.length).toBeLessThanOrEqual(3);
+
+    // The run completed successfully — coordinator failback recovered.
+    expect(result.coordinatorResult).toBeDefined();
+    expect(result.coordinatorResult?.summary.decision).toBe("approved");
+  });
+
+  test("exhausted coordinator chain produces a terminal failure, not a silent success", async () => {
+    // Both anthropic and openai fail every coordinator call → chain exhausted → run throws.
+    // Mirrors the reviewer exhausted-chain test.
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    fixture.config.modelRouting = {
+      default: { provider: "openai", model: "gpt-4" },
+      roles: { coordinator: { provider: "anthropic", model: "claude-opus" } },
+    };
+
+    const runner = new CoordinatorAlwaysFailsPiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-opus" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+      reviewerRetryPolicy: { maxAttempts: 3 },
+    });
+
+    // The coordinator always fails → runReview should reject (coordinator failure crashes the run).
+    await expect(
+      runReview({
+        fixture,
+        runtime,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      }),
+    ).rejects.toThrow();
+
+    // Total coordinator calls ≤ maxAttempts (no blowup: exhausted after 2 providers).
+    const coordinatorCalls = runner.calls.filter((c) => c.role === "coordinator");
+    expect(coordinatorCalls.length).toBeLessThanOrEqual(3);
+  });
+
+  test("non-failback-eligible coordinator failure (timeout) stays on the same provider", async () => {
+    // A timeout is not failback-eligible — the coordinator retries on the SAME provider, it does
+    // not hop. Mirrors the reviewer timeout test.
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    fixture.config.modelRouting = {
+      default: { provider: "openai", model: "gpt-4" },
+      roles: { coordinator: { provider: "anthropic", model: "claude-opus" } },
+    };
+
+    const runner = new CoordinatorTimeoutFirstCallPiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-opus" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+      reviewerRetryPolicy: { maxAttempts: 2 },
+    });
+
+    await runReview({ fixture, runtime, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    const coordinatorCalls = runner.calls.filter((c) => c.role === "coordinator");
+    // Both calls should be on the SAME provider (anthropic) — timeout does not trigger failback.
+    expect(coordinatorCalls).toHaveLength(2);
+    expect(coordinatorCalls[0]?.model?.provider).toBe("anthropic");
+    expect(coordinatorCalls[1]?.model?.provider).toBe("anthropic");
+  });
+
+  test("reserve-gate blocks a coordinator hop when no attempt budget remains", async () => {
+    // With maxAttempts=1, even a failback-eligible failure cannot hop (no attempt remains).
+    // Mirrors the reserve-gate test for reviewers.
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    fixture.config.modelRouting = {
+      default: { provider: "openai", model: "gpt-4" },
+      roles: { coordinator: { provider: "anthropic", model: "claude-opus" } },
+    };
+
+    const runner = new CoordinatorAlwaysFailsPiProcessRunner();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-opus" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+      // maxAttempts=1: only one attempt allowed, so the reserve gate must block any hop.
+      reviewerRetryPolicy: { maxAttempts: 1 },
+    });
+
+    await expect(
+      runReview({
+        fixture,
+        runtime,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      }),
+    ).rejects.toThrow();
+
+    // Exactly 1 coordinator call (maxAttempts=1, no hop).
+    const coordinatorCalls = runner.calls.filter((c) => c.role === "coordinator");
+    expect(coordinatorCalls).toHaveLength(1);
+    // The single call was on anthropic (the configured coordinator provider, not openai).
+    expect(coordinatorCalls[0]?.model?.provider).toBe("anthropic");
+  });
+
+  test("coordinator failback telemetry flows through agent.failed and agent.completed events", async () => {
+    // Verify that coordinator failback telemetry (hop count, attempted models) flows through
+    // the agent.failed event for the failed attempt and agent.completed for the successful one.
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-coord-failback-telemetry-"));
+
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      fixture.config.modelRouting = {
+        default: { provider: "openai", model: "gpt-4" },
+        roles: { coordinator: { provider: "anthropic", model: "claude-opus" } },
+      };
+
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runner = new CoordinatorFailbackSuccessPiProcessRunner();
+      const runtime = new PiAgentRuntime({
+        processRunner: runner,
+        defaultModel: { provider: "anthropic", model: "claude-opus" },
+        timestamp: "2026-06-09T00:00:00.000Z",
+        reviewerRetryPolicy: { maxAttempts: 3 },
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      // The run completed successfully after the failback hop.
+      expect(result.coordinatorResult?.summary.decision).toBe("approved");
+
+      // Two coordinator calls (one failed on anthropic, one succeeded on openai).
+      const coordinatorCalls = runner.calls.filter((c) => c.role === "coordinator");
+      expect(coordinatorCalls).toHaveLength(2);
+      expect(coordinatorCalls[0]?.model?.provider).toBe("anthropic");
+      expect(coordinatorCalls[1]?.model?.provider).toBe("openai");
+
+      // Read the trace events and assert the new telemetry payloads.
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+
+      // agent.failed for the coordinator's first attempt: must carry willRetry: true
+      // (the hop is allowed) and attempt: 1.
+      const failedCoordinator = events.find(
+        (event) => event.type === "agent.failed" && event.role === "coordinator",
+      );
+      expect(failedCoordinator).toBeDefined();
+      expect(failedCoordinator?.data?.willRetry).toBe(true);
+      expect(failedCoordinator?.data?.attempt).toBe(1);
+      expect(failedCoordinator?.data?.errorCategory).toBe("retryable_transient");
+
+      // agent.completed for the coordinator's successful attempt: must carry
+      // coordinatorFailbackHopCount: 1 (one hop from anthropic to openai) and
+      // coordinatorAttemptedModels listing both providers in order.
+      const completedCoordinator = events.find(
+        (event) => event.type === "agent.completed" && event.role === "coordinator",
+      );
+      expect(completedCoordinator).toBeDefined();
+      expect(completedCoordinator?.data?.coordinatorFailbackHopCount).toBe(1);
+      expect(completedCoordinator?.data?.coordinatorAttemptedModels).toEqual([
+        { provider: "anthropic", model: "claude-opus" },
+        { provider: "openai", model: "gpt-4" },
+      ]);
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+});
