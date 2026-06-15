@@ -20,9 +20,11 @@
   },
   "scripts": {
     "check": "bunx tsc --noEmit && bun test",
-    "gate": "bun run check && bun run boundaries && bun run lint && bun run docs:check",
+    "gate": "bun run check && bun run boundaries && bun run lint && bun run docs:check && bun run complexity:check",
     "test": "bun test",
     "start": "bun run src/cli.ts",
+    "complexity:check": "bun run scripts/check-complexity.ts",
+    "complexity:update": "bun run scripts/check-complexity.ts --update",
     "docs:check": "bun run scripts/check-docs.ts",
     "docs:stale": "bun run scripts/check-docs.ts --mode=advisory",
     "schema:config": "bun run scripts/write-config-schema.ts",

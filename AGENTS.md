@@ -42,7 +42,7 @@ Full design: **docs/architecture.md**. Project purpose & status: **README.md**.
 - **Entry point:** `src/cli.ts` (installed as the `ai-code-review` bin).
 
 ```bash
-bun run gate           # check + boundaries + lint + docs:check  ← THE pre-PR verification gate (mirrors CI's blocking check job)
+bun run gate           # check + boundaries + lint + docs:check + complexity:check  ← THE pre-PR verification gate (mirrors CI's blocking check job)
 bun run check          # bunx tsc --noEmit && bun test (the tsc+test core; CI blocks on gate, not just check)
 bun test               # bun:test suite (tests live in test/)
 bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --runtime dummy
@@ -58,6 +58,7 @@ bun run lint           # Biome lint+format check (BLOCKING in CI's check job sin
 bun run lint:fix       # auto-apply Biome fixes
 bun run docs:check     # docs dead-reference linter over tracked *.md (dead path/`bun run` script refs; BLOCKING in CI's check job + gate)
 bun run docs:stale     # docs staleness heuristics (env-var drift, oversized docs, src/ dirs missing from AGENTS.md map, unclosed code fences; ADVISORY, CI quality job)
+bun run complexity:check   # blocking cognitive-complexity ratchet vs complexity-baseline.json; update the baseline (ratchet down, or raise for accepted complexity) with `bun run complexity:update`
 bun run knip           # unused files/exports/deps (advisory)
 bun run dup            # jscpd copy-paste detection over src/ (advisory)
 ```
