@@ -164,4 +164,114 @@ describe("stable finding IDs", () => {
 
     expect(result.summary.findings[0]?.id).toMatch(/^fnd_[a-f0-9]{16}$/);
   });
+
+  // --- #148 line-drift regression tests ---
+
+  const lineSpecificFinding: Finding = {
+    ...baseFinding,
+    quotedCode: ["const user = db.accounts.findById(accountId);"],
+  };
+
+  test("#148 regression: line drift does not re-mint finding identity (same quotedCode, different line/endLine → same ID)", () => {
+    // Simulates an earlier-hunk shift: the flagged code is unchanged but its
+    // absolute line number moved (e.g. lines 23→45 after a preceding hunk grew).
+    const atLine23 = createStableFindingId({
+      ...lineSpecificFinding,
+      location: { path: "auth/accounts.ts", line: 23, endLine: 23, side: "RIGHT" },
+    });
+    const atLine45 = createStableFindingId({
+      ...lineSpecificFinding,
+      location: { path: "auth/accounts.ts", line: 45, endLine: 45, side: "RIGHT" },
+    });
+
+    // Core invariant: same flagged content at different line numbers → same ID.
+    expect(atLine23).toMatch(/^fnd_[a-f0-9]{16}$/);
+    expect(atLine45).toBe(atLine23);
+  });
+
+  test("#148 content sensitivity: different quotedCode produces different IDs", () => {
+    const findingA = createStableFindingId({
+      ...lineSpecificFinding,
+      quotedCode: ["const user = db.accounts.findById(accountId);"],
+      location: { path: "auth/accounts.ts", line: 23, side: "RIGHT" },
+    });
+    const findingB = createStableFindingId({
+      ...lineSpecificFinding,
+      quotedCode: ["const user = db.accounts.findByEmail(email);"],
+      location: { path: "auth/accounts.ts", line: 23, side: "RIGHT" },
+    });
+
+    expect(findingA).not.toBe(findingB);
+  });
+
+  test("#148 architectural fallback unchanged: no quotedCode still keys on line numbers (different lines → different IDs)", () => {
+    // Absence/architectural findings have no quotedCode — they must remain
+    // line-sensitive because they have no content anchor.
+    const atLine10 = createStableFindingId({
+      ...baseFinding,
+      // baseFinding has no quotedCode — fallback path
+      location: { path: "auth/accounts.ts", line: 10, endLine: 10, side: "RIGHT" },
+    });
+    const atLine20 = createStableFindingId({
+      ...baseFinding,
+      location: { path: "auth/accounts.ts", line: 20, endLine: 20, side: "RIGHT" },
+    });
+
+    expect(atLine10).not.toBe(atLine20);
+  });
+
+  test("#148 whitespace tolerance: quotedCode differing only in indentation produces the same ID", () => {
+    const compact = createStableFindingId({
+      ...lineSpecificFinding,
+      quotedCode: ["const user = db.accounts.findById(accountId);"],
+      location: { path: "auth/accounts.ts", line: 23, side: "RIGHT" },
+    });
+    const indented = createStableFindingId({
+      ...lineSpecificFinding,
+      quotedCode: ["  const user = db.accounts.findById(accountId);  "],
+      location: { path: "auth/accounts.ts", line: 23, side: "RIGHT" },
+    });
+    // Multi-line indentation tolerance: leading spaces on each line are also trimmed.
+    const multiLineIndented = createStableFindingId({
+      ...lineSpecificFinding,
+      quotedCode: ["  const user = db.accounts.findById(accountId);"],
+      location: { path: "auth/accounts.ts", line: 23, side: "RIGHT" },
+    });
+
+    expect(compact).toBe(indented);
+    expect(compact).toBe(multiLineIndented);
+  });
+
+  test("#148 case sensitivity: quotedCode differing only in identifier case produces different IDs", () => {
+    // Security path: a stableFindingId-pinned acknowledgement must NOT absorb a
+    // case-variant new finding (e.g. admin vs Admin are distinct in source code).
+    const lowercase = createStableFindingId({
+      ...lineSpecificFinding,
+      quotedCode: ["const admin = checkRole()"],
+      location: { path: "auth/accounts.ts", line: 23, side: "RIGHT" },
+    });
+    const capitalized = createStableFindingId({
+      ...lineSpecificFinding,
+      quotedCode: ["const Admin = checkRole()"],
+      location: { path: "auth/accounts.ts", line: 23, side: "RIGHT" },
+    });
+
+    expect(lowercase).not.toBe(capitalized);
+  });
+
+  test("#148 multi-line vs single-line: different quotedCode arrangements produce different IDs", () => {
+    // ["const x =", "1;"] must not hash identically to ["const x = 1;"].
+    const multiLine = createStableFindingId({
+      ...lineSpecificFinding,
+      quotedCode: ["const x =", "1;"],
+      location: { path: "auth/accounts.ts", line: 23, side: "RIGHT" },
+    });
+    const singleLine = createStableFindingId({
+      ...lineSpecificFinding,
+      quotedCode: ["const x = 1;"],
+      location: { path: "auth/accounts.ts", line: 23, side: "RIGHT" },
+    });
+
+    expect(multiLine).not.toBe(singleLine);
+  });
 });

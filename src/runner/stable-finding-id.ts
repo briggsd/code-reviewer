@@ -106,17 +106,72 @@ function allocateFindingId(baseId: string, rank: number, used: Set<string>): str
 // separator character can't shift the field boundaries and forge another
 // finding's preimage — relevant now that the key space is small and the fields
 // (path, reviewer, category) can carry adversarial repo-controlled content.
+//
+// Location strategy (#148): when a finding has `quotedCode` (the verbatim
+// flagged lines from the diff), the identity anchors on path + content + side
+// rather than absolute line numbers. This makes identity drift-tolerant: an
+// earlier-hunk shift that changes `line`/`endLine` without touching the flagged
+// code does NOT mint a new ID, so re-review.ts correctly classifies the finding
+// as recurring rather than fixed + new. Absence/architectural findings (no
+// `quotedCode`) continue to key on `path:line:endLine:side` as before — they
+// have no content anchor and rarely line-drift.
+//
+// Security: the full hash input is JSON-encoded as an array so adversarial
+// field values cannot forge another field's preimage. When `quotedCode` is
+// present, the normalized content anchor is kept as a SEPARATE fourth element
+// in the outer array — not joined into the location string — so a crafted path
+// or side value cannot forge the anchor's preimage by exploiting a colon
+// separator. Absence findings (no `quotedCode`) use the original 3-element
+// array so their hash values are unchanged (backward-compatible).
 export function createStableFindingId(finding: Finding): string {
-  const input = JSON.stringify([
-    normalizeText(String(finding.reviewer)),
-    normalizeText(finding.category),
-    normalizeLocation(finding.location),
-  ]);
+  const { quotedCode, location } = finding;
+  const hasContentAnchor = quotedCode !== undefined && quotedCode.length > 0;
+
+  const input = hasContentAnchor
+    ? JSON.stringify([
+        normalizeText(String(finding.reviewer)),
+        normalizeText(finding.category),
+        normalizeLocationForAnchoredFinding(location),
+        normalizeContentAnchor(quotedCode),
+      ])
+    : JSON.stringify([
+        normalizeText(String(finding.reviewer)),
+        normalizeText(finding.category),
+        normalizeLocation(location),
+      ]);
+
   const hash = createHash("sha256").update(input).digest("hex").slice(0, 16);
 
   return `fnd_${hash}`;
 }
 
+// Location component for findings WITH a content anchor (quotedCode present).
+// Includes path and side only — line numbers are intentionally omitted because
+// the content anchor itself is the stable position signal (in its own array
+// slot, see above). `side` disambiguates added-vs-removed at the same path.
+function normalizeLocationForAnchoredFinding(location: FindingLocation | undefined): string {
+  if (location === undefined) {
+    return "unknown-location";
+  }
+
+  const side = location.side ?? "unknown-side";
+  return [normalizePath(location.path), side].join(":");
+}
+
+// Normalized content anchor for the fourth hash-input slot. Each line is
+// individually trimmed and has intra-line whitespace runs collapsed so trivial
+// indentation / reformatting differences don't re-mint identity — but NOT
+// toLowerCase (source is case-sensitive; folding case collides e.g. admin/Admin
+// and would let a stableFindingId-pinned acknowledgement absorb a case-variant
+// new finding) and NOT a cross-line collapse (join with a real "\n" so
+// multi-line vs single-line arrangements stay distinct).
+function normalizeContentAnchor(quotedCode: string[]): string {
+  return quotedCode.map((line) => line.trim().replaceAll(/\s+/g, " ")).join("\n");
+}
+
+// Original location normalizer (3-element fallback path — absence/architectural
+// findings with no quotedCode). Preserved unchanged so existing hash values are
+// backward-compatible.
 function normalizeLocation(location: FindingLocation | undefined): string {
   if (location === undefined) {
     return "unknown-location";

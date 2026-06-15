@@ -6,11 +6,10 @@ Re-review support starts with stable finding IDs and parseable prior summary met
 
 `assignStableFindingIds()` runs before a review summary is returned or persisted. It preserves IDs supplied by a runtime/adapter and generates missing IDs with `createStableFindingId()`.
 
-The generated ID uses a SHA-256 hash over normalized:
+The generated ID uses a SHA-256 hash over normalized fields. Two branches:
 
-- reviewer,
-- category,
-- location path/line/range/side.
+1. **Findings WITH `quotedCode`** (verbatim flagged lines present): hashes `[reviewer, category, path+side (no line numbers), normalized quotedCode content]`. Line numbers are intentionally omitted — the content anchor is the stable position signal, so an earlier-hunk shift that changes `line`/`endLine` without touching the flagged code does not mint a new ID. Normalization per line: trim + intra-line whitespace collapse, but NOT `toLowerCase` (source is case-sensitive) and NOT cross-line collapse (multi-line vs single-line arrangements stay distinct).
+2. **Findings WITHOUT `quotedCode`** (architectural / absence findings): hashes `[reviewer, category, path:line:endLine:side]` — the original 3-element key, preserved unchanged for backward compatibility. These findings have no content anchor and are kept line-sensitive.
 
 `title` and `body` are **intentionally excluded** (see #31): they are model-authored free text that the LLM rewords on every run, so hashing them produced a fresh ID per run and silently defeated recurring-finding suppression. The hash therefore avoids title, body, severity, confidence, evidence, and recommendation — all of which may change while the underlying issue remains the same.
 
@@ -32,6 +31,8 @@ Because identity is keyed only on reviewer+category+location, two *distinct* fin
 > previously-unlocated-but-now-backfilled finding gets a one-time reset (prior instance classified `fixed`,
 > current one `new`) — same shape and audience as the #31 reset above. Treat that first run as a clean-slate
 > baseline for those findings.
+
+> **Migration note (content-anchored identity, #148):** findings that supply `quotedCode` now key on path + side + normalized content rather than path + line + endLine + side. On the first re-review after deploying this change, any finding that previously carried `quotedCode` gets a new stable ID — a one-time `fixed`+`new` classification burst for those findings. Treat that first run as a clean-slate baseline for content-anchored findings.
 
 ## Incremental re-review (#46)
 
