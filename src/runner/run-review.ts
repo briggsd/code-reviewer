@@ -970,6 +970,26 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     const completedRoleCount = new Set(
       (runtimeResult.coordinatorResult?.reviewerResults ?? []).map((r) => r.role),
     ).size;
+    // Compute runStats (#285): only when a real coordinator ran (coordinatorResult present).
+    // Absent on fixture/no-runtime paths (no coordinator → no useful token data to show).
+    // Tokens = input+output only (real model work), NOT cache tokens.
+    const runStats: ReviewSummary["runStats"] = (() => {
+      if (runtimeResult.coordinatorResult === undefined) return undefined;
+      let modelTokenTotal = 0;
+      for (const r of runtimeResult.coordinatorResult.reviewerResults) {
+        modelTokenTotal += (r.usage?.inputTokens ?? 0) + (r.usage?.outputTokens ?? 0);
+      }
+      modelTokenTotal +=
+        (runtimeResult.coordinatorResult.usage?.inputTokens ?? 0) +
+        (runtimeResult.coordinatorResult.usage?.outputTokens ?? 0);
+      return {
+        durationMs: elapsedMs(startedAt, clock()),
+        modelTokenTotal,
+        reviewerCount: completedRoleCount,
+        tier: context.risk.tier,
+      };
+    })();
+
     const fusedSummary: ReviewSummary = {
       ...fused.summary,
       ...(admissionDecision.degraded
@@ -993,6 +1013,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
             },
           }
         : {}),
+      ...(runStats !== undefined ? { runStats } : {}),
     };
 
     // Convergence detection (#149 — Tier 1): a re-review whose finding set is unchanged

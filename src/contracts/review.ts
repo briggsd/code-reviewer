@@ -304,6 +304,15 @@ export interface ReviewSummary {
     /** Failed reviewer roles, de-duplicated and sorted (counts/identifiers only). */
     failedRoles: string[];
   };
+  /** Run-level stats for the comment footer + low-activity warning (#285). Optional — absent on
+   *  fixtures / degraded paths; the renderer degrades gracefully. The PR comment is human-facing
+   *  content, so this is allowed here (M008 counts-only governs telemetry/egress, not the comment). */
+  runStats?: {
+    durationMs: number; // review wall-clock (fan-out + fusion), NOT incl. publish
+    modelTokenTotal: number; // sum of (input + output) model tokens across all agents — the "did it run" signal
+    reviewerCount: number; // reviewers that completed this run (distinct roles, not raw invocation count)
+    tier: string; // risk tier (so the warning can respect the #65 trivial fast-path)
+  };
 }
 
 export interface PriorFindingState {
