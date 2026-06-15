@@ -147,7 +147,7 @@ describe("package distribution metadata", () => {
       ".ai-review.schema.json",
       "NOTICE",
       "README.md",
-      "docs",
+      "docs/user",
       "examples/ci",
       "examples/fixtures",
       "research",
@@ -155,6 +155,9 @@ describe("package distribution metadata", () => {
       "src",
       "tsconfig.json",
     ]);
+    expect(manifest.files).not.toContain("docs");
+    expect(manifest.files).not.toContain("docs/developer");
+    expect(manifest.files).not.toContain("docs/milestones");
     expect(manifest.files).not.toContain("test");
     expect(manifest.files).not.toContain(".github");
     expect(manifest.files).not.toContain("continue.md");

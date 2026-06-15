@@ -65,8 +65,8 @@ bun run smoke:external-package
 The `pack:smoke` script:
 
 1. runs `npm pack` into a temporary directory,
-2. verifies the tarball contains runtime/docs assets that adopters need,
-3. verifies it excludes repository-local internals such as `test/`, `.github/`, and `continue.md`,
+2. verifies the tarball contains runtime assets and adopter-facing docs under `docs/user/`,
+3. verifies it excludes repository-local internals such as `docs/developer/`, `docs/milestones/`, `test/`, `.github/`, and `continue.md`,
 4. extracts the tarball, and
 5. runs the packaged CLI's `schemas` command with Bun.
 
@@ -93,7 +93,7 @@ The package `files` allowlist includes:
 
 - `.ai-review.schema.json`
 - `README.md`
-- `docs/`
+- `docs/user/`
 - `examples/ci/`
 - `examples/fixtures/`
 - `research/`
@@ -101,7 +101,7 @@ The package `files` allowlist includes:
 - `src/`
 - `tsconfig.json`
 
-The allowlist prevents test fixtures, workflow smoke internals, and handoff notes from leaking into the distributable artifact.
+Only adopter-facing documentation is shipped: `docs/user/` is included, while `docs/developer/` and `docs/milestones/` stay outside the package. The allowlist prevents developer internals, milestone history, test suite files, workflow smoke internals, and handoff notes from leaking into the distributable artifact.
 
 ## Not yet done
 

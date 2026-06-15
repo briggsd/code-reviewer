@@ -53,7 +53,7 @@
     ".ai-review.schema.json",
     "NOTICE",
     "README.md",
-    "docs",
+    "docs/user",
     "examples/ci",
     "examples/fixtures",
     "research",

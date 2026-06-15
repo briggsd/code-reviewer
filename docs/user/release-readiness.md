@@ -26,7 +26,7 @@ Expected results:
 
 - Choose the package version in `package.json`.
 - Registry publish is currently blocked until the package name, license, and access policy are finalized; see [Packaging](packaging.md) and [Release artifacts](release-artifacts.md).
-- Confirm the package `files` allowlist still excludes `.github/`, `test/`, local run artifacts, and handoff notes.
+- Confirm the package `files` allowlist ships adopter-facing docs under `docs/user/` and still excludes `docs/developer/`, `docs/milestones/`, `.github/`, `test/`, local run artifacts, and handoff notes.
 - Run `npm pack --dry-run --json` if you need to inspect the full file list manually.
 - Run `bun run smoke:external-package` with live provider env vars before handing a package source to another repository.
 - Keep `AI_REVIEW_PACKAGE` in CI templates pinned to an immutable internal tarball URL, exact package version, or full Git commit SHA for internal smoke only. For the Fortis/self-managed GitLab beta, prefer a versioned internal tarball URL and do not require public npm.
@@ -167,7 +167,7 @@ Do not release if any of these are true:
 
 - `bun run check` fails.
 - `bun run pack:smoke` fails.
-- Package contents include tests, workflow internals, local artifacts, or handoff notes.
+- Package contents include developer docs, milestone history, tests, workflow internals, local artifacts, or handoff notes.
 - CI templates require `bun run src/cli.ts` from the runner repository.
 - Fork PR/MR docs imply write tokens or model secrets are available to untrusted code.
 - Inline comments/discussions are enabled without passing `evaluateInlinePublishReadiness()`.

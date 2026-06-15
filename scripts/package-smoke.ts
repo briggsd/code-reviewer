@@ -22,8 +22,12 @@ try {
   assertIncludes(files, "src/index.ts");
   assertIncludes(files, "README.md");
   assertIncludes(files, ".ai-review.schema.json");
+  assertIncludes(files, "docs/user/packaging.md");
+  assertIncludes(files, "docs/user/release-readiness.md");
   assertIncludes(files, "examples/ci/github-actions-ai-review.yml");
   assertIncludes(files, "examples/ci/gitlab-ai-review.yml");
+  assertExcludesPrefix(files, "docs/developer/");
+  assertExcludesPrefix(files, "docs/milestones/");
   assertExcludesPrefix(files, "test/");
   assertExcludesPrefix(files, ".github/");
   assertExcludes(files, "continue.md");
