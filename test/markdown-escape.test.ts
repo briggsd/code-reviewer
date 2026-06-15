@@ -298,7 +298,15 @@ describe("formatReviewSummaryMarkdown — Sink 1 escaping", () => {
     const markdown = formatReviewSummaryMarkdown(summary);
 
     expect(markdown).toContain("\\<gen\\>");
-    expect(markdown).not.toContain("<gen>");
+    // The escaped form must appear in plain-markdown context (the one-liner bullet).
+    // The raw path may legally appear inside the JSON code fence in the dismiss block —
+    // scope the "not present unescaped" check to the one-liner bullet line only (#159).
+    const bulletLine = markdown
+      .split("\n")
+      .find((l) => l.includes("WARNING:") && l.includes("gen"));
+    expect(bulletLine).toBeDefined();
+    expect(bulletLine).toContain("\\<gen\\>");
+    expect(bulletLine).not.toContain("<gen>");
   });
 });
 
@@ -351,8 +359,15 @@ describe("createSummaryBody — Sink 3 content via runReview", () => {
     expect(markdown).toContain("\\_escape\\_");
     expect(markdown).toContain("\\<input\\>");
 
-    // Location path metacharacters must be escaped
+    // Location path metacharacters must be escaped in plain-markdown context.
     expect(markdown).toContain("\\<generated\\>");
-    expect(markdown).not.toContain("<generated>");
+    // The raw path may legally appear inside the JSON code fence in the dismiss block —
+    // scope the "not present unescaped" check to the one-liner bullet line only (#159).
+    const bulletLine = markdown
+      .split("\n")
+      .find((l) => l.includes("WARNING:") && l.includes("generated"));
+    expect(bulletLine).toBeDefined();
+    expect(bulletLine).toContain("\\<generated\\>");
+    expect(bulletLine).not.toContain("<generated>");
   });
 });

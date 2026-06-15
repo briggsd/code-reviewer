@@ -1065,3 +1065,119 @@ describe("formatReviewSummaryMarkdown — degraded banner (#212)", () => {
     expect(bannerLine).toContain("bad role name");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Dismiss-this-finding block (#159)
+// ---------------------------------------------------------------------------
+
+describe("dismiss-this-finding block (#159)", () => {
+  // Helper: extract the dismiss <details> block from a single-finding render.
+  // Looks for the block that starts with the "Acknowledge / dismiss this finding" summary.
+  function extractDismissBlock(markdown: string): string | null {
+    const start = markdown.indexOf(
+      "<details><summary>Acknowledge / dismiss this finding</summary>",
+    );
+    if (start === -1) return null;
+    const end = markdown.indexOf("</details>", start);
+    if (end === -1) return null;
+    return markdown.slice(start, end + "</details>".length);
+  }
+
+  // Helper: extract + JSON.parse the first JSON code block inside the dismiss block.
+  function parseJsonFromBlock(block: string): Record<string, string> {
+    // Match a fenced code block: fence marker (3+ backticks) + "json" ... fence marker.
+    const match = block.match(/(`{3,})json\n([\s\S]*?)\n\1/);
+    if (match === null) throw new Error("No JSON fence block found in dismiss block");
+    return JSON.parse(match[2]!) as Record<string, string>;
+  }
+
+  test("1. snippet present + correct fields (parse JSON, don't substring-match)", () => {
+    const finding = makeFinding({
+      id: "fnd_abc123",
+      category: "auth",
+      location: { path: "src/auth.ts", line: 10 },
+    });
+    const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [finding] }));
+
+    const block = extractDismissBlock(markdown);
+    expect(block).not.toBeNull();
+
+    const parsed = parseJsonFromBlock(block!);
+    expect(parsed["path"]).toBe("src/auth.ts");
+    expect(parsed["category"]).toBe("auth");
+    expect(parsed["stableFindingId"]).toBe("fnd_abc123");
+    expect(parsed["mode"]).toBe("acknowledge");
+    expect(parsed["reason"]).toBe("<why this is intentional>");
+
+    // Instruction text must clarify acknowledge-vs-suppress behaviour + the expires option
+    // (PR #269 review): "Dismiss" alone misleads since acknowledge keeps the finding visible.
+    expect(block).toContain("base branch");
+    expect(block).toContain('"suppress"');
+    expect(block).toContain('"expires"');
+  });
+
+  test("2. stableFindingId omitted when no id — block still parses and has no stableFindingId key", () => {
+    const finding = makeFinding({
+      // no id field
+      category: "auth",
+      location: { path: "src/auth.ts" },
+    });
+    const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [finding] }));
+
+    const block = extractDismissBlock(markdown);
+    expect(block).not.toBeNull();
+
+    const parsed = parseJsonFromBlock(block!);
+    expect(parsed["path"]).toBe("src/auth.ts");
+    expect(parsed["category"]).toBe("auth");
+    expect(parsed["mode"]).toBe("acknowledge");
+    // stableFindingId must NOT be present
+    expect(Object.hasOwn(parsed, "stableFindingId")).toBe(false);
+  });
+
+  test("3. skipped for path-less findings (no location.path)", () => {
+    const finding = makeFinding({
+      // no location at all
+      category: "auth",
+    });
+    const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [finding] }));
+
+    const block = extractDismissBlock(markdown);
+    expect(block).toBeNull();
+  });
+
+  test("4. skipped for already-acknowledged findings", () => {
+    const finding = makeFinding({
+      id: "fnd_xyz",
+      category: "auth",
+      location: { path: "src/auth.ts" },
+      acknowledged: { reason: "tracked via TICKET-42" },
+    });
+    const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [finding] }));
+
+    const block = extractDismissBlock(markdown);
+    expect(block).toBeNull();
+  });
+
+  test("5. code-fence-breakout guard — path with triple-backtick still yields intact block", () => {
+    // A path containing a triple-backtick would naively close a 3-backtick fence early.
+    // The fence must be sized to exceed the longest backtick run in the JSON payload.
+    const finding = makeFinding({
+      id: "fnd_fence_test",
+      category: "injection",
+      location: { path: "a```b" }, // triple-backtick in path
+    });
+    const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [finding] }));
+
+    const block = extractDismissBlock(markdown);
+    expect(block).not.toBeNull();
+
+    // The JSON must round-trip correctly (no premature fence closure).
+    const parsed = parseJsonFromBlock(block!);
+    expect(parsed["path"]).toBe("a```b");
+    expect(parsed["mode"]).toBe("acknowledge");
+
+    // The outer markdown structure must be intact: </details> must close the block.
+    expect(block!.endsWith("</details>")).toBe(true);
+  });
+});

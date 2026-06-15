@@ -136,6 +136,65 @@ function formatLocation(finding: Finding): string {
 }
 
 // ---------------------------------------------------------------------------
+// Dismiss-this-finding block: paste-ready ack snippet (#159)
+//
+// Rendered inside a collapsed <details> so it adds zero above-the-fold noise.
+// Skipped when: the finding has no location.path (an ack requires a path) OR
+// the finding is already acknowledged (no point offering to dismiss again).
+//
+// Markdown safety: the JSON goes inside a fenced code block, so we do NOT
+// run values through escapeMarkdown (it backslash-escapes backticks, which
+// corrupts JSON inside a fence). JSON.stringify handles quotes/backslashes/
+// control-chars in path/category/id. We also guard against code-fence
+// breakout: a value containing a run of backticks could prematurely close the
+// fence, so we size the fence to exceed the longest backtick run in the
+// serialized JSON (CommonMark: a fenced block closes only on a fence of ≥ its
+// own length). path is repo-controlled — this guard matters (#74 discipline).
+// ---------------------------------------------------------------------------
+
+function buildDismissBlock(finding: Finding): string | null {
+  // Skip: no path (ack requires path) or already acknowledged.
+  if (finding.location?.path === undefined || finding.acknowledged !== undefined) {
+    return null;
+  }
+
+  // Build the ack object. stableFindingId is included only when id is a non-empty string.
+  const ackObj: Record<string, string> = {
+    path: finding.location.path,
+    category: finding.category,
+    ...(typeof finding.id === "string" && finding.id.length > 0
+      ? { stableFindingId: finding.id }
+      : {}),
+    mode: "acknowledge",
+    reason: "<why this is intentional>",
+  };
+
+  const serialized = JSON.stringify(ackObj, null, 2);
+
+  // Compute fence length: must exceed the longest contiguous backtick run in the
+  // serialized JSON so the fence is never prematurely closed (CommonMark §4.5).
+  const backtickRuns = serialized.match(/`+/g) ?? [];
+  const maxRun = backtickRuns.reduce((max, run) => Math.max(max, run.length), 0);
+  const fence = "`".repeat(Math.max(3, maxRun + 1));
+
+  return [
+    `<details><summary>Acknowledge / dismiss this finding</summary>`,
+    ``,
+    `Add this entry to the \`acknowledgements\` array in \`.ai-review.json\` and commit it to the **base branch**.`,
+    `With \`mode: "acknowledge"\` the finding stays visible in the summary (annotated with your reason) but no`,
+    `longer blocks CI; change \`mode\` to \`"suppress"\` to hide it entirely (security-reviewer findings are`,
+    `downgraded to \`acknowledge\` regardless). Add an optional \`"expires": "YYYY-MM-DD"\` field to make the`,
+    `acknowledgement lapse automatically.`,
+    ``,
+    `${fence}json`,
+    serialized,
+    `${fence}`,
+    ``,
+    `</details>`,
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // Per-finding detail block (inside <details>)
 // Drops the "Reviewer:" line (group heading already says it).
 // ---------------------------------------------------------------------------
@@ -157,6 +216,11 @@ function formatFindingDetail(finding: Finding): string {
 
   if (finding.evidence.length > 0) {
     lines.push(`  - Evidence: ${finding.evidence.map((e) => escapeMarkdown(e)).join("; ")}`);
+  }
+
+  const dismissBlock = buildDismissBlock(finding);
+  if (dismissBlock !== null) {
+    lines.push(``, dismissBlock);
   }
 
   return lines.join("\n");
