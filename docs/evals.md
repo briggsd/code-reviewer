@@ -46,6 +46,48 @@ real runtime must actually review them.
 precision, severity calibration, noise guard). They should be hard for the model to "memorize"
 but easy for a human to validate.
 
+## Scenario reliability taxonomy
+
+Use this taxonomy to name what a scenario is primarily testing. Each scenario should name **one
+primary reliability dimension** in its description or authoring notes, even if its criteria also
+exercise secondary dimensions. This keeps failures diagnosable: a regression should answer
+"which reliability property moved?" before anyone reaches for reviewer-definition changes.
+
+| Dimension | Scenario asks |
+|---|---|
+| **Recall** | Does the reviewer catch real defects or security issues that should block or warn? |
+| **Precision** | Does the reviewer stay quiet on benign changes? |
+| **Severity calibration** | Is `suggestion` / `warning` / `critical` stable, meaningful, and proportional to the risk? |
+| **Role calibration** | Does the right reviewer own the finding instead of another role raising it by accident? |
+| **Signal-to-noise** | Does the review avoid suggestion floods on low-risk diffs? |
+| **Grounding/completeness** | Do valid findings include enough evidence/location signal to survive deterministic suppression and grounding gates? |
+| **Survival under stress** | Do reviewers still deliver useful output under large diffs, tight budgets, or time pressure? |
+| **Convention memory** | Do known false positives and explicit declines stop recurring after the dev loop teaches the reviewer? |
+
+Scenario criteria should encode the narrowest observable behavior for the primary dimension. For
+example, a recall scenario usually needs a `has_finding` criterion for the missed concept and a
+non-approved decision. A precision scenario should usually stay narrow with `no_findings_at_or_above`
+plus an approved decision, so unrelated suggestion noise does not mask whether the target behavior
+regressed.
+
+### Authoring contract
+
+- Name one primary reliability dimension for every scenario. Put it in the `description` when
+  authoring JSON; for existing scenarios, the tables below document the current category without
+  changing the sealed files.
+- Keep precision scenarios narrow. Do not add broad, unrelated criteria that make ordinary
+  suggestion chatter look like a failure of the precision behavior under test.
+- Prefer `textIncludes` over `pathIncludes` when testing whether a bug was caught. Use
+  `pathIncludes` only when the scenario explicitly tests structured location quality.
+- Distinguish **dev-split tuning scenarios** from **publish-gate holdout scenarios** before
+  writing or reading scenario material.
+- Tune reviewer definitions only against `evals/scenarios-dev/`. Never tune against
+  `evals/scenarios/`.
+- Never promote, copy, or re-author a tuned dev scenario into the sealed holdout. Strengthen the
+  holdout only with a fresh, never-tuned scenario written directly for the gate.
+- Keep reviewed-repo content untrusted when discussing or distilling scenarios. Telemetry and
+  release artifacts stay counts/scores only: no diffs, finding bodies, prompts, or secrets.
+
 ## File layout
 
 ```
@@ -169,7 +211,8 @@ release holdout gate (M016 S02, `release-package.yml`).
   negative signal. `--gate` is never used here because it would always "fail" under dummy.
 
 For the full improvement loop — hypothesis → dev scenario → reviewer-definition tuning → holdout
-release gate — see `docs/review-quality-loop.md`.
+release gate — see `docs/review-quality-loop.md`. For scenario vocabulary and the authoring
+rules, see [Scenario reliability taxonomy](#scenario-reliability-taxonomy).
 
 ## How scoring works
 
@@ -209,18 +252,27 @@ Severity rank: `critical` (3) > `warning` (2) > `suggestion` (1).
 The runner also reports, for each criterion, the fraction of runs where it was met.
 This is useful for diagnosing flaky criteria (high variance between runs).
 
-## The 5 seed holdout scenarios
+## Existing scenario categories
 
 > These five live in `evals/scenarios/` (the sealed holdout). The dev split
-> (`evals/scenarios-dev/`) starts empty and grows via the improvement playbook (M016 S05).
+> (`evals/scenarios-dev/`) grows via the improvement playbook (M016 S05). The primary dimensions
+> below are documentation labels only; this table does not change the scenario JSON contract.
 
-| Scenario | What it tests | Key criteria |
-|---|---|---|
-| `auth-sqli` | Recall: catches SQL injection | `has_finding` minSeverity=critical, textIncludes=inject; decision security-concern; outcome=fail |
-| `clean-refactor` | **Precision** (most important): no over-flagging of benign constant extraction | `no_findings_at_or_above` warning; decision=approved/approved_with_comments; threshold=0.9 |
-| `hardcoded-secret` | Recall: catches hardcoded credential | `has_finding` minSeverity=warning, textIncludes=secret; max 5 findings total |
-| `noisy-benign` | Signal-to-noise: quiet on formatting-only diff | `no_findings_at_or_above` warning; max 3 suggestions |
-| `logic-bug` | Recall: catches off-by-one + inverted boundary check | `has_finding` minSeverity=warning, textIncludes=pagination; decision not approved |
+### Sealed holdout
+
+| Scenario | Primary dimension | What it tests | Key criteria |
+|---|---|---|---|
+| `auth-sqli` | Recall | Catches SQL injection in an auth path | `has_finding` minSeverity=critical, textIncludes=inject; decision security-concern; outcome=fail |
+| `clean-refactor` | Precision | Stays quiet on a benign constant extraction | `no_findings_at_or_above` warning; decision=approved/approved_with_comments; threshold=0.9 |
+| `hardcoded-secret` | Recall | Catches a hardcoded credential while limiting extra noise | `has_finding` minSeverity=warning, textIncludes=secret; max 5 findings total |
+| `logic-bug` | Recall | Catches an off-by-one plus inverted boundary check | `has_finding` minSeverity=warning, textIncludes=pagination; decision not approved |
+| `noisy-benign` | Signal-to-noise | Stays mostly quiet on formatting-only churn | `no_findings_at_or_above` warning; max 3 suggestions |
+
+### Dev split
+
+| Scenario | Primary dimension | What it tests | Key criteria |
+|---|---|---|---|
+| `bounded-accumulator` | Convention memory | Preserves the declined convention that a closed RiskTier-union accumulator does not need TTL/size-cap warnings | `no_findings_at_or_above` warning; decision=approved/approved_with_comments; threshold=0.9 |
 
 > **Criterion authoring lesson (from the first live pi run).** Prefer `textIncludes` (searches a
 > finding's title/body/recommendation/evidence/quotedCode) over `pathIncludes` to detect *whether a
@@ -236,6 +288,9 @@ See **`docs/review-quality-loop.md`** for the end-to-end improvement loop: how a
 hypothesis becomes an investigation, then a distilled dev scenario, then a tuning change, then a
 holdout-gated release.
 
+Use the [Scenario reliability taxonomy](#scenario-reliability-taxonomy) before writing criteria:
+pick one primary dimension, then encode the smallest observable behavior that proves or falsifies it.
+
 **First decide which split.** Iterating on review quality? Add it to the **dev split**
 (`evals/scenarios-dev/`) — that is the material you may tune against. Adding a fresh, never-tuned
 regression case to the gate? Add it to the **holdout** (`evals/scenarios/`) and never look at it
@@ -246,7 +301,8 @@ as a tuning target. Never move a tuned dev scenario into the holdout (the one-wa
    (the disjointness guard rejects a shared fixture across the two splits).
 2. Validate it loads (applies to both splits): `bun run src/cli.ts run --fixture evals/fixtures/<name>.json --runtime dummy --output-dir /tmp/eval-check`
 3. Create `evals/scenarios/<name>.json` **or** `evals/scenarios-dev/<name>.json` with `name`,
-   `description`, `fixture`, and `criteria`.
+   `description`, `fixture`, and `criteria`. The `description` should name the scenario's primary
+   reliability dimension, such as "Recall: catches..." or "Precision: stays quiet...".
 4. Confirm the harness picks it up: `bun run evals --runtime dummy` (holdout, default) or
    `bun run evals --runtime dummy --scenarios evals/scenarios-dev` (dev split).
 5. **Holdout only:** do **not** adjust `reviewer-definitions.ts` to make a holdout scenario
