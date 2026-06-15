@@ -279,6 +279,7 @@ async function buildReviewContext(input: {
         admittedFileCount: contextArtifacts.admission.admittedPaths.size,
         demotedFileCount: contextArtifacts.admission.demotedPaths.length,
         degraded: contextArtifacts.admission.degraded,
+        lowSignalDemotedFileCount: contextArtifacts.admission.lowSignalDemotedFileCount,
       },
       durationMs: contextBuildMs,
     },

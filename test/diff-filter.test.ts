@@ -3,6 +3,7 @@ import {
   classifyRisk,
   createDefaultReviewConfig,
   filterDiff,
+  isLowSignalPath,
   loadReviewFixture,
   matchesGlob,
   runReview,
@@ -319,5 +320,115 @@ describe("diff filtering and risk classification", () => {
 
     expect(result.diff.files).toHaveLength(0);
     expect(result.ignoredFiles[0]?.reason).toBe("generated");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isLowSignalPath — regression + classification table (#218, M021, #213 bar)
+// ---------------------------------------------------------------------------
+
+describe("isLowSignalPath — low-signal classifier (#218)", () => {
+  // MUST be true: high-confidence bulk-data / snapshot paths
+
+  test("__snapshots__/ path segment → low-signal", () => {
+    expect(isLowSignalPath("test/__snapshots__/x.snap")).toBe(true);
+  });
+
+  test("*.snap extension → low-signal", () => {
+    expect(isLowSignalPath("a.snap")).toBe(true);
+    expect(isLowSignalPath("src/components/__snapshots__/button.snap")).toBe(true);
+  });
+
+  test("non-snap file under __snapshots__/ → low-signal (exercises the segment check directly)", () => {
+    // A .json/.md under __snapshots__/ is NOT caught by extensionsAlways (.snap/.golden), so this
+    // is the deciding case for the containsPathSegment(__snapshots__/) branch — without it the
+    // branch could be deleted without any test failing.
+    expect(isLowSignalPath("test/__snapshots__/data.json")).toBe(true);
+    expect(isLowSignalPath("test/__snapshots__/notes.md")).toBe(true);
+  });
+
+  test("*.golden extension → low-signal", () => {
+    expect(isLowSignalPath("x.golden")).toBe(true);
+    expect(isLowSignalPath("test/golden/output.golden")).toBe(true);
+  });
+
+  test("examples/fixtures/ dir → low-signal (this repo's PR-fixture dir)", () => {
+    expect(isLowSignalPath("examples/fixtures/auth-pr.json")).toBe(true);
+    expect(isLowSignalPath("examples/fixtures/mixed-diff.json")).toBe(true);
+  });
+
+  test("pure-data file under test/fixtures/ → low-signal", () => {
+    expect(isLowSignalPath("test/fixtures/data.json")).toBe(true);
+    expect(isLowSignalPath("test/fixtures/seed.jsonl")).toBe(true);
+    expect(isLowSignalPath("test/fixtures/readme.txt")).toBe(true);
+    expect(isLowSignalPath("test/fixtures/export.csv")).toBe(true);
+  });
+
+  test("pure-data file under __fixtures__/ → low-signal", () => {
+    expect(isLowSignalPath("src/__fixtures__/snapshot.json")).toBe(true);
+  });
+
+  // MUST be false: signal-bearing / logic files (the load-bearing regression cases)
+
+  test("*.test.ts → NOT low-signal (even under fixtures dir)", () => {
+    // M020 #213 regression case: test logic must NEVER be demoted
+    expect(isLowSignalPath("src/runner/foo.test.ts")).toBe(false);
+    expect(isLowSignalPath("test/foo.test.ts")).toBe(false);
+    expect(isLowSignalPath("test/fixtures/builder.test.ts")).toBe(false);
+  });
+
+  test("*.spec.ts → NOT low-signal", () => {
+    expect(isLowSignalPath("src/runner/foo.spec.ts")).toBe(false);
+    expect(isLowSignalPath("test/fixtures/foo.spec.ts")).toBe(false);
+  });
+
+  test("*.test.tsx → NOT low-signal", () => {
+    expect(isLowSignalPath("src/components/Button.test.tsx")).toBe(false);
+  });
+
+  test("source .ts under fixtures/ → NOT low-signal (could be fixture builder)", () => {
+    expect(isLowSignalPath("test/fixtures/builder.ts")).toBe(false);
+  });
+
+  test("source file directly under an always-low-signal dir → NOT low-signal (pins sourceExtensions guard)", () => {
+    // The sourceExtensions guard is the sole mechanism keeping a .ts/.js file out of low-signal
+    // when it lives under __snapshots__/ or examples/fixtures/ (which otherwise match by segment).
+    expect(isLowSignalPath("test/__snapshots__/helper.ts")).toBe(false);
+    expect(isLowSignalPath("examples/fixtures/builder.ts")).toBe(false);
+    expect(isLowSignalPath("examples/fixtures/build.js")).toBe(false);
+  });
+
+  test("normal source file → NOT low-signal", () => {
+    expect(isLowSignalPath("src/runner/patch-admission.ts")).toBe(false);
+    expect(isLowSignalPath("src/runner/diff-filter.ts")).toBe(false);
+  });
+
+  test("data file under a dir that merely CONTAINS 'fixtures' → NOT low-signal (segment-anchored)", () => {
+    // Boundary-anchored matching: "fixtures/" must be a full path segment, so a dir like
+    // `test-fixtures/` (which contains "fixtures/" as a substring) does NOT match — otherwise a
+    // potentially security-relevant config data file would be wrongly demoted (AI-review #232).
+    expect(isLowSignalPath("src/test-fixtures/config.json")).toBe(false);
+    expect(isLowSignalPath("my-fixtures/data.json")).toBe(false);
+  });
+
+  test("examples/fixtures/*.md → low-signal (examples/fixtures/ has no extension guard)", () => {
+    // examples/fixtures/ is this repo's PR-fixture dir and the pattern matches anything under it.
+    // Spec says: "if you include .md, flip this case — just keep test and impl consistent."
+    // Our impl has no extension guard on examples/fixtures/, so .md IS classified low-signal.
+    expect(isLowSignalPath("examples/fixtures/notes.md")).toBe(true);
+  });
+
+  test("evals/fixtures/*.json → low-signal (fixtures/ + .json matches; demote≠drop, holdout #28)", () => {
+    // evals/fixtures/ contains "fixtures/" segment + .json → classified low-signal by our rule.
+    // This is acceptable per holdout hygiene (#28): don't TUNE patterns to pass evals.
+    // Demotion ≠ dropping — eval fixtures remain in review as name+stat. Logic files in the
+    // eval diffs (e.g. src/auth.ts) are NOT in fixtures/ and will NOT be demoted.
+    expect(isLowSignalPath("evals/fixtures/auth-sqli.json")).toBe(true);
+  });
+
+  test("Windows-style paths (backslash) are normalized correctly", () => {
+    expect(isLowSignalPath("test\\__snapshots__\\x.snap")).toBe(true);
+    expect(isLowSignalPath("test\\fixtures\\data.json")).toBe(true);
+    expect(isLowSignalPath("src\\runner\\foo.test.ts")).toBe(false);
   });
 });

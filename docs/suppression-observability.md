@@ -119,16 +119,20 @@ directions are covered.
 
 ### Patch admission
 
-**What:** `decidePatchAdmission` in `src/runner/patch-admission.ts` (line 54) ranks files
-smallest-first and greedily admits patch bodies up to the per-tier byte budget. Files that
-exceed the budget are demoted to name+stat-only (`demotedPaths`). The decision is graceful
-degradation — the run continues with `degraded: true` and a clearly-marked summary notice.
+**What:** `decidePatchAdmission` in `src/runner/patch-admission.ts` (line 54) ranks files by a
+3-key comparator — signal-bearing files (`lowSignal=false`) before low-signal bulk
+(`lowSignal=true`), then `patchBytes` ascending, then `path` ascending (#218) — and greedily
+admits patch bodies up to the per-tier byte budget. So a logic file wins the budget over a
+smaller test fixture / snapshot / generated-data file; low-signal bulk is demoted preferentially.
+Files that exceed the budget are demoted to name+stat-only (`demotedPaths`). The decision is
+graceful degradation — the run continues with `degraded: true` and a clearly-marked summary notice.
 
 **Drop-rate signal.** The `admission` block appears in the `context.built` trace in
-`src/runner/run-review.ts` (lines 275-281) with counts and byte totals. It also appears in
-`run_metrics` context fields via `src/runner/run-metrics.ts` (lines 276-281). However, there is
-**no `telemetry:quality` climbing-rate threshold** for admission-degraded rate — same gap as
-diff filter.
+`src/runner/run-review.ts` (with counts and byte totals, including counts-only
+`lowSignalDemotedFileCount` for #218 demotions). Admission counts are NOT currently surfaced in
+the `run_metrics` telemetry rollup (`src/runner/run-metrics.ts`), and there is **no
+`telemetry:quality` climbing-rate threshold** for admission-degraded rate — same gap as diff
+filter.
 
 **Visible-on-drop.** (a) Summary comment: when `admissionDecision.degraded` is true,
 `formatPartialBySize` in `src/publisher/summary-markdown.ts` (lines 250-272) renders a "Partial

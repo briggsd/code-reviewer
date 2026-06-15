@@ -221,3 +221,133 @@ describe("decidePatchAdmission — pure unit tests (#145)", () => {
     expect(result.admittedBytes).toBe(1000);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Signal-aware ranking (#218, M021)
+// ---------------------------------------------------------------------------
+
+describe("decidePatchAdmission — signal-aware ranking (#218)", () => {
+  test("over-budget: signal-bearing logic file admitted before smaller low-signal file", () => {
+    // Key invariant: signal beats pure size.
+    // logic.ts: 500 bytes, lowSignal=false (large but signal-bearing)
+    // fixture.json: 100 bytes, lowSignal=true (small but low-signal)
+    // Budget: 600 bytes (fits logic alone; both together = 600 so would fit, but let's
+    // make it tighter — budget 550 so total 600 > 550 triggers over-budget path).
+    //
+    // Before #218 (smallest-first): fixture.json(100) admitted, logic.ts(500): 600 > 550 → demoted.
+    // After #218 (signal-first): logic.ts admitted first (600>550 but 500<=550), fixture demoted.
+    const result = decidePatchAdmission({
+      files: [
+        { path: "test/fixtures/data.json", patchBytes: 100, lowSignal: true },
+        { path: "src/runner/logic.ts", patchBytes: 500, lowSignal: false },
+      ],
+      budgetBytes: 550,
+    });
+
+    expect(result.degraded).toBe(true);
+    // Signal-bearing logic file MUST be admitted even though it's larger.
+    expect(result.admittedPaths.has("src/runner/logic.ts")).toBe(true);
+    // Low-signal fixture MUST be demoted (preferentially, even though it's smaller).
+    expect(result.admittedPaths.has("test/fixtures/data.json")).toBe(false);
+    expect(result.demotedPaths).toContain("test/fixtures/data.json");
+    expect(result.admittedBytes).toBe(500);
+    expect(result.originalBytes).toBe(600);
+  });
+
+  test("lowSignalDemotedFileCount counts correctly", () => {
+    // 2 low-signal + 1 signal-bearing. Budget admits the logic file + one small low-signal.
+    const result = decidePatchAdmission({
+      files: [
+        { path: "src/app.ts", patchBytes: 200, lowSignal: false },
+        { path: "test/fixtures/a.json", patchBytes: 50, lowSignal: true },
+        { path: "test/fixtures/b.json", patchBytes: 400, lowSignal: true },
+      ],
+      budgetBytes: 300, // admits app.ts(200) + a.json(50)=250 ≤ 300; b.json(400) demoted
+    });
+
+    expect(result.degraded).toBe(true);
+    expect(result.admittedPaths.has("src/app.ts")).toBe(true);
+    expect(result.admittedPaths.has("test/fixtures/a.json")).toBe(true);
+    expect(result.admittedPaths.has("test/fixtures/b.json")).toBe(false);
+    expect(result.lowSignalDemotedFileCount).toBe(1); // only b.json was demoted + lowSignal
+  });
+
+  test("lowSignalDemotedFileCount=0 on fast path (under budget)", () => {
+    const result = decidePatchAdmission({
+      files: [
+        { path: "src/a.ts", patchBytes: 100, lowSignal: false },
+        { path: "test/fixtures/data.json", patchBytes: 200, lowSignal: true },
+      ],
+      budgetBytes: 1000,
+    });
+
+    expect(result.degraded).toBe(false);
+    expect(result.lowSignalDemotedFileCount).toBe(0);
+    expect(result.admittedPaths.size).toBe(2);
+  });
+
+  test("all files low-signal: still admits smallest first (size tiebreak within low-signal group)", () => {
+    // When all are low-signal, the secondary sort (patchBytes asc) still applies.
+    const result = decidePatchAdmission({
+      files: [
+        { path: "test/fixtures/big.json", patchBytes: 800, lowSignal: true },
+        { path: "test/fixtures/small.json", patchBytes: 100, lowSignal: true },
+        { path: "test/fixtures/mid.json", patchBytes: 300, lowSignal: true },
+      ],
+      budgetBytes: 450,
+    });
+
+    expect(result.degraded).toBe(true);
+    // small(100) + mid(300) = 400 ≤ 450: admitted
+    expect(result.admittedPaths.has("test/fixtures/small.json")).toBe(true);
+    expect(result.admittedPaths.has("test/fixtures/mid.json")).toBe(true);
+    // big(800): 400+800 > 450: demoted
+    expect(result.admittedPaths.has("test/fixtures/big.json")).toBe(false);
+    expect(result.lowSignalDemotedFileCount).toBe(1);
+  });
+
+  test("determinism: same input always yields same output with signal flags", () => {
+    const input = {
+      files: [
+        { path: "z/logic.ts", patchBytes: 100, lowSignal: false },
+        { path: "a/fixture.json", patchBytes: 100, lowSignal: true },
+        { path: "m/fixture.json", patchBytes: 100, lowSignal: true },
+      ],
+      budgetBytes: 150,
+    };
+
+    const r1 = decidePatchAdmission(input);
+    const r2 = decidePatchAdmission(input);
+
+    expect([...r1.admittedPaths].sort()).toEqual([...r2.admittedPaths].sort());
+    expect(r1.demotedPaths).toEqual(r2.demotedPaths);
+    expect(r1.lowSignalDemotedFileCount).toBe(r2.lowSignalDemotedFileCount);
+    // logic.ts (signal-bearing) must be admitted; one fixture admitted (tiebreak: a < m < z)
+    expect(r1.admittedPaths.has("z/logic.ts")).toBe(true);
+    expect(r1.admittedPaths.has("a/fixture.json")).toBe(false); // 100+100=200 > 150
+    // Actually: signal-first. logic.ts(100, false) sorts before fixtures (true).
+    // After logic.ts: 100 bytes used. Budget left: 50. a/fixture.json(100) > 50 → demoted.
+    // m/fixture.json(100) > 50 → demoted.
+    expect(r1.admittedPaths.size).toBe(1);
+    expect(r1.admittedPaths.has("z/logic.ts")).toBe(true);
+    expect(r1.lowSignalDemotedFileCount).toBe(2);
+  });
+
+  test("mixed: no lowSignal field (undefined) treated as signal-bearing (false)", () => {
+    // Files without lowSignal should rank before files with lowSignal=true.
+    const result = decidePatchAdmission({
+      files: [
+        { path: "test/fixtures/big.json", patchBytes: 500, lowSignal: true },
+        { path: "src/no-flag.ts", patchBytes: 300 }, // no lowSignal field
+      ],
+      budgetBytes: 400,
+    });
+
+    expect(result.degraded).toBe(true);
+    // no-flag.ts (undefined → treated as false) ranks first → admitted (300 ≤ 400)
+    expect(result.admittedPaths.has("src/no-flag.ts")).toBe(true);
+    // big.json demoted (300+500 > 400)
+    expect(result.admittedPaths.has("test/fixtures/big.json")).toBe(false);
+    expect(result.lowSignalDemotedFileCount).toBe(1);
+  });
+});

@@ -7,7 +7,9 @@ import type {
   ReviewContext,
   ReviewContextArtifacts,
 } from "../contracts/index.ts";
+import { isLowSignalPath } from "./diff-filter.ts";
 import { type AdmissionDecision, decidePatchAdmission } from "./patch-admission.ts";
+import { matchesAnyGlob } from "./path-match.ts";
 import { pruneDeletionOnlyHunks } from "./prune-deletion-hunks.ts";
 
 const CONTEXT_SCHEMA_VERSION = "ai-review.context.v1";
@@ -103,10 +105,16 @@ export async function writeReviewContextArtifacts(
       e.prune.kind === "admittable",
   );
 
+  // sensitivePaths preserves the existing trust-boundary guarantee that operator-flagged
+  // security-critical files are never deprioritized: a sensitive file is NEVER tagged low-signal,
+  // so it is ranked as signal-bearing and keeps its full patch under budget pressure (#218 must not
+  // weaken the sensitivePaths guard that filterDiff honors for exclusion).
+  const sensitivePaths = input.context.config.sensitivePaths;
   const admission = decidePatchAdmission({
     files: admittableEntries.map((e) => ({
       path: e.file.path,
       patchBytes: e.prune.patchBytes,
+      lowSignal: !matchesAnyGlob(e.file.path, sensitivePaths) && isLowSignalPath(e.file.path),
     })),
     budgetBytes: input.budgetBytes,
   });
