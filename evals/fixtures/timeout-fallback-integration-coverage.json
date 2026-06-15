@@ -1,0 +1,51 @@
+{
+  "runId": "eval-timeout-fallback-integration-coverage",
+  "metadata": {
+    "provider": "github",
+    "repository": {
+      "provider": "github",
+      "owner": "example",
+      "name": "factory",
+      "slug": "example/factory",
+      "defaultBranch": "main"
+    },
+    "changeId": "2364",
+    "headSha": "236007",
+    "baseSha": "236006",
+    "sourceBranch": "runtime/timeout-fallback",
+    "targetBranch": "main",
+    "title": "Return empty findings when a reviewer times out",
+    "description": "Adds a degraded timeout path and a helper-level unit test.",
+    "author": {
+      "username": "dev"
+    },
+    "labels": []
+  },
+  "diff": {
+    "files": [
+      {
+        "path": "src/runtime/pi-agent-runtime.ts",
+        "status": "modified",
+        "additions": 9,
+        "deletions": 1,
+        "isBinary": false,
+        "patch": "@@ -82,7 +82,15 @@ export class PiAgentRuntime implements AgentRuntime {\n       return validateReviewerOutput(JSON.parse(stdout));\n     } catch (err) {\n-      throw classifyRuntimeError(err);\n+      if (isTimeoutError(err)) {\n+        return {\n+          findings: [],\n+          summary: \"Reviewer timed out; continuing with no findings.\",\n+          usage: { inputTokens: 0, outputTokens: 0 }\n+        };\n+      }\n+      throw classifyRuntimeError(err);\n     }\n   }\n }"
+      },
+      {
+        "path": "test/pi-runtime.test.ts",
+        "status": "modified",
+        "additions": 7,
+        "deletions": 0,
+        "isBinary": false,
+        "patch": "@@ -210,6 +210,13 @@ describe(\"PiAgentRuntime\", () => {\n     expect(result.findings).toEqual([]);\n   });\n+\n+  test(\"timeout helper returns an empty result\", async () => {\n+    const runtime = runtimeWithTimeoutHelperOnly();\n+    const result = await runtime.runReviewer(makeContext(), codeQualityReviewer);\n+    expect(result.findings).toEqual([]);\n+  });\n });"
+      }
+    ],
+    "totalAdditions": 16,
+    "totalDeletions": 1,
+    "truncated": false
+  },
+  "config": {
+    "mode": "blocking",
+    "failOn": ["critical"]
+  }
+}

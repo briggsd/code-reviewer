@@ -8,9 +8,9 @@ distill a real miss or false-positive into a dev scenario, then adjust
 `src/runner/reviewer-definitions.ts` / the coordinator prompt until it passes. That is the
 intended workflow — it is **not** a holdout-discipline violation here.
 
-It starts empty (this README only). Scenarios arrive via the improvement playbook (M016 S05,
-#133): a wild miss surfaced by the telemetry quality report (M016 S04, #132) is reproduced as
-a fixture + criteria here, then used to drive a reviewer-definition change.
+Scenarios arrive via the improvement playbook (M016 S05, #133): a wild miss surfaced by the
+telemetry quality report (M016 S04, #132) is reproduced as a fixture + criteria here, then used
+to drive a reviewer-definition change.
 
 ## Hard rule (the one-way door)
 

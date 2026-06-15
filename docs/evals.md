@@ -94,7 +94,7 @@ regressed.
 evals/
   fixtures/        — PR fixtures (real diffs, NO fakeFindings) for both splits
   scenarios/       — SEALED HOLDOUT scenarios (gate-only; see scenarios/README.md)
-  scenarios-dev/   — DEV split scenarios (iteration material; starts empty; see scenarios-dev/README.md)
+  scenarios-dev/   — DEV split scenarios (iteration material; see scenarios-dev/README.md)
 src/evals/
   types.ts    — EvalCriterion + EvalScenario TypeScript types
   score.ts    — pure scoring functions (no I/O, no network)
@@ -273,6 +273,10 @@ This is useful for diagnosing flaky criteria (high variance between runs).
 | Scenario | Primary dimension | What it tests | Key criteria |
 |---|---|---|---|
 | `bounded-accumulator` | Convention memory | Preserves the declined convention that a closed RiskTier-union accumulator does not need TTL/size-cap warnings | `no_findings_at_or_above` warning; decision=approved/approved_with_comments; threshold=0.9 |
+| `ci-template-mutable-actions` | Convention memory | Preserves the adopter-template convention that readable mutable action tags are allowed even though factory-owned workflows are SHA-pinned | `no_findings_at_or_above` warning; decision=approved/approved_with_comments; threshold=0.9 |
+| `untrusted-runtime-output-validation` | Recall | Catches casts of untrusted model/subprocess-shaped JSON into review contracts without validation | `has_finding` minSeverity=warning, textIncludes=validate; decision in [approved_with_comments, minor_issues, significant_concerns, review_failed]; threshold=1.0 |
+| `quality-stamp-schema-rename` | Recall | Catches silent serialized contract drift in the persisted release quality stamp | `has_finding` minSeverity=warning, textIncludes=schemaVersion; decision in [approved_with_comments, minor_issues, significant_concerns, review_failed]; threshold=1.0 |
+| `timeout-fallback-integration-coverage` | Recall | Catches degraded timeout fallback changes that only add helper-level tests instead of integration/policy coverage | `has_finding` minSeverity=warning, textIncludes=timeout; decision in [approved_with_comments, minor_issues, significant_concerns, review_failed]; threshold=1.0 |
 
 > **Criterion authoring lesson (from the first live pi run).** Prefer `textIncludes` (searches a
 > finding's title/body/recommendation/evidence/quotedCode) over `pathIncludes` to detect *whether a

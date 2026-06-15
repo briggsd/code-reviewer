@@ -1,0 +1,43 @@
+{
+  "runId": "eval-ci-template-mutable-actions",
+  "metadata": {
+    "provider": "github",
+    "repository": {
+      "provider": "github",
+      "owner": "example",
+      "name": "factory",
+      "slug": "example/factory",
+      "defaultBranch": "main"
+    },
+    "changeId": "2361",
+    "headSha": "236001",
+    "baseSha": "236000",
+    "sourceBranch": "docs/adoption-ci-template",
+    "targetBranch": "main",
+    "title": "Refresh adoption CI template",
+    "description": "Adds the current setup-bun step to the readable adopter template.",
+    "author": {
+      "username": "dev"
+    },
+    "labels": []
+  },
+  "diff": {
+    "files": [
+      {
+        "path": "examples/ci/github-actions-ai-review.yml",
+        "status": "modified",
+        "additions": 4,
+        "deletions": 1,
+        "isBinary": false,
+        "patch": "@@ -24,7 +24,10 @@ jobs:\n     runs-on: ubuntu-latest\n     steps:\n       # Adoption templates intentionally use readable mutable tags.\n-      - uses: actions/checkout@v4\n+      # The factory's own workflows are SHA-pinned; these templates are copied by adopters\n+      # and test/ci-templates.test.ts locks the mutable-tag convention.\n+      - uses: actions/checkout@v4\n+      - uses: oven-sh/setup-bun@v2\n         with:\n           bun-version: \"1.3.0\"\n       - run: bun run src/cli.ts run --provider github --runtime \"$AI_REVIEW_DRY_RUN_RUNTIME\""
+      }
+    ],
+    "totalAdditions": 4,
+    "totalDeletions": 1,
+    "truncated": false
+  },
+  "config": {
+    "mode": "blocking",
+    "failOn": ["critical"]
+  }
+}

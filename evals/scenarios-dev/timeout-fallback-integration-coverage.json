@@ -1,0 +1,19 @@
+{
+  "name": "timeout-fallback-integration-coverage",
+  "description": "Primary reliability dimension: Recall. Degraded-path testing scenario: a timeout/error fallback in the real runtime path needs integration-level coverage and policy assertions, not only a helper-level unit test.",
+  "fixture": "evals/fixtures/timeout-fallback-integration-coverage.json",
+  "threshold": 1,
+  "criteria": [
+    {
+      "kind": "has_finding",
+      "label": "flags missing integration coverage for timeout fallback",
+      "minSeverity": "warning",
+      "textIncludes": "timeout"
+    },
+    {
+      "kind": "decision_in",
+      "label": "decision reflects degraded-path coverage risk",
+      "values": ["approved_with_comments", "minor_issues", "significant_concerns", "review_failed"]
+    }
+  ]
+}

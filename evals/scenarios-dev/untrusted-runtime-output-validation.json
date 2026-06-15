@@ -1,0 +1,19 @@
+{
+  "name": "untrusted-runtime-output-validation",
+  "description": "Primary reliability dimension: Recall. Boundary-validation scenario: model/subprocess-shaped runtime data is untrusted after JSON parsing and must be validated before use, not cast directly into a review contract.",
+  "fixture": "evals/fixtures/untrusted-runtime-output-validation.json",
+  "threshold": 1,
+  "criteria": [
+    {
+      "kind": "has_finding",
+      "label": "flags missing validation of untrusted runtime output",
+      "minSeverity": "warning",
+      "textIncludes": "validate"
+    },
+    {
+      "kind": "decision_in",
+      "label": "decision reflects a real boundary concern",
+      "values": ["approved_with_comments", "minor_issues", "significant_concerns", "review_failed"]
+    }
+  ]
+}

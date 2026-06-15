@@ -1,0 +1,43 @@
+{
+  "runId": "eval-quality-stamp-schema-rename",
+  "metadata": {
+    "provider": "github",
+    "repository": {
+      "provider": "github",
+      "owner": "example",
+      "name": "factory",
+      "slug": "example/factory",
+      "defaultBranch": "main"
+    },
+    "changeId": "2363",
+    "headSha": "236005",
+    "baseSha": "236004",
+    "sourceBranch": "release/quality-stamp-version-field",
+    "targetBranch": "main",
+    "title": "Rename quality stamp schema field",
+    "description": "Renames the persisted quality stamp version key for readability.",
+    "author": {
+      "username": "dev"
+    },
+    "labels": []
+  },
+  "diff": {
+    "files": [
+      {
+        "path": "src/evals/quality-stamp.ts",
+        "status": "modified",
+        "additions": 2,
+        "deletions": 2,
+        "isBinary": false,
+        "patch": "@@ -42,7 +42,7 @@ export interface QualityStamp {\n-  schemaVersion: \"ai-review.quality_stamp.v1\";\n+  version: \"ai-review.quality_stamp.v1\";\n   generatedAt: string;\n   commit: string | null;\n   runtime: string;\n@@ -64,7 +64,7 @@ export function buildQualityStamp(\n   const { passed, total, meanSatisfaction, blocked } = summarizeEvalRun(results);\n   return {\n-    schemaVersion: \"ai-review.quality_stamp.v1\",\n+    version: \"ai-review.quality_stamp.v1\",\n     generatedAt: meta.generatedAt,\n     commit: meta.commit,\n     runtime: meta.runtime,"
+      }
+    ],
+    "totalAdditions": 2,
+    "totalDeletions": 2,
+    "truncated": false
+  },
+  "config": {
+    "mode": "blocking",
+    "failOn": ["critical"]
+  }
+}

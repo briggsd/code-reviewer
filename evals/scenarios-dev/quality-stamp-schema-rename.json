@@ -1,0 +1,19 @@
+{
+  "name": "quality-stamp-schema-rename",
+  "description": "Primary reliability dimension: Recall. Contract-shape scenario: a persisted release quality stamp silently renames `schemaVersion`, which downstream release consumers and compatibility checks may rely on.",
+  "fixture": "evals/fixtures/quality-stamp-schema-rename.json",
+  "threshold": 1,
+  "criteria": [
+    {
+      "kind": "has_finding",
+      "label": "flags silent serialized contract rename",
+      "minSeverity": "warning",
+      "textIncludes": "schemaVersion"
+    },
+    {
+      "kind": "decision_in",
+      "label": "decision reflects a public contract concern",
+      "values": ["approved_with_comments", "minor_issues", "significant_concerns", "review_failed"]
+    }
+  ]
+}

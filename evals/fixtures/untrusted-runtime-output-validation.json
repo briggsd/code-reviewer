@@ -1,0 +1,43 @@
+{
+  "runId": "eval-untrusted-runtime-output-validation",
+  "metadata": {
+    "provider": "github",
+    "repository": {
+      "provider": "github",
+      "owner": "example",
+      "name": "factory",
+      "slug": "example/factory",
+      "defaultBranch": "main"
+    },
+    "changeId": "2362",
+    "headSha": "236003",
+    "baseSha": "236002",
+    "sourceBranch": "runtime/fast-json-path",
+    "targetBranch": "main",
+    "title": "Short-circuit runtime output parsing",
+    "description": "Simplifies the Pi subprocess JSON path by casting the parsed value directly.",
+    "author": {
+      "username": "dev"
+    },
+    "labels": []
+  },
+  "diff": {
+    "files": [
+      {
+        "path": "src/runtime/reviewer-output-validation.ts",
+        "status": "modified",
+        "additions": 8,
+        "deletions": 0,
+        "isBinary": false,
+        "patch": "@@ -14,6 +14,14 @@ import type { AgentRunResult, ReviewSummary } from \"../contracts/index.ts\";\n export function parseReviewerJson(raw: string): unknown {\n   return JSON.parse(raw);\n }\n+\n+export function coerceRuntimeSummary(raw: unknown): ReviewSummary {\n+  // The Pi subprocess is launched by the factory, so keep this cheap and let\n+  // downstream code handle malformed values if one appears.\n+  return raw as ReviewSummary;\n+}\n+\n export function validateReviewerOutput(value: unknown): AgentRunResult {\n   const parsed = parseAgentRunResult(value);\n   return enforceReviewerRole(parsed);"
+      }
+    ],
+    "totalAdditions": 8,
+    "totalDeletions": 0,
+    "truncated": false
+  },
+  "config": {
+    "mode": "blocking",
+    "failOn": ["critical"]
+  }
+}
