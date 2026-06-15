@@ -1471,3 +1471,250 @@ describe("analyzeRunMetrics reviewer-failure counts (#212)", () => {
     expect(formatted).toContain("performance:1");
   });
 });
+
+// ---------------------------------------------------------------------------
+// #151 (M022 S01): outputTokensPerFinding + byDecision
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics outputTokensPerFinding (#151)", () => {
+  // Fixture:
+  //   run-A: full tier, 2 findings, outputTokens=1200, decision="significant_concerns"
+  //   run-B: lite tier, 1 finding,  outputTokens=100,  decision="no_findings"
+  //   run-C: trivial tier, 0 findings, outputTokens=10, decision="approved"
+  // (reuses the top-level `events` fixture)
+
+  test("byTier outputTokensPerFinding: full tier = 1200/2 = 600", () => {
+    const analysis = analyzeRunMetrics(events);
+    // full tier: 1200 output tokens / 2 findings = 600
+    expect(analysis.byTier.full?.outputTokensPerFinding).toBeCloseTo(600, 5);
+  });
+
+  test("byTier outputTokensPerFinding: lite tier = 100/1 = 100", () => {
+    const analysis = analyzeRunMetrics(events);
+    // lite tier: 100 output tokens / 1 finding = 100
+    expect(analysis.byTier.lite?.outputTokensPerFinding).toBeCloseTo(100, 5);
+  });
+
+  test("byTier outputTokensPerFinding: trivial tier null (0 findings)", () => {
+    const analysis = analyzeRunMetrics(events);
+    // trivial tier: 0 findings → null (not NaN, not 0)
+    expect(analysis.byTier.trivial?.outputTokensPerFinding).toBeNull();
+  });
+
+  test("headline outputTokensPerFinding: pooled across all runs = (1200+100+10)/(2+1+0)", () => {
+    const analysis = analyzeRunMetrics(events);
+    // total output tokens = 1200+100+10 = 1310, total findings = 3 → 1310/3 ≈ 436.67
+    expect(analysis.outputTokensPerFinding).toBeCloseTo(1310 / 3, 5);
+  });
+
+  test("headline outputTokensPerFinding: null when 0 findings across all runs", () => {
+    const noFindingsEvents: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T00:00:00.000Z",
+        runId: "zero-a",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 1000,
+          findingCount: 0,
+          findingsByReviewer: {},
+          tokens: { outputTokens: 500, inputTokens: 1000, estimatedCostUsd: 0.1 },
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(noFindingsEvents);
+    expect(analysis.outputTokensPerFinding).toBeNull();
+  });
+
+  test("headline outputTokensPerFinding: null when runCount is 0", () => {
+    const analysis = analyzeRunMetrics([]);
+    expect(analysis.outputTokensPerFinding).toBeNull();
+  });
+
+  test("outputTokensPerFinding is not NaN or Infinity in any case", () => {
+    const analysis = analyzeRunMetrics(events);
+    for (const seg of Object.values(analysis.byTier)) {
+      const v = seg.outputTokensPerFinding;
+      if (v !== null) {
+        expect(Number.isFinite(v)).toBe(true);
+        expect(Number.isNaN(v)).toBe(false);
+      }
+    }
+    const headline = analysis.outputTokensPerFinding;
+    if (headline !== null) {
+      expect(Number.isFinite(headline)).toBe(true);
+      expect(Number.isNaN(headline)).toBe(false);
+    }
+  });
+
+  // Additive guarantee: ensure existing fields on TierSegment are unchanged
+  test("additive: existing TierSegment fields are still present and correct", () => {
+    const analysis = analyzeRunMetrics(events);
+    const full = analysis.byTier.full;
+    expect(full?.runCount).toBe(1);
+    expect(full?.findingsPerRun).toBe(2);
+    expect(full?.outputTokensPerRun).toBe(1200);
+    expect(full?.costPerFindingUsd).toBeCloseTo(0.3, 5);
+    expect(full?.cacheHitRate).toBeCloseTo(0.6, 5);
+  });
+});
+
+describe("analyzeRunMetrics byDecision (#151)", () => {
+  // Reuses the top-level `events` fixture:
+  //   run-1: decision="significant_concerns", findings=2, outputTokens=1200, full
+  //   run-2: decision="no_findings",          findings=1, outputTokens=100,  lite
+  //   run-3: decision="approved",             findings=0, outputTokens=10,   trivial
+
+  test("byDecision keys are stable-sorted", () => {
+    const analysis = analyzeRunMetrics(events);
+    const keys = Object.keys(analysis.byDecision);
+    expect(keys).toEqual([...keys].sort());
+  });
+
+  test("byDecision contains one entry per distinct decision value", () => {
+    const analysis = analyzeRunMetrics(events);
+    expect(Object.keys(analysis.byDecision)).toHaveLength(3);
+    expect(analysis.byDecision).toHaveProperty("approved");
+    expect(analysis.byDecision).toHaveProperty("no_findings");
+    expect(analysis.byDecision).toHaveProperty("significant_concerns");
+  });
+
+  test("byDecision.significant_concerns: runCount=1, findings=2, outputTokens=1200, ratio=600", () => {
+    const analysis = analyzeRunMetrics(events);
+    const seg = analysis.byDecision.significant_concerns;
+    expect(seg?.runCount).toBe(1);
+    expect(seg?.findingsPerRun).toBeCloseTo(2, 5);
+    expect(seg?.outputTokensPerRun).toBeCloseTo(1200, 5);
+    expect(seg?.outputTokensPerFinding).toBeCloseTo(600, 5);
+  });
+
+  test("byDecision.no_findings: runCount=1, findings=1, outputTokens=100, ratio=100", () => {
+    const analysis = analyzeRunMetrics(events);
+    const seg = analysis.byDecision.no_findings;
+    expect(seg?.runCount).toBe(1);
+    expect(seg?.findingsPerRun).toBeCloseTo(1, 5);
+    expect(seg?.outputTokensPerRun).toBeCloseTo(100, 5);
+    expect(seg?.outputTokensPerFinding).toBeCloseTo(100, 5);
+  });
+
+  test("byDecision.approved: runCount=1, findings=0, outputTokensPerFinding=null", () => {
+    const analysis = analyzeRunMetrics(events);
+    const seg = analysis.byDecision.approved;
+    expect(seg?.runCount).toBe(1);
+    expect(seg?.findingsPerRun).toBe(0);
+    expect(seg?.outputTokensPerFinding).toBeNull();
+  });
+
+  test("byDecision: two runs with same decision are merged correctly", () => {
+    const twoSameDecision: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T00:00:00.000Z",
+        runId: "same-a",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 2000,
+          findingCount: 2,
+          findingsByReviewer: { security: 2 },
+          tokens: { outputTokens: 600, inputTokens: 1000, estimatedCostUsd: 0.1 },
+        },
+      },
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T01:00:00.000Z",
+        runId: "same-b",
+        data: {
+          runtime: "pi",
+          riskTier: "lite",
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 1000,
+          findingCount: 4,
+          findingsByReviewer: { security: 4 },
+          tokens: { outputTokens: 400, inputTokens: 800, estimatedCostUsd: 0.08 },
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(twoSameDecision);
+    const seg = analysis.byDecision.approved;
+    expect(seg?.runCount).toBe(2);
+    // findingsPerRun: (2+4)/2 = 3
+    expect(seg?.findingsPerRun).toBeCloseTo(3, 5);
+    // outputTokensPerRun: (600+400)/2 = 500
+    expect(seg?.outputTokensPerRun).toBeCloseTo(500, 5);
+    // outputTokensPerFinding: (600+400)/(2+4) = 1000/6 ≈ 166.67
+    expect(seg?.outputTokensPerFinding).toBeCloseTo(1000 / 6, 5);
+  });
+
+  test("byDecision: dummy runtime excluded from decision accumulation", () => {
+    const withDummy: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T00:00:00.000Z",
+        runId: "real",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 1000,
+          findingCount: 1,
+          findingsByReviewer: { security: 1 },
+          tokens: { outputTokens: 300, inputTokens: 600, estimatedCostUsd: 0.05 },
+        },
+      },
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T01:00:00.000Z",
+        runId: "dummy",
+        data: {
+          runtime: "dummy",
+          riskTier: "full",
+          decision: "approved",
+          outcome: "pass",
+          durationMs: 100,
+          findingCount: 99,
+          findingsByReviewer: {},
+          tokens: { outputTokens: 9999 },
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(withDummy);
+    // only real run contributes — dummy is excluded
+    expect(analysis.byDecision.approved?.runCount).toBe(1);
+    expect(analysis.byDecision.approved?.outputTokensPerRun).toBeCloseTo(300, 5);
+    expect(analysis.byDecision.approved?.outputTokensPerFinding).toBeCloseTo(300, 5);
+  });
+
+  test("byDecision is empty when runCount is 0", () => {
+    const analysis = analyzeRunMetrics([]);
+    expect(analysis.byDecision).toEqual({});
+  });
+
+  test("byDecision: events with no decision field are excluded from byDecision", () => {
+    const noDecisionEvent: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T00:00:00.000Z",
+        runId: "no-dec",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          // no decision field
+          outcome: "pass",
+          durationMs: 1000,
+          findingCount: 1,
+          tokens: { outputTokens: 200 },
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(noDecisionEvent);
+    expect(Object.keys(analysis.byDecision)).toHaveLength(0);
+  });
+});

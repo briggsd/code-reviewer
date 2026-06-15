@@ -40,9 +40,11 @@ function makeAnalysis(overrides: AnalysisOverride): RunMetricsAnalysis {
     reviewerFailureCountByRole: {},
     byTier: {},
     cacheHitRate: null,
+    outputTokensPerFinding: null,
     byReviewer: {},
     reviewerShare: {},
     decisionCounts: {},
+    byDecision: {},
     outcomeCounts: {},
     rates: baseRates,
   };
@@ -108,6 +110,7 @@ describe("buildQualityReport — overall breach logic", () => {
           costPerFindingUsd: null,
           thinReviewRunCount: 0,
           thinReviewRate: 0,
+          outputTokensPerFinding: null,
         },
         trivial: {
           runCount: 2,
@@ -124,6 +127,7 @@ describe("buildQualityReport — overall breach logic", () => {
           costPerFindingUsd: null,
           thinReviewRunCount: 0,
           thinReviewRate: 0,
+          outputTokensPerFinding: null,
         },
       },
       rates: {
@@ -464,6 +468,7 @@ describe("buildQualityReport — per-tier segments", () => {
           costPerFindingUsd: null,
           thinReviewRunCount: 5,
           thinReviewRate: 0.625, // > 0.20 → breach
+          outputTokensPerFinding: null,
         },
         lite: {
           runCount: 2,
@@ -480,6 +485,7 @@ describe("buildQualityReport — per-tier segments", () => {
           costPerFindingUsd: null,
           thinReviewRunCount: 0,
           thinReviewRate: 0.0, // within threshold → no hypothesis
+          outputTokensPerFinding: null,
         },
       },
       rates: {
@@ -525,6 +531,7 @@ describe("buildQualityReport — per-tier segments", () => {
           costPerFindingUsd: null,
           thinReviewRunCount: 0,
           thinReviewRate: 0,
+          outputTokensPerFinding: null,
         },
       },
       runEvents: {
@@ -670,6 +677,7 @@ describe("buildQualityReport — sort order", () => {
           costPerFindingUsd: null,
           thinReviewRunCount: 3,
           thinReviewRate: 1.0, // > 0.20 → breach magnitude=0.80, sampleSize=3 → low-conf
+          outputTokensPerFinding: null,
         },
         lite: {
           runCount: 7,
@@ -686,6 +694,7 @@ describe("buildQualityReport — sort order", () => {
           costPerFindingUsd: null,
           thinReviewRunCount: 0,
           thinReviewRate: 0, // within threshold
+          outputTokensPerFinding: null,
         },
       },
       rates: {

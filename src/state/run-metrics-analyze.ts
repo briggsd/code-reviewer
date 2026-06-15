@@ -65,6 +65,16 @@ export interface TierSegment {
   costPerFindingUsd: number | null;
   thinReviewRunCount: number;
   thinReviewRate: number;
+  /** null when there are 0 findings across all runs in this tier */
+  outputTokensPerFinding: number | null;
+}
+
+export interface DecisionSegment {
+  runCount: number;
+  findingsPerRun: number;
+  outputTokensPerRun: number;
+  /** null when there are 0 findings across all runs in this decision segment */
+  outputTokensPerFinding: number | null;
 }
 
 export interface ReviewerAcceptanceStat {
@@ -123,12 +133,16 @@ export interface RunMetricsAnalysis {
   byTier: Record<string, TierSegment>;
   /** Pooled cache-hit rate across ALL real runs (the headline number). null when no token data. */
   cacheHitRate: number | null;
+  /** Pooled output-tokens-per-finding across ALL real runs (verbosity ratio). null when 0 findings across all runs. */
+  outputTokensPerFinding: number | null;
   /** Total finding count per reviewer across all runs. */
   byReviewer: Record<string, number>;
   /** Each reviewer's fraction of total findings (0 when no findings). */
   reviewerShare: Record<string, number>;
   /** How many runs produced each decision value. */
   decisionCounts: Record<string, number>;
+  /** Output-volume breakdown by decision value (stable-sorted keys). */
+  byDecision: Record<string, DecisionSegment>;
   /** How many runs produced each CI outcome value. */
   outcomeCounts: Record<string, number>;
   rates: {
@@ -204,6 +218,12 @@ interface TierAccumulator {
   totalFusionMs: number;
   totalCostUsd: number;
   thinReviewRunCount: number;
+}
+
+interface DecisionAccumulator {
+  runCount: number;
+  totalFindings: number;
+  totalOutputTokens: number;
 }
 
 interface RunMetricsEventData extends Record<string, JsonValue> {
@@ -487,6 +507,8 @@ function buildByTierRecord(
       costPerFindingUsd: acc.totalFindings === 0 ? null : acc.totalCostUsd / acc.totalFindings,
       thinReviewRunCount: acc.thinReviewRunCount,
       thinReviewRate: tierRunCount === 0 ? 0 : acc.thinReviewRunCount / tierRunCount,
+      outputTokensPerFinding:
+        acc.totalFindings === 0 ? null : acc.totalOutputTokens / acc.totalFindings,
     };
   }
   return byTier;
@@ -524,6 +546,27 @@ function buildDecisionAndOutcomeRecords(
   return { decisionCountsRecord, outcomeCountsRecord };
 }
 
+/** Build the `byDecision` record with stable key ordering from accumulated decision data. */
+function buildByDecisionRecord(
+  decisionAccumulators: Map<string, DecisionAccumulator>,
+): Record<string, DecisionSegment> {
+  const byDecision: Record<string, DecisionSegment> = {};
+  for (const key of Array.from(decisionAccumulators.keys()).sort()) {
+    const acc = decisionAccumulators.get(key);
+    if (acc === undefined) {
+      continue;
+    }
+    byDecision[key] = {
+      runCount: acc.runCount,
+      findingsPerRun: acc.runCount === 0 ? 0 : acc.totalFindings / acc.runCount,
+      outputTokensPerRun: acc.runCount === 0 ? 0 : acc.totalOutputTokens / acc.runCount,
+      outputTokensPerFinding:
+        acc.totalFindings === 0 ? null : acc.totalOutputTokens / acc.totalFindings,
+    };
+  }
+  return byDecision;
+}
+
 /** Compute pooled fleet-wide cache-hit rate across all tier accumulators. */
 function computeFleetCacheHitRate(tierAccumulators: Map<string, TierAccumulator>): number | null {
   let fleetTotalInputTokens = 0;
@@ -556,6 +599,7 @@ export function analyzeRunMetrics(
   const findingsByReviewer = new Map<string, number>();
   const decisionCounts = new Map<string, number>();
   const outcomeCounts = new Map<string, number>();
+  const decisionAccumulators = new Map<string, DecisionAccumulator>();
 
   const optionalBlockCounters = {
     groundingRunCount: 0,
@@ -600,6 +644,19 @@ export function analyzeRunMetrics(
     tierAcc.totalCacheWriteTokens += tokenAccum.cacheWriteTokens;
     tierAcc.totalCacheReadTokens += tokenAccum.cacheReadTokens;
     tierAcc.totalCostUsd += tokenAccum.costUsd;
+
+    // byDecision accumulation (#151): extend the decision tally to carry findings + output tokens
+    if (typeof data.decision === "string" && data.decision.length > 0) {
+      const decisionKey = data.decision;
+      let decAcc = decisionAccumulators.get(decisionKey);
+      if (decAcc === undefined) {
+        decAcc = { runCount: 0, totalFindings: 0, totalOutputTokens: 0 };
+        decisionAccumulators.set(decisionKey, decAcc);
+      }
+      decAcc.runCount += 1;
+      decAcc.totalFindings += runFindings;
+      decAcc.totalOutputTokens += tokenAccum.outputTokens;
+    }
 
     // Duration
     const durationMs = asNumber(data.durationMs);
@@ -652,12 +709,21 @@ export function analyzeRunMetrics(
     decisionCounts,
     outcomeCounts,
   );
+  const byDecision = buildByDecisionRecord(decisionAccumulators);
 
   // Non-trivial run count for thin-review rate denominator
   const nonTrivialRunCount = runCount - (tierAccumulators.get("trivial")?.runCount ?? 0);
 
   // Overall (fleet-wide) cache-hit rate: pool totals across all tiers
   const overallCacheHitRate = computeFleetCacheHitRate(tierAccumulators);
+
+  // Headline pooled output-tokens-per-finding across all runs (#151)
+  let fleetTotalOutputTokens = 0;
+  for (const acc of tierAccumulators.values()) {
+    fleetTotalOutputTokens += acc.totalOutputTokens;
+  }
+  const overallOutputTokensPerFinding: number | null =
+    totalFindings === 0 ? null : fleetTotalOutputTokens / totalFindings;
 
   // S06 / #227: scan non-run_metrics events once, matching them to real-runtime run IDs.
   const supplementalEventsAnalysis = buildSupplementalEventsAnalysis(events, realRunIds);
@@ -690,9 +756,11 @@ export function analyzeRunMetrics(
     reviewerFailureCountByRole,
     byTier,
     cacheHitRate: overallCacheHitRate,
+    outputTokensPerFinding: overallOutputTokensPerFinding,
     byReviewer,
     reviewerShare,
     decisionCounts: decisionCountsRecord,
+    byDecision,
     outcomeCounts: outcomeCountsRecord,
     rates: {
       groundingDropRunRate: runCount === 0 ? 0 : groundingRunCount / runCount,
