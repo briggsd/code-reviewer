@@ -460,15 +460,29 @@ export function formatReviewSummaryMarkdown(
     lines.push(`- Recurring findings: ${summary.reReview.recurringFindingIds.length}`);
     lines.push(`- Fixed prior findings: ${summary.reReview.fixedFindingIds.length}`);
     if (summary.reReview.fixedFindingIds.length > 0) {
-      lines.push(
-        `- Fixed IDs: ${summary.reReview.fixedFindingIds.map((id) => `\`${id}\``).join(", ")}`,
-      );
+      for (const c of summary.reReview.classifications.filter((c) => c.status === "fixed")) {
+        const title =
+          c.priorFinding?.title !== undefined
+            ? escapeMarkdown(c.priorFinding.title)
+            : `\`${c.stableId}\``;
+        const lastSeen =
+          c.lastSeenHeadSha !== undefined
+            ? ` — last seen \`${c.lastSeenHeadSha.slice(0, 7)}\``
+            : "";
+        lines.push(`  - ✅ ${title}${lastSeen}`);
+      }
     }
     lines.push(`- Withheld prior findings: ${summary.reReview.withheldFindingIds.length}`);
     if (summary.reReview.withheldFindingIds.length > 0) {
-      lines.push(
-        `- Withheld IDs: ${summary.reReview.withheldFindingIds.map((id) => `\`${id}\``).join(", ")}`,
-      );
+      for (const c of summary.reReview.classifications.filter((c) => c.status === "withheld")) {
+        const title =
+          c.priorFinding?.title !== undefined
+            ? escapeMarkdown(c.priorFinding.title)
+            : `\`${c.stableId}\``;
+        const lastSeen =
+          c.lastSeenHeadSha !== undefined ? `, last seen \`${c.lastSeenHeadSha.slice(0, 7)}\`` : "";
+        lines.push(`  - ${title} — withheld${lastSeen}`);
+      }
     }
     if (summary.reReview.carriedForwardFindingIds.length > 0) {
       lines.push(

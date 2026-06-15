@@ -156,7 +156,10 @@ describe("re-review finding classification", () => {
     expect(markdown).toContain("New findings: 0");
     expect(markdown).toContain("Recurring findings: 1");
     expect(markdown).toContain("Fixed prior findings: 1");
-    expect(markdown).toContain("`fnd_fixed`");
+    // New readable format: title + 7-char sha (priorState.findings[1].title = "Fixed prior issue", sha = "old-head" → "old-hea")
+    expect(markdown).toContain("✅ Fixed prior issue — last seen `old-hea`");
+    // Old opaque ID format must NOT appear
+    expect(markdown).not.toContain("Fixed IDs:");
   });
 
   test("summary markdown renders withheld counts and IDs (withheld finding surfaces, not silently absent)", () => {
@@ -169,7 +172,10 @@ describe("re-review finding classification", () => {
     expect(markdown).toContain("### Re-review status");
     expect(markdown).toContain("Fixed prior findings: 0");
     expect(markdown).toContain("Withheld prior findings: 1");
-    expect(markdown).toContain("Withheld IDs: `fnd_fixed`");
+    // New readable format: title + 7-char sha
+    expect(markdown).toContain("Fixed prior issue — withheld, last seen `old-hea`");
+    // Old opaque ID format must NOT appear
+    expect(markdown).not.toContain("Withheld IDs:");
   });
 
   test("withheld: prior finding in withheldStableIds goes to withheldFindingIds, not fixedFindingIds", () => {

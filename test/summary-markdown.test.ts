@@ -499,7 +499,24 @@ describe("preservation of existing behaviors", () => {
         fixedFindingIds: ["fnd_2"],
         withheldFindingIds: [],
         carriedForwardFindingIds: [],
-        classifications: [],
+        classifications: [
+          {
+            stableId: "fnd_2",
+            status: "fixed",
+            priorFinding: {
+              id: "fnd_2",
+              reviewer: "security",
+              severity: "warning",
+              category: "auth",
+              title: "Prior fixed finding",
+              body: "Was a bug.",
+              confidence: "high",
+              evidence: [],
+              recommendation: "Already fixed.",
+            },
+            lastSeenHeadSha: "abc1234567890",
+          },
+        ],
       },
     };
     const markdown = formatReviewSummaryMarkdown(summary);
@@ -508,7 +525,10 @@ describe("preservation of existing behaviors", () => {
     expect(markdown).toContain("New findings: 0");
     expect(markdown).toContain("Recurring findings: 1");
     expect(markdown).toContain("Fixed prior findings: 1");
-    expect(markdown).toContain("`fnd_2`");
+    // New readable format — title is rendered, not opaque ID
+    expect(markdown).toContain("✅ Prior fixed finding — last seen `abc1234`");
+    // Old opaque format must NOT appear
+    expect(markdown).not.toContain("Fixed IDs:");
     expect(markdown).toContain("Withheld prior findings: 0");
   });
 
@@ -609,6 +629,211 @@ describe("preservation of existing behaviors", () => {
     expect(aIdx).toBeLessThan(bIdx);
     // fnd_c has no path — must not render a blank bullet
     expect(markdown).not.toContain("  - \n");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Re-review: resolved findings readable render (#278 S01)
+  // ---------------------------------------------------------------------------
+
+  test("fixed classification renders readable title + last-seen sha (not opaque ID)", () => {
+    const summary: ReviewSummary = {
+      ...makeSummary({ findings: [] }),
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: ["fnd_fixed1"],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: [],
+        classifications: [
+          {
+            stableId: "fnd_fixed1",
+            status: "fixed",
+            priorFinding: {
+              id: "fnd_fixed1",
+              reviewer: "security",
+              severity: "warning",
+              category: "auth",
+              title: "SQL injection in user input",
+              body: "Body text.",
+              confidence: "high",
+              evidence: [],
+              recommendation: "Sanitize input.",
+            },
+            lastSeenHeadSha: "deadbeef99abc",
+          },
+        ],
+      },
+    };
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // Readable format with 7-char sha
+    expect(markdown).toContain("✅ SQL injection in user input — last seen `deadbee`");
+    // Count line unchanged
+    expect(markdown).toContain("Fixed prior findings: 1");
+    // Old opaque ID format must NOT appear
+    expect(markdown).not.toContain("Fixed IDs:");
+    expect(markdown).not.toContain("`fnd_fixed1`");
+  });
+
+  test("withheld classification renders readable title + withheld suffix", () => {
+    const summary: ReviewSummary = {
+      ...makeSummary({ findings: [] }),
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: [],
+        withheldFindingIds: ["fnd_with1"],
+        carriedForwardFindingIds: [],
+        classifications: [
+          {
+            stableId: "fnd_with1",
+            status: "withheld",
+            priorFinding: {
+              id: "fnd_with1",
+              reviewer: "code_quality",
+              severity: "suggestion",
+              category: "style",
+              title: "Unused variable in loop",
+              body: "Unused var.",
+              confidence: "medium",
+              evidence: [],
+              recommendation: "Remove it.",
+            },
+            lastSeenHeadSha: "cafe1234abcdef",
+          },
+        ],
+      },
+    };
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).toContain("Unused variable in loop — withheld, last seen `cafe123`");
+    // Count line unchanged
+    expect(markdown).toContain("Withheld prior findings: 1");
+    // Old opaque ID format must NOT appear
+    expect(markdown).not.toContain("Withheld IDs:");
+    expect(markdown).not.toContain("`fnd_with1`");
+  });
+
+  test("fixed classification with no priorFinding falls back to stableId code span", () => {
+    const summary: ReviewSummary = {
+      ...makeSummary({ findings: [] }),
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: ["fnd_noPrior"],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: [],
+        classifications: [
+          {
+            stableId: "fnd_noPrior",
+            status: "fixed",
+            lastSeenHeadSha: "111aaa",
+          },
+        ],
+      },
+    };
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // Falls back to stableId in a code span
+    expect(markdown).toContain("✅ `fnd_noPrior`");
+    // Does not throw or produce blank title
+    expect(markdown).toContain("Fixed prior findings: 1");
+  });
+
+  test("fixed classification with no lastSeenHeadSha omits 'last seen' suffix", () => {
+    const summary: ReviewSummary = {
+      ...makeSummary({ findings: [] }),
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: ["fnd_noSha"],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: [],
+        classifications: [
+          {
+            stableId: "fnd_noSha",
+            status: "fixed",
+            priorFinding: {
+              id: "fnd_noSha",
+              reviewer: "security",
+              severity: "warning",
+              category: "auth",
+              title: "Missing auth check",
+              body: "No auth.",
+              confidence: "high",
+              evidence: [],
+              recommendation: "Add auth.",
+            },
+            // no lastSeenHeadSha
+          },
+        ],
+      },
+    };
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).toContain("✅ Missing auth check");
+    // No "last seen" suffix when sha is absent
+    expect(markdown).not.toContain("last seen");
+    expect(markdown).toContain("Fixed prior findings: 1");
+  });
+
+  test("title with markdown metacharacters is escaped in fixed/withheld render", () => {
+    const summary: ReviewSummary = {
+      ...makeSummary({ findings: [] }),
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: ["fnd_escape1"],
+        withheldFindingIds: ["fnd_escape2"],
+        carriedForwardFindingIds: [],
+        classifications: [
+          {
+            stableId: "fnd_escape1",
+            status: "fixed",
+            priorFinding: {
+              id: "fnd_escape1",
+              reviewer: "security",
+              severity: "critical",
+              category: "injection",
+              title: "`x` and <b>bold</b>",
+              body: "Injection.",
+              confidence: "high",
+              evidence: [],
+              recommendation: "Fix it.",
+            },
+            lastSeenHeadSha: "aabbcc11223344",
+          },
+          {
+            stableId: "fnd_escape2",
+            status: "withheld",
+            priorFinding: {
+              id: "fnd_escape2",
+              reviewer: "code_quality",
+              severity: "suggestion",
+              category: "style",
+              title: "[link](http://evil.example)",
+              body: "Bad link.",
+              confidence: "low",
+              evidence: [],
+              recommendation: "Remove link.",
+            },
+            lastSeenHeadSha: "112233aabbcc",
+          },
+        ],
+      },
+    };
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // Backticks and angle brackets must be escaped
+    expect(markdown).toContain("\\`x\\`");
+    expect(markdown).toContain("\\<b\\>");
+    // Link in withheld title must be escaped (brackets escaped)
+    expect(markdown).toContain("\\[link\\]");
+    // Raw unescaped metachar must not appear in the re-review section
+    const reReviewIdx = markdown.indexOf("### Re-review status");
+    const section = markdown.slice(reReviewIdx);
+    // No raw unescaped backtick-x-backtick (would be `x`, not \`x\`)
+    expect(section).not.toMatch(/(?<!\\)`x`(?!`)/);
   });
 
   test("break-glass footer always present before _Generated by_ line", () => {
