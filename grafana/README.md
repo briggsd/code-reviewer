@@ -18,11 +18,12 @@ Six sections over the `ai_review.run_metrics` and `ai_review.run_event` streams:
 - **Reviewer reliability (failures)** — runs that carried a reviewer failure (`data.failures[]`):
   count, run rate, failback-exhausted runs, a by-category timeseries, and a failures drilldown.
   Distinct from `outcome=fail` (a blocking *finding*, not a reviewer crashing). **Array caveat:**
-  `data.failures` is an array with no scalar count, so these panels key off the *first* failure
-  (`data_failures_0_*`) — they count runs-with-a-failure and categorize by the first failure, not
-  total failures across the array. Expand the drilldown to see every failed reviewer per run. A
-  clean total-failures / per-category-sum chart would need a scalar summary emitted from
-  `run-metrics.ts` (`data.failureCount` / `data.failuresByCategory`).
+  `data.failures` is an array, and Loki's bare `| json` parser **skips arrays** — so these panels
+  must extract elements explicitly by path, e.g. `| json failRole="data.failures[0].role"`, then
+  filter on the extracted label. They key off the *first* failure only and count
+  runs-with-a-failure (not total failures across the array). Expand the drilldown to see every
+  failed reviewer per run. A clean total-failures / per-category-sum chart would need a scalar
+  summary emitted from `run-metrics.ts` (`data.failureCount` / `data.failuresByCategory`).
 
 Two template variables: **datasource** (pick your Loki source on import) and
 **tier** (multi-select risk-tier filter, defaults to All).
