@@ -197,9 +197,9 @@ identifiers, shape-bounded keys only (M008). Do not add free-text fields.
 ### Quality report (hypothesis queue)
 
 `buildQualityReport` (in `src/state/quality-report.ts`) converts a `RunMetricsAnalysis`
-into a **hypothesis queue**: the set of segments (overall / per-tier / per-reviewer) whose
-metrics breach a quality threshold. This is an advisory report — it does not gate CI or
-block any run.
+into a **hypothesis queue**: the set of segments (overall / per-tier / per-reviewer /
+per-severity) whose metrics breach a quality threshold. This is an advisory report — it does
+not gate CI or block any run.
 
 Run it with `bun run telemetry:quality` (writes `telemetry-quality-report.json` and prints
 the human-readable table). An optional `workflow_dispatch`-only GitHub Actions workflow
@@ -220,6 +220,7 @@ JSON as an artifact.
 | `overrideRate` | `analysis.runEvents?.overrideRate` | `maxOverrideRate` | above → bad | 0.10 |
 | `acceptanceRate` | `acceptanceByReviewer[r].acceptanceRate` or `acceptanceByTier[t].acceptanceRate` | `minAcceptanceRate` | below → bad | 0.50 |
 | `withholdRate` | computed from `withheldExcluded / total` per reviewer/tier | `maxWithholdRate` | above → bad | 0.30 |
+| `severityDismissRate` | computed from `analysis.dispositions.bySeverity[s].dismissed / (fixed + ignored + dismissed)` | `maxSeverityDismissRate` | above → bad | 0.50 |
 | `completionRate` | `analysis.runEvents?.completionRate` | `minCompletionRate` | below → bad | 0.90 |
 
 The `minSampleSize` threshold (default 5) marks any hypothesis whose denominator is below

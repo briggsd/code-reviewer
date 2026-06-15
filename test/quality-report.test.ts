@@ -565,6 +565,158 @@ describe("buildQualityReport — per-tier segments", () => {
   });
 });
 
+// ─── Per-severity disposition calibration ────────────────────────────────────
+
+describe("buildQualityReport — severity disposition calibration", () => {
+  test("critical severity dismiss rate above maxSeverityDismissRate → hypothesis emitted", () => {
+    const analysis = makeAnalysis({
+      dispositions: {
+        pooled: { fixed: 1, dismissed: 4, ignored: 1, acknowledged: 2, precision: 1 / 6 },
+        byReviewer: {},
+        bySeverity: {
+          critical: {
+            fixed: 1,
+            dismissed: 4,
+            ignored: 1,
+            acknowledged: 2,
+            precision: 1 / 6,
+          },
+        },
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find(
+      (x) =>
+        x.metric === "severityDismissRate" &&
+        x.segmentType === "severity" &&
+        x.segment === "critical",
+    );
+
+    expect(h).toBeDefined();
+    expect(h?.direction).toBe("above");
+    expect(h?.value).toBeCloseTo(4 / 6, 5);
+    expect(h?.threshold).toBeCloseTo(0.5, 5);
+    expect(h?.sampleSize).toBe(6);
+  });
+
+  test("severity dismiss rate within threshold emits no severity hypothesis", () => {
+    const analysis = makeAnalysis({
+      dispositions: {
+        pooled: { fixed: 3, dismissed: 2, ignored: 1, acknowledged: 0, precision: 3 / 6 },
+        byReviewer: {},
+        bySeverity: {
+          warning: {
+            fixed: 3,
+            dismissed: 2,
+            ignored: 1,
+            acknowledged: 0,
+            precision: 3 / 6,
+          },
+        },
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "severityDismissRate")).toBeUndefined();
+  });
+
+  test("acknowledged-only severity has denominator 0 and emits no severity hypothesis", () => {
+    const analysis = makeAnalysis({
+      dispositions: {
+        pooled: { fixed: 0, dismissed: 0, ignored: 0, acknowledged: 3, precision: null },
+        byReviewer: {},
+        bySeverity: {
+          suggestion: {
+            fixed: 0,
+            dismissed: 0,
+            ignored: 0,
+            acknowledged: 3,
+            precision: null,
+          },
+        },
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "severityDismissRate")).toBeUndefined();
+  });
+
+  test("low-confidence severity dismiss hypothesis uses disposition denominator", () => {
+    const analysis = makeAnalysis({
+      dispositions: {
+        pooled: { fixed: 0, dismissed: 3, ignored: 1, acknowledged: 20, precision: 0 },
+        byReviewer: {},
+        bySeverity: {
+          critical: {
+            fixed: 0,
+            dismissed: 3,
+            ignored: 1,
+            acknowledged: 20,
+            precision: 0,
+          },
+        },
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "severityDismissRate");
+
+    expect(h).toBeDefined();
+    expect(h?.sampleSize).toBe(4);
+    expect(h?.lowConfidence).toBe(true);
+  });
+
+  test("maxSeverityDismissRate threshold override works", () => {
+    const analysis = makeAnalysis({
+      dispositions: {
+        pooled: { fixed: 2, dismissed: 3, ignored: 1, acknowledged: 0, precision: 2 / 6 },
+        byReviewer: {},
+        bySeverity: {
+          critical: {
+            fixed: 2,
+            dismissed: 3,
+            ignored: 1,
+            acknowledged: 0,
+            precision: 2 / 6,
+          },
+        },
+      },
+    });
+
+    const defaultReport = buildQualityReport(analysis);
+    expect(
+      defaultReport.hypotheses.find((x) => x.metric === "severityDismissRate"),
+    ).toBeUndefined();
+
+    const overrideReport = buildQualityReport(analysis, { maxSeverityDismissRate: 0.4 });
+    expect(overrideReport.thresholds.maxSeverityDismissRate).toBe(0.4);
+    expect(overrideReport.hypotheses.find((x) => x.metric === "severityDismissRate")).toBeDefined();
+  });
+
+  test("formatQualityReport includes severity segment and severityDismissRate", () => {
+    const analysis = makeAnalysis({
+      dispositions: {
+        pooled: { fixed: 1, dismissed: 4, ignored: 1, acknowledged: 0, precision: 1 / 6 },
+        byReviewer: {},
+        bySeverity: {
+          critical: {
+            fixed: 1,
+            dismissed: 4,
+            ignored: 1,
+            acknowledged: 0,
+            precision: 1 / 6,
+          },
+        },
+      },
+    });
+
+    const output = formatQualityReport(buildQualityReport(analysis));
+    expect(output).toContain("severity:critical");
+    expect(output).toContain("severityDismissRate");
+  });
+});
+
 // ─── lowConfidence flagging ───────────────────────────────────────────────────
 
 describe("buildQualityReport — lowConfidence", () => {

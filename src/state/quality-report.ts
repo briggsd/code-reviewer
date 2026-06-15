@@ -21,18 +21,19 @@ export type HypothesisMetric =
   | "overrideRate"
   | "acceptanceRate"
   | "withholdRate"
+  | "severityDismissRate"
   | "completionRate"
   | "structuredOutputRate"
   | "reviewerFailureRate";
 
-export type SegmentType = "overall" | "tier" | "reviewer";
+export type SegmentType = "overall" | "tier" | "reviewer" | "severity";
 
 /** "above" = breached a MAX threshold (bad-high); "below" = fell under a MIN threshold (bad-low). */
 export type BreachDirection = "above" | "below";
 
 export interface QualityHypothesis {
   segmentType: SegmentType;
-  /** Segment key: "overall", a tier name ("full"/"lite"/...), or a reviewer role. */
+  /** Segment key: "overall", a tier name ("full"/"lite"/...), reviewer role, or severity. */
   segment: string;
   metric: HypothesisMetric;
   /** Observed rate in [0,1]. */
@@ -62,6 +63,8 @@ export interface QualityReportThresholds {
   maxOverrideRate: number; // default 0.10
   minAcceptanceRate: number; // default 0.50
   maxWithholdRate: number; // default 0.30
+  /** Per-severity dismissed ÷ (fixed + ignored + dismissed); climbing-rate MAX threshold. default 0.50 */
+  maxSeverityDismissRate: number; // default 0.50
   minCompletionRate: number; // default 0.90
   minStructuredOutputRate: number; // default 0.90
   maxReviewerFailureRate: number; // default 0.10
@@ -80,6 +83,7 @@ export const DEFAULT_QUALITY_THRESHOLDS: QualityReportThresholds = {
   maxOverrideRate: 0.1,
   minAcceptanceRate: 0.5,
   maxWithholdRate: 0.3,
+  maxSeverityDismissRate: 0.5,
   minCompletionRate: 0.9,
   minStructuredOutputRate: 0.9,
   maxReviewerFailureRate: 0.1,
@@ -308,6 +312,32 @@ export function buildQualityReport(
         continue;
       }
       checkAcceptanceAndWithhold(hypotheses, t, "reviewer", reviewer, stat);
+    }
+  }
+
+  // ── Per-severity disposition segments ─────────────────────────────────────
+
+  if (analysis.dispositions !== undefined) {
+    for (const severity of Object.keys(analysis.dispositions.bySeverity).sort()) {
+      const stat = analysis.dispositions.bySeverity[severity];
+      if (stat === undefined) {
+        continue;
+      }
+
+      const denominator = stat.fixed + stat.dismissed + stat.ignored;
+      if (denominator === 0) {
+        continue;
+      }
+
+      checkBreach(hypotheses, t, {
+        segmentType: "severity",
+        segment: severity,
+        metric: "severityDismissRate",
+        value: stat.dismissed / denominator,
+        threshold: t.maxSeverityDismissRate,
+        direction: "above",
+        sampleSize: denominator,
+      });
     }
   }
 
