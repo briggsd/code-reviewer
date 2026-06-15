@@ -1,4 +1,5 @@
 import type { Finding, ReviewDecision, ReviewSummary } from "../contracts/index.ts";
+import { deriveDisposition } from "../runner/finding-disposition.ts";
 import { escapeMarkdown } from "./markdown-escape.ts";
 
 export interface SummaryMarkdownOptions {
@@ -189,7 +190,8 @@ function buildDismissBlock(finding: Finding): string | null {
     `downgraded to \`acknowledge\` regardless). Add an optional \`"expires": "YYYY-MM-DD"\` field to make the`,
     `acknowledgement lapse automatically. To record that you are explicitly **rejecting** this finding`,
     `(wrong call or won't-fix), add \`"verdict": "dismissed"\` alongside \`mode\` — omitting \`verdict\` defaults`,
-    `to \`"acknowledged"\` (accepted-as-is). The verdict is tracked in re-review precision metrics.`,
+    `to \`"acknowledged"\` (accepted-as-is). A \`"dismissed"\` finding renders as \`✗ dismissed: <reason>\` in`,
+    `the next review comment (vs \`acknowledged: <reason>\`), and the verdict feeds re-review precision metrics.`,
     ``,
     `${fence}json`,
     serialized,
@@ -200,16 +202,34 @@ function buildDismissBlock(finding: Finding): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Verdict-aware acknowledged suffix (#280)
+//
+// A finding dismissed via verdict: "dismissed" (an ack whose verdict field is
+// "dismissed") is currently mislabeled as "acknowledged" because the same
+// `finding.acknowledged` field is set in both cases.  This helper reads the
+// verdict so dismissed findings render a distinct `✗ dismissed: <reason>`
+// suffix while normal acknowledged findings keep the existing label.
+//
+// Shared by both `formatFindingDetail` and `formatOneLiner` to prevent drift.
+// ---------------------------------------------------------------------------
+
+function formatAcknowledgedSuffix(finding: Finding): string {
+  if (finding.acknowledged === undefined) return "";
+  const { reason, verdict } = finding.acknowledged;
+  if (verdict === "dismissed") {
+    return ` — _✗ dismissed: ${escapeMarkdown(reason)}_`;
+  }
+  return ` — _acknowledged: ${escapeMarkdown(reason)}_`;
+}
+
+// ---------------------------------------------------------------------------
 // Per-finding detail block (inside <details>)
 // Drops the "Reviewer:" line (group heading already says it).
 // ---------------------------------------------------------------------------
 
 function formatFindingDetail(finding: Finding): string {
   const location = formatLocation(finding);
-  const acknowledgedSuffix =
-    finding.acknowledged !== undefined
-      ? ` — _acknowledged: ${escapeMarkdown(finding.acknowledged.reason)}_`
-      : "";
+  const acknowledgedSuffix = formatAcknowledgedSuffix(finding);
 
   const lines = [
     `- **${finding.severity.toUpperCase()}: ${escapeMarkdown(finding.title)}**${location}${acknowledgedSuffix}`,
@@ -239,10 +259,7 @@ function formatFindingDetail(finding: Finding): string {
 
 function formatOneLiner(finding: Finding): string {
   const location = formatLocation(finding);
-  const acknowledgedSuffix =
-    finding.acknowledged !== undefined
-      ? ` — _acknowledged: ${escapeMarkdown(finding.acknowledged.reason)}_`
-      : "";
+  const acknowledgedSuffix = formatAcknowledgedSuffix(finding);
 
   const rawRec = finding.recommendation;
   const trimmedRec = rawRec.length > 120 ? `${rawRec.slice(0, 120)}…` : rawRec;
@@ -533,6 +550,23 @@ export function formatReviewSummaryMarkdown(
         const lastSeen =
           c.lastSeenHeadSha !== undefined ? `, last seen \`${c.lastSeenHeadSha.slice(0, 7)}\`` : "";
         lines.push(`  - ${title} — withheld${lastSeen}`);
+      }
+    }
+    // Disposition rollup (#280): iterate all classifications and derive per-finding
+    // disposition; render only nonzero categories. Omit line entirely when all zero.
+    {
+      const counts = { fixed: 0, dismissed: 0, ignored: 0, acknowledged: 0 };
+      for (const c of summary.reReview.classifications) {
+        const d = deriveDisposition(c);
+        if (d !== undefined) counts[d]++;
+      }
+      const parts: string[] = [];
+      if (counts.fixed > 0) parts.push(`${counts.fixed} fixed`);
+      if (counts.dismissed > 0) parts.push(`${counts.dismissed} dismissed`);
+      if (counts.ignored > 0) parts.push(`${counts.ignored} ignored`);
+      if (counts.acknowledged > 0) parts.push(`${counts.acknowledged} acknowledged`);
+      if (parts.length > 0) {
+        lines.push(`- Dispositions: ${parts.join(" · ")}`);
       }
     }
     if (summary.reReview.carriedForwardFindingIds.length > 0) {

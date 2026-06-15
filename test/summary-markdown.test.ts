@@ -1689,3 +1689,237 @@ describe("resolvedLog — cross-round history section", () => {
     expect(historyIdx).toBeLessThan(breakGlassIdx);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #280 — Disposition surfacing: rollup line + verdict-aware ack suffix
+// ---------------------------------------------------------------------------
+
+describe("disposition surfacing (#280)", () => {
+  // Helper to build a minimal recurring classification with an optional ack.
+  function makeRecurring(
+    id: string,
+    ack?: { reason: string; verdict?: "dismissed" | "acknowledged" },
+  ): import("../src/contracts/review.ts").ReReviewFindingClassification {
+    return {
+      stableId: id,
+      status: "recurring",
+      finding: {
+        id,
+        reviewer: "security",
+        severity: "warning",
+        category: "auth",
+        title: `Finding ${id}`,
+        body: "Body.",
+        confidence: "high",
+        evidence: [],
+        recommendation: "Fix it.",
+        ...(ack !== undefined ? { acknowledged: ack } : {}),
+      },
+    };
+  }
+
+  function makeFixed(
+    id: string,
+    priorAck?: { reason: string; verdict?: "dismissed" | "acknowledged" },
+  ): import("../src/contracts/review.ts").ReReviewFindingClassification {
+    return {
+      stableId: id,
+      status: "fixed",
+      priorFinding: {
+        id,
+        reviewer: "security",
+        severity: "warning",
+        category: "auth",
+        title: `Prior finding ${id}`,
+        body: "Was a bug.",
+        confidence: "high",
+        evidence: [],
+        recommendation: "Already fixed.",
+        ...(priorAck !== undefined ? { acknowledged: priorAck } : {}),
+      },
+      lastSeenHeadSha: "abc1234567890",
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Part 1: disposition rollup
+  // ---------------------------------------------------------------------------
+
+  test("rollup line renders all four nonzero categories", () => {
+    const summary = makeSummary({
+      findings: [makeFinding({ id: "fnd_rec_ign", title: "Ignored finding" })],
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: ["fnd_rec_ign", "fnd_rec_ack", "fnd_rec_dis"],
+        fixedFindingIds: ["fnd_fixed"],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: [],
+        classifications: [
+          makeFixed("fnd_fixed"),
+          makeRecurring("fnd_rec_dis", { reason: "wrong call", verdict: "dismissed" }),
+          makeRecurring("fnd_rec_ign"), // no ack → ignored
+          makeRecurring("fnd_rec_ack", { reason: "intentional" }), // ack, no dismiss verdict → acknowledged
+        ],
+      },
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).toContain(
+      "- Dispositions: 1 fixed · 1 dismissed · 1 ignored · 1 acknowledged",
+    );
+  });
+
+  test("rollup omits zero categories", () => {
+    // Only fixed and ignored — dismissed and acknowledged are 0.
+    const summary = makeSummary({
+      findings: [makeFinding({ id: "fnd_rec_ign2", title: "Ignored finding 2" })],
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: ["fnd_rec_ign2"],
+        fixedFindingIds: ["fnd_fixed2"],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: [],
+        classifications: [makeFixed("fnd_fixed2"), makeRecurring("fnd_rec_ign2")],
+      },
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).toContain("- Dispositions: 1 fixed · 1 ignored");
+    expect(markdown).not.toContain("dismissed");
+    expect(markdown).not.toContain("acknowledged");
+  });
+
+  test("rollup line is absent when all dispositions are zero (e.g. only carried_forward classifications)", () => {
+    const summary = makeSummary({
+      findings: [],
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: [],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: ["fnd_cf"],
+        classifications: [
+          {
+            stableId: "fnd_cf",
+            status: "carried_forward",
+            priorFinding: {
+              id: "fnd_cf",
+              reviewer: "security",
+              severity: "warning",
+              category: "auth",
+              title: "Carried",
+              body: "",
+              confidence: "high",
+              evidence: [],
+              recommendation: "",
+            },
+          },
+        ],
+      },
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).not.toContain("Dispositions:");
+  });
+
+  test("rollup line is absent when reReview.classifications is empty", () => {
+    const summary = makeSummary({
+      findings: [],
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: [],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: [],
+        classifications: [],
+      },
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).not.toContain("Dispositions:");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Part 2: verdict-aware acknowledged suffix
+  // ---------------------------------------------------------------------------
+
+  test("dismissed finding renders '✗ dismissed: <reason>' NOT 'acknowledged' in one-liner", () => {
+    const finding = makeFinding({
+      title: "Auth bypass",
+      acknowledged: { reason: "won't fix", verdict: "dismissed" },
+    });
+    const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [finding] }));
+
+    const lines = markdown.split("\n");
+    const bulletLine = lines.find(
+      (l) => l.startsWith("- **WARNING:") && l.includes("Auth bypass"),
+    )!;
+    expect(bulletLine).toBeDefined();
+    expect(bulletLine).toContain("_✗ dismissed: won't fix_");
+    expect(bulletLine).not.toContain("_acknowledged:");
+  });
+
+  test("dismissed finding renders '✗ dismissed: <reason>' NOT 'acknowledged' in the detail block", () => {
+    const finding = makeFinding({
+      title: "Auth bypass detail",
+      acknowledged: { reason: "won't fix", verdict: "dismissed" },
+    });
+    const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [finding] }));
+
+    const detailsStart = markdown.indexOf("<details><summary>View full review");
+    const detailsEnd = markdown.indexOf("</details>", detailsStart);
+    const detailsBlock = markdown.slice(detailsStart, detailsEnd);
+
+    expect(detailsBlock).toContain("_✗ dismissed: won't fix_");
+    expect(detailsBlock).not.toContain("_acknowledged:");
+  });
+
+  test("acknowledged finding (no verdict) still renders 'acknowledged: <reason>' (back-compat)", () => {
+    const finding = makeFinding({
+      title: "Back-compat ack",
+      acknowledged: { reason: "tracked via JIRA-123" },
+    });
+    const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [finding] }));
+
+    const lines = markdown.split("\n");
+    const bulletLine = lines.find(
+      (l) => l.startsWith("- **WARNING:") && l.includes("Back-compat ack"),
+    )!;
+    expect(bulletLine).toBeDefined();
+    expect(bulletLine).toContain("_acknowledged: tracked via JIRA-123_");
+    expect(bulletLine).not.toContain("dismissed");
+  });
+
+  test("acknowledged finding with explicit verdict 'acknowledged' renders 'acknowledged: <reason>'", () => {
+    const finding = makeFinding({
+      title: "Explicit ack verdict",
+      acknowledged: { reason: "accepted as-is", verdict: "acknowledged" },
+    });
+    const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [finding] }));
+
+    const lines = markdown.split("\n");
+    const bulletLine = lines.find(
+      (l) => l.startsWith("- **WARNING:") && l.includes("Explicit ack verdict"),
+    )!;
+    expect(bulletLine).toBeDefined();
+    expect(bulletLine).toContain("_acknowledged: accepted as-is_");
+    expect(bulletLine).not.toContain("dismissed");
+  });
+
+  test("dismissed reason with markdown metacharacters is escaped", () => {
+    const finding = makeFinding({
+      title: "Esc dismissed",
+      acknowledged: { reason: "Use `safeMode` and **always** check", verdict: "dismissed" },
+    });
+    const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [finding] }));
+
+    const lines = markdown.split("\n");
+    const bulletLine = lines.find(
+      (l) => l.startsWith("- **WARNING:") && l.includes("Esc dismissed"),
+    )!;
+    expect(bulletLine).toBeDefined();
+    expect(bulletLine).toContain("\\`safeMode\\`");
+    expect(bulletLine).toContain("\\*\\*always\\*\\*");
+    expect(bulletLine).not.toContain("`safeMode`");
+  });
+});

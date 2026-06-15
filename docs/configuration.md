@@ -153,10 +153,14 @@ from your local config — which is exactly how you can test policy rules locall
   entries, ≤500 chars each.
 - `acknowledgements`: array of structured records accepting a *specific* known finding. Each is
   `{ "path": "<glob>", "category"?: "<cat>", "stableFindingId"?: "fnd_…", "mode": "acknowledge" |
-  "suppress", "reason": "<why>", "expires"?: "YYYY-MM-DD" }`. A matching finding (by path glob +
+  "suppress", "verdict"?: "acknowledged" | "dismissed", "reason": "<why>", "expires"?: "YYYY-MM-DD" }`.
+  A matching finding (by path glob +
   optional category/stableFindingId) is, for `acknowledge`, **kept and annotated but excluded from
   the CI gate** (surfaced, not hidden); for `suppress`, **removed** — except a security-reviewer
-  finding, which is downgraded to `acknowledge` (never silently hidden). An `expires` date in the
+  finding, which is downgraded to `acknowledge` (never silently hidden). `verdict` records the
+  *outcome* (orthogonal to `mode`'s visibility): `"dismissed"` = you rejected the finding (renders as
+  `✗ dismissed: <reason>` in the comment and counts as a false positive in re-review precision);
+  `"acknowledged"` (default) = accepted-as-is. An `expires` date in the
   past makes the entry inactive. Like `conventions`, these are read from the **base branch** in the
   provider path. Bounded: ≤100 entries.
   > **⚠️ Upgrading:** earlier releases declared `acknowledgements` but ignored it. After upgrading,
