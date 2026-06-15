@@ -34,10 +34,26 @@ describe("release artifact workflow", () => {
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("gh release create");
     expect(workflow).toContain("startsWith(github.ref, 'refs/tags/v')");
-    // The release job depends on `pack` only — NOT the dispatch-only holdout-gate, which is
-    // skipped on a tag push (depending on a skipped job would skip release).
-    expect(workflow).toContain("needs: pack");
     expect(workflow).not.toContain("needs: holdout-gate");
+
+    // Scope the release-job dependency/trigger assertions to the `release:` YAML block, not the
+    // whole file. holdout-gate ALSO declares `needs: pack`, so a whole-file toContain would pass
+    // even if `needs: pack` were dropped from `release` specifically. Slice from `\n  release:`
+    // (a top-level job key) to the next top-level job key or EOF, then assert within that slice.
+    const releaseBlockStart = workflow.indexOf("\n  release:");
+    expect(releaseBlockStart).toBeGreaterThan(-1);
+    const afterRelease = workflow.slice(releaseBlockStart + 1);
+    const nextJobMatch = afterRelease.slice("  release:".length).search(/\n {2}[a-z][\w-]*:\n/);
+    const releaseBlock =
+      nextJobMatch === -1
+        ? afterRelease
+        : afterRelease.slice(0, "  release:".length + nextJobMatch);
+    // The release job depends on `pack` only — NOT the dispatch-only holdout-gate, which is
+    // skipped on a tag push (depending on a skipped job would skip release). This must FAIL if
+    // `needs: pack` is removed from the `release` job.
+    expect(releaseBlock).toContain("needs: pack");
+    // The release job is tag-only.
+    expect(releaseBlock).toContain("startsWith(github.ref, 'refs/tags/v')");
     // The publish-only tag path attaches the tarball but NOT a fresh quality stamp.
     expect(workflow).not.toContain("dist/quality-stamp.json \\");
 

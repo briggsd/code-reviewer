@@ -45,10 +45,19 @@ provider secrets) and attaches it to a GitHub Release. The secret-consuming live
 gate runs **only on `workflow_dispatch`** (the validation step below) — it is no longer reachable
 from a tag push, so pushing a `v*` tag can never consume the three provider API keys (#297).
 
-Tag protection is still worth configuring as an **access control over who can publish a release**
-(Settings → Tags, restrict who can create/push `v*` tags), but it is no longer the
-secret-exposure control: that is enforced by the workflow, which keeps secrets on the
-dispatch-only validation job.
+A **tag ruleset** is still worth configuring as the **who-can-release** control. GitHub deprecated
+the classic "tag protection rules" feature in favor of repository **rulesets** (Settings → Rules →
+Rulesets → new **tag** ruleset). Configure it with target tag pattern `v*`, the **Restrict
+creations** rule (optionally **Restrict deletions** / **Restrict updates** too), and a bypass list
+limited to the release maintainers. It is no longer the secret-exposure control — that is enforced
+by the workflow, which keeps secrets on the dispatch-only validation job.
+
+**SOP-bypass risk:** without this ruleset, any collaborator with write access can push a `v*` tag
+directly and the workflow will publish a GitHub Release that **never passed the live holdout
+quality gate** (the gate runs only on the dispatch path, step 4). This is the accepted trade-off of
+the publish-only tag design from #297: the tag path is intentionally secret-free and does not
+re-run the gate, so the ruleset is the only thing gating *who* can trigger a publish. Treat the tag
+ruleset as a release-process control, not a safety control.
 
 Releases are version-tag driven. The version convention is a `vX.Y.Z` git tag matching the
 `package.json` `version`. The supported flow is **two steps: dispatch to validate, then tag to
@@ -63,6 +72,15 @@ publish.** To cut a release:
    **live holdout quality gate** (the only place provider secrets are used), uploading
    `dist/quality-stamp.json`. Confirm the gate passes before tagging. This is the gate for the
    release; it is not bypassed — it just runs here, not on the tag push.
+
+   **Verify the validated commit SHA.** `workflow_dispatch` targets a **branch ref, not a SHA**, so
+   if other commits land between this run and the tag, the gate will have validated a *different*
+   commit than the one you tag and publish. After the dispatch run completes, open it in the
+   Actions UI and confirm its commit SHA matches the exact commit you intend to tag in step 5. The
+   safest path is to dispatch from a freshly-pulled `main` with no in-flight merges, then tag that
+   same commit immediately. If the SHAs do **not** match (a concurrent merge landed), do not tag —
+   re-run the dispatch against `main` after the branch has stabilised and re-verify the SHA before
+   proceeding to step 5.
 5. **Tag and push to publish.** From the validated commit, create and push the matching annotated
    tag:
 
