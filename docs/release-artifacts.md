@@ -22,7 +22,9 @@ The workflow:
 2. installs Bun 1.3.0,
 3. installs dependencies with `bun install --frozen-lockfile`,
 4. installs the Pi CLI (`npm install -g --ignore-scripts @earendil-works/pi-coding-agent`),
-5. optionally runs `bun run check`,
+5. runs `bun run check` — **always** on a `v*` tag push (a real release must pass the check
+   suite); on a `workflow_dispatch` it is gated by the `run_checks` input (default `true`) for
+   ad-hoc artifact builds (`if: startsWith(github.ref, 'refs/tags/v') || inputs.run_checks`),
 6. always runs `bun run pack:smoke`,
 7. runs the **live holdout quality gate** (`bun run evals --gate --runs "$EVAL_RUNS" --stamp dist/quality-stamp.json`) — this step is **required** (no `if:` or `continue-on-error`); if any holdout scenario regresses below threshold (or the holdout is empty), the gate exits nonzero and the pack step never runs,
 8. creates `dist/*.tgz` with `npm pack`,

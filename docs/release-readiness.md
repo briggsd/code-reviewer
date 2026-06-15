@@ -40,6 +40,13 @@ publish` / registry login exists in any workflow. That deferral is intentional �
 semantics (final name/scope, access policy, provenance) are not yet finalized; see
 [Release artifacts](release-artifacts.md).
 
+**Prerequisite — restrict who can cut a release.** Because a `v*` tag push now triggers the
+secret-consuming live holdout gate (it exposes the three provider API keys) and the auto-Release,
+tag creation is the release trigger and must be access-controlled. Configure GitHub **tag
+protection rules** (Settings → Tags) to restrict who can create/push `v*` tags before relying on
+this SOP. Without a tag protection rule, any collaborator with write access can cut a release —
+and consume the provider secrets — by pushing a `v*` tag, bypassing the dispatch UI.
+
 Releases are version-tag driven. The version convention is a `vX.Y.Z` git tag matching the
 `package.json` `version`. To cut a release:
 

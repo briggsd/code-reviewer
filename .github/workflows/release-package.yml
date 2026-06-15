@@ -74,8 +74,11 @@ jobs:
           AI_REVIEW_PI_MODEL: ${{ inputs.pi_model }}
           # All three provider keys are exposed so the dispatcher can pick any provider via
           # pi_provider without editing the workflow; Pi reads only the key matching the selected
-          # provider. Mirrors pi-live-smoke.yml. This is a trusted workflow_dispatch on a trusted
-          # checkout, so the multi-key exposure is bounded to the maintainer who triggered it.
+          # provider. Mirrors pi-live-smoke.yml. NOTE: this workflow now runs on BOTH
+          # workflow_dispatch AND a v* tag push, so this multi-key exposure is NOT bounded to a
+          # manual maintainer dispatch — it occurs for any actor who can push a v* tag (creating a
+          # tag triggers this secret-consuming gate + the auto-Release). Restrict v* tag creation
+          # via GitHub tag protection rules (Settings -> Tags) to bound who can trigger it.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
@@ -126,6 +129,11 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: ai-code-review-package-${{ github.sha }}
+          # upload-artifact@v4 stored these relative to their least-common-ancestor (dist/),
+          # stripping that prefix, so the artifact holds <pkg>.tgz + quality-stamp.json (no dist/).
+          # Extracting to dist/ restores dist/<pkg>.tgz + dist/quality-stamp.json — exactly the
+          # paths `gh release create` references below. Do NOT remove path: dist; without it the
+          # files extract to the workspace root and the release step's dist/* globs find nothing.
           path: dist
 
       - name: Create GitHub Release
