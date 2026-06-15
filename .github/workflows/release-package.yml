@@ -1,9 +1,13 @@
 name: Release package artifact
 
 on:
-  # Tag push (vX.Y.Z) builds the tarball through the same holdout quality gate and, only on a
-  # tag, attaches the tarball + quality stamp to a GitHub Release. workflow_dispatch keeps the
-  # artifact-only build path (no Release) for ad-hoc verification.
+  # Two distinct paths share one workflow:
+  #   - push of a v* tag  -> publish-only: build the tarball (no secrets) and attach it to a GitHub
+  #     Release. NO provider secrets are consumed on this path (#297).
+  #   - workflow_dispatch -> maintainer pre-release validation: build the tarball AND run the
+  #     secret-consuming live holdout quality gate (the only place provider API keys are used).
+  # The secret-consuming gate is gated to workflow_dispatch only, so a v* tag push can NEVER trigger
+  # provider-secret consumption — the supported SOP is dispatch-to-validate, then tag-to-publish.
   push:
     tags:
       - "v*"
@@ -57,47 +61,12 @@ jobs:
 
       - name: Run checks
         # Always on a tag push (a real release must pass the check suite); on workflow_dispatch
-        # the run_checks input still gates it for ad-hoc artifact builds.
+        # the run_checks input still gates it for ad-hoc artifact builds. No provider keys needed.
         if: startsWith(github.ref, 'refs/tags/v') || inputs.run_checks
         run: bun run check
 
       - name: Run package smoke
         run: bun run pack:smoke
-
-      - name: Holdout quality gate (live)
-        # Sequential fan-out (scenarios x eval_runs live model calls); bound the wall-clock so a
-        # stalled provider call can't hang the release job indefinitely (#130 review).
-        timeout-minutes: 30
-        env:
-          AI_REVIEW_LIVE_EVAL: "1"
-          AI_REVIEW_PI_PROVIDER: ${{ inputs.pi_provider }}
-          AI_REVIEW_PI_MODEL: ${{ inputs.pi_model }}
-          # All three provider keys are exposed so the dispatcher can pick any provider via
-          # pi_provider without editing the workflow; Pi reads only the key matching the selected
-          # provider. Mirrors pi-live-smoke.yml. NOTE: this workflow now runs on BOTH
-          # workflow_dispatch AND a v* tag push, so this multi-key exposure is NOT bounded to a
-          # manual maintainer dispatch — it occurs for any actor who can push a v* tag (creating a
-          # tag triggers this secret-consuming gate + the auto-Release). Restrict v* tag creation
-          # via GitHub tag protection rules (Settings -> Tags) to bound who can trigger it.
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
-          # On a tag push there are no dispatch inputs, so eval_runs is empty; fall back to 3
-          # (the workflow_dispatch default) so the gate runs with a sane run count either way.
-          EVAL_RUNS: ${{ inputs.eval_runs || '3' }}
-        run: |
-          mkdir -p dist
-          bun run evals --gate --runs "$EVAL_RUNS" --stamp dist/quality-stamp.json
-
-      - name: Upload quality stamp (always)
-        # Runs even when the gate blocks (exit 1) so the stamp — the primary diagnostic for WHY
-        # the release was blocked — is preserved. The blocked exit still prevents the tarball.
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: quality-stamp-${{ github.sha }}
-          path: dist/quality-stamp.json
-          if-no-files-found: warn
 
       - name: Create release tarball
         run: |
@@ -109,14 +78,72 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ai-code-review-package-${{ github.sha }}
-          path: |
-            dist/*.tgz
-            dist/quality-stamp.json
+          path: dist/*.tgz
           if-no-files-found: error
 
-  # Tag-only: attach the gated build to a GitHub Release. Split out from `pack` so the build job
-  # stays least-privilege (contents: read); contents: write is confined to this job and runs only
-  # after `pack` (and therefore the holdout quality gate) succeeds. No registry publish step.
+  # workflow_dispatch ONLY: the maintainer's pre-release validation. This is the only job that
+  # consumes provider secrets (the live holdout quality gate makes real model calls), so it is
+  # gated to a manual dispatch and can NEVER run on a v* tag push (#297). A tag push skips this job
+  # entirely; the `release` job therefore depends on `pack`, not on this gate.
+  holdout-gate:
+    name: Live holdout quality gate
+    if: github.event_name == 'workflow_dispatch'
+    needs: pack
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out trusted source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Pi CLI
+        run: npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+      - name: Holdout quality gate (live)
+        # Sequential fan-out (scenarios x eval_runs live model calls); bound the wall-clock so a
+        # stalled provider call can't hang the job indefinitely (#130 review).
+        timeout-minutes: 30
+        env:
+          AI_REVIEW_LIVE_EVAL: "1"
+          AI_REVIEW_PI_PROVIDER: ${{ inputs.pi_provider }}
+          AI_REVIEW_PI_MODEL: ${{ inputs.pi_model }}
+          # All three provider keys are exposed so the dispatcher can pick any provider via
+          # pi_provider without editing the workflow; Pi reads only the key matching the selected
+          # provider. Mirrors pi-live-smoke.yml. This job runs ONLY on workflow_dispatch
+          # (if: github.event_name == 'workflow_dispatch'), so provider-secret consumption is bound
+          # to a manual maintainer dispatch and can NEVER be triggered by pushing a v* tag (#297).
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+          EVAL_RUNS: ${{ inputs.eval_runs || '3' }}
+        run: |
+          mkdir -p dist
+          bun run evals --gate --runs "$EVAL_RUNS" --stamp dist/quality-stamp.json
+
+      - name: Upload quality stamp (always)
+        # Runs even when the gate blocks (exit 1) so the stamp — the primary diagnostic for WHY
+        # the gate blocked — is preserved. The blocked exit still fails the job.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: quality-stamp-${{ github.sha }}
+          path: dist/quality-stamp.json
+          if-no-files-found: warn
+
+  # Tag-only: attach the built tarball to a GitHub Release. Split out from `pack` so the build job
+  # stays least-privilege (contents: read); contents: write is confined to this job. It `needs:
+  # pack` only — NOT holdout-gate, which is skipped on a tag push (depending on a skipped job would
+  # skip this one). The holdout gate runs on the dispatch validation path before tagging, not here.
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
@@ -129,17 +156,18 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: ai-code-review-package-${{ github.sha }}
-          # upload-artifact@v4 stored these relative to their least-common-ancestor (dist/),
-          # stripping that prefix, so the artifact holds <pkg>.tgz + quality-stamp.json (no dist/).
-          # Extracting to dist/ restores dist/<pkg>.tgz + dist/quality-stamp.json — exactly the
-          # paths `gh release create` references below. Do NOT remove path: dist; without it the
-          # files extract to the workspace root and the release step's dist/* globs find nothing.
+          # upload-artifact@v4 stored the tarball relative to its least-common-ancestor (dist/),
+          # stripping that prefix, so the artifact holds <pkg>.tgz (no dist/). Extracting to dist/
+          # restores dist/<pkg>.tgz — exactly the path `gh release create` references below. Do NOT
+          # remove path: dist; without it the file extracts to the workspace root and the release
+          # step's dist/* glob finds nothing.
           path: dist
 
       - name: Create GitHub Release
         # gh CLI is a run-step, not a third-party action, so no SHA pin is required (#96). It uses
         # the built-in GITHUB_TOKEN (contents: write) to create the Release for the pushed tag and
-        # attach the tarball + quality stamp. --verify-tag ensures the tag exists on the remote.
+        # attach the tarball. --verify-tag ensures the tag exists on the remote. No provider secrets
+        # are referenced on this path.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -148,5 +176,4 @@ jobs:
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
             --verify-tag \
-            dist/*.tgz \
-            dist/quality-stamp.json
+            dist/*.tgz
