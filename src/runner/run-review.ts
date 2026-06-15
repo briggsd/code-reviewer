@@ -412,31 +412,17 @@ async function fuseAndDecide(input: {
   const groundingDroppedCount = grounding.dropped.length;
   let groundedSummary = runtimeResult.summary;
   if (groundingDroppedCount > 0) {
-    const highestSeverity = getHighestSeverity(grounding.grounded);
-    const decision = chooseDecision(grounding.grounded, highestSeverity);
-    const hasBlockingFinding =
-      highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
-    const outcome = context.config.mode === "blocking" && hasBlockingFinding ? "fail" : "pass";
-    groundedSummary = {
-      ...runtimeResult.summary,
+    groundedSummary = rebuildSummaryForFindings({
+      base: runtimeResult.summary,
+      context,
       findings: grounding.grounded,
-      decision,
-      outcome,
-      // The displayed finding set changed (some withheld), so refresh the title — its count must
-      // reflect the findings now shown, not the coordinator's pre-grounding count.
-      title: createSummaryTitle(decision, grounding.grounded),
-      // #206: the coordinator wrote `.body` over its PRE-grounding finding set, so reusing it here
-      // can narrate findings that no longer survived — and that prose is model-authored (injection-
-      // influenceable via untrusted diff content, principle 6). Derive the body deterministically
-      // from the GROUNDED set instead (the createSummaryTitle sibling) so the authoritative summary
-      // cannot carry withheld-finding narration. Withheld findings stay visible only in the labeled
-      // #204 block.
+      // #206: derive the body deterministically from the GROUNDED set (not the coordinator's
+      // pre-grounding prose, which could narrate withheld findings and is injection-influenceable).
       body: `${createSummaryBody(context, grounding.grounded)}\n\n_${groundingDroppedCount} finding(s) shown at low confidence (kept, non-blocking): cited code was not found in the changed hunks._`,
-      // #207: down-weight rather than drop — each demoted finding is marked confidence:"low"
-      // and shown in the low-confidence block. Non-blocking and excluded from the gate/title/
-      // findingIds, but never silently lost. Full-file-corpus promotion is tracked in #214.
+      // #207: down-weight rather than drop — each demoted finding is confidence:"low", shown in
+      // the low-confidence block, excluded from gate/title/findingIds, never silently lost.
       groundingWithheld: grounding.dropped.map((f) => ({ ...f, confidence: "low" as const })),
-    };
+    });
     await emitTrace(options.traceSink, {
       type: "grounding.applied",
       runId,
@@ -484,25 +470,17 @@ async function fuseAndDecide(input: {
   if (acked.acknowledgedCount > 0 || acked.suppressedCount > 0) {
     // Recompute the gate from findings that still count — acknowledged + suppressed are excluded.
     const gateFindings = acked.findings.filter((f) => f.acknowledged === undefined);
-    const highestSeverity = getHighestSeverity(gateFindings);
-    const decision = chooseDecision(gateFindings, highestSeverity);
-    const hasBlockingFinding =
-      highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
-    const outcome = context.config.mode === "blocking" && hasBlockingFinding ? "fail" : "pass";
     const notes: string[] = [];
     if (acked.acknowledgedCount > 0)
       notes.push(`${acked.acknowledgedCount} finding(s) acknowledged`);
     if (acked.suppressedCount > 0) notes.push(`${acked.suppressedCount} suppressed`);
-    ackedSummary = {
-      ...withIds,
+    ackedSummary = rebuildSummaryForFindings({
+      base: withIds,
+      context,
       findings: acked.findings,
-      decision,
-      outcome,
-      // Refresh the title for the changed set. Count reflects the findings SHOWN (acked.findings —
-      // acknowledged ones are still listed, annotated); the decision is driven by gateFindings.
-      title: createSummaryTitle(decision, acked.findings),
+      gateFindings,
       body: `${withIds.body}\n\n_${notes.join("; ")} by project acknowledgements (base-branch .ai-review.json)._`,
-    };
+    });
     await emitTrace(options.traceSink, {
       type: "acknowledgements.applied",
       runId,
@@ -1513,6 +1491,53 @@ function createSummaryBody(context: ReviewContext, findings: Finding[]): string 
   ];
 
   return lines.join("\n");
+}
+
+/**
+ * Rebuild every structurally-coupled finding-derived field of a summary from ONE authoritative
+ * finding set, so `findings`/`title`/`decision`/`outcome` can't drift out of agreement (#209).
+ * Both the grounding-drop reconciliation and the post-acknowledgement reconciliation route
+ * through here, so a co-derived field added in one place can't be forgotten in the other.
+ *
+ * - `findings` is the SHOWN set: becomes `summary.findings` and drives the title count.
+ * - `gateFindings` drives the decision/outcome severity gate; defaults to `findings` when the
+ *   shown set IS the gated set (grounding path). The acknowledgement path passes a narrower set
+ *   (acknowledged findings stay shown but don't count toward the gate).
+ * - `body` is the authoritative body string, composed by the caller — it is genuinely path-
+ *   specific: the grounding-drop path derives it deterministically from the grounded set (#206,
+ *   closing an injection channel — do NOT reintroduce model prose here), while the no-drop /
+ *   acknowledgement path reuses the coordinator's prose body plus a note. Centralizing it here
+ *   would erase that distinction, so it stays a caller input and the invariant test asserts its
+ *   agreement with `findings`.
+ * - `groundingWithheld`, when provided, sets the low-confidence block (#207); omitted preserves
+ *   whatever the base summary already carries (so the ack path forwards it unchanged).
+ */
+function rebuildSummaryForFindings(input: {
+  base: ReviewSummary;
+  context: ReviewContext;
+  findings: Finding[];
+  gateFindings?: Finding[];
+  body: string;
+  groundingWithheld?: Finding[];
+}): ReviewSummary {
+  const { base, context, findings, body } = input;
+  const gateFindings = input.gateFindings ?? findings;
+  const highestSeverity = getHighestSeverity(gateFindings);
+  const decision = chooseDecision(gateFindings, highestSeverity);
+  const hasBlockingFinding =
+    highestSeverity !== undefined && context.config.failOn.includes(highestSeverity);
+  const outcome = context.config.mode === "blocking" && hasBlockingFinding ? "fail" : "pass";
+  return {
+    ...base,
+    findings,
+    decision,
+    outcome,
+    title: createSummaryTitle(decision, findings),
+    body,
+    ...(input.groundingWithheld !== undefined
+      ? { groundingWithheld: input.groundingWithheld }
+      : {}),
+  };
 }
 
 function serializeError(error: unknown): { name: string; message: string; stack?: string } {
