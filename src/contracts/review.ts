@@ -313,6 +313,17 @@ export interface ReviewSummary {
     reviewerCount: number; // reviewers that completed this run (distinct roles, not raw invocation count)
     tier: string; // risk tier (so the warning can respect the #65 trivial fast-path)
   };
+  /** Cross-round resolved-finding history (#279, M026 S02). Accumulated across re-review rounds
+   *  and persisted in the comment's hidden metadata (schemaVersion 6+). Optional — absent on first
+   *  review / fixture paths. Comment content (not counts-only-egress); titles route through
+   *  escapeMarkdown. */
+  resolvedLog?: Array<{ stableId: string; title: string; resolvedAtSha: string }>;
+  /**
+   * Display-only truncation flag: true when the resolved-log was capped (merged set exceeded 50
+   * entries before slicing). Drives the "…older resolved findings omitted" note in the rendered
+   * summary comment. NOT persisted in hidden metadata (recomputed from the log each round).
+   */
+  resolvedLogTruncated?: boolean;
 }
 
 export interface PriorFindingState {

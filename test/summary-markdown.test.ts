@@ -1532,3 +1532,158 @@ describe("runStats — footer stats and low-activity warning (#285)", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Cross-round resolved-finding history (#279, M026 S02)
+// ---------------------------------------------------------------------------
+
+describe("resolvedLog — cross-round history section", () => {
+  test("renders collapsed <details> history when resolvedLog is present and non-empty", () => {
+    const summary = makeSummary({
+      findings: [],
+      resolvedLog: [
+        { stableId: "fnd_old", title: "Old auth issue", resolvedAtSha: "abc1234" },
+        { stableId: "fnd_old2", title: "Second old issue", resolvedAtSha: "def5678" },
+      ],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).toContain("🗂 Resolved over this PR (2)");
+    expect(markdown).toContain("✅ Old auth issue — fixed in `abc1234`");
+    expect(markdown).toContain("✅ Second old issue — fixed in `def5678`");
+    expect(markdown).toContain("<details>");
+    expect(markdown).toContain("</details>");
+  });
+
+  test("absent resolvedLog renders nothing (back-compat — first review / fixture path)", () => {
+    const summary = makeSummary({ findings: [] }); // resolvedLog absent (not set)
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).not.toContain("🗂 Resolved over this PR");
+    expect(markdown).not.toContain("resolvedLog");
+  });
+
+  test("empty resolvedLog array renders nothing", () => {
+    const summary = makeSummary({ findings: [], resolvedLog: [] });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).not.toContain("🗂 Resolved over this PR");
+  });
+
+  test("entry whose stableId is in current findings is filtered out (recurred — shown as current)", () => {
+    const finding = makeFinding({ id: "fnd_recurring", title: "Still open issue" });
+    const summary = makeSummary({
+      findings: [finding],
+      resolvedLog: [
+        // This one recurred — must NOT appear in history
+        { stableId: "fnd_recurring", title: "Still open issue", resolvedAtSha: "abc1234" },
+        // This one is genuinely resolved — must appear
+        { stableId: "fnd_gone", title: "Gone for good", resolvedAtSha: "def5678" },
+      ],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // Genuinely resolved entry appears
+    expect(markdown).toContain("✅ Gone for good — fixed in `def5678`");
+    // Recurred entry does NOT appear in history section
+    // (it IS shown in the current findings block though)
+    const historySection = markdown.slice(markdown.indexOf("🗂 Resolved over this PR"));
+    expect(historySection).not.toContain("Still open issue");
+    // The history count reflects only the visible entry
+    expect(markdown).toContain("🗂 Resolved over this PR (1)");
+  });
+
+  test("all entries recurred → history section not rendered at all", () => {
+    const finding = makeFinding({ id: "fnd_back", title: "Back again" });
+    const summary = makeSummary({
+      findings: [finding],
+      resolvedLog: [{ stableId: "fnd_back", title: "Back again", resolvedAtSha: "abc1234" }],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).not.toContain("🗂 Resolved over this PR");
+  });
+
+  test("titles are run through escapeMarkdown (#74 — untrusted prior-comment content)", () => {
+    const summary = makeSummary({
+      findings: [],
+      resolvedLog: [
+        {
+          stableId: "fnd_x",
+          title: "Issue with `backtick` and _underscore_",
+          resolvedAtSha: "abc1234",
+        },
+      ],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // escapeMarkdown should escape backticks and underscores
+    expect(markdown).toContain("\\`backtick\\`");
+    expect(markdown).toContain("\\_underscore\\_");
+  });
+
+  test("resolvedLogTruncated=true adds truncation note (explicit flag, any log size)", () => {
+    // A >50 case with resolvedLogTruncated=true (as set by buildResolvedLog when merged > cap).
+    const log = Array.from({ length: 50 }, (_, i) => ({
+      stableId: `fnd_${i}`,
+      title: `Issue ${i}`,
+      resolvedAtSha: "abc1234",
+    }));
+    const summary = makeSummary({ findings: [], resolvedLog: log, resolvedLogTruncated: true });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).toContain("older resolved findings omitted");
+  });
+
+  test("resolvedLog at exactly 50 entries without resolvedLogTruncated shows NO truncation note", () => {
+    // Exactly 50 entries — NOT truncated (merged.length === RESOLVED_LOG_CAP, not >).
+    // resolvedLogTruncated is absent (not set), so no omitted note should appear.
+    const log = Array.from({ length: 50 }, (_, i) => ({
+      stableId: `fnd_${i}`,
+      title: `Issue ${i}`,
+      resolvedAtSha: "abc1234",
+    }));
+    const summary = makeSummary({ findings: [], resolvedLog: log });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).not.toContain("older resolved findings omitted");
+  });
+
+  test("resolvedLog below cap (49 entries) does NOT add truncation note", () => {
+    const log = Array.from({ length: 49 }, (_, i) => ({
+      stableId: `fnd_${i}`,
+      title: `Issue ${i}`,
+      resolvedAtSha: "abc1234",
+    }));
+    const summary = makeSummary({ findings: [], resolvedLog: log });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).not.toContain("older resolved findings omitted");
+  });
+
+  test("history section appears after re-review status and before break-glass footer", () => {
+    const summary = makeSummary({
+      findings: [],
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: ["fnd_old"],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: [],
+        classifications: [],
+      },
+      resolvedLog: [{ stableId: "fnd_old", title: "Old issue", resolvedAtSha: "abc1234" }],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    const reReviewIdx = markdown.indexOf("### Re-review status");
+    const historyIdx = markdown.indexOf("🗂 Resolved over this PR");
+    const breakGlassIdx = markdown.indexOf("Break glass");
+
+    expect(reReviewIdx).toBeGreaterThan(-1);
+    expect(historyIdx).toBeGreaterThan(-1);
+    expect(breakGlassIdx).toBeGreaterThan(-1);
+    expect(reReviewIdx).toBeLessThan(historyIdx);
+    expect(historyIdx).toBeLessThan(breakGlassIdx);
+  });
+});

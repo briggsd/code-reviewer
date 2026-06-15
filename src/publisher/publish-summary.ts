@@ -112,10 +112,10 @@ export function createPublishHiddenMetadata(
       : undefined;
 
   return {
-    // Bumped 4 → 5 for the findingsHash field (#149). The bump is additive and
-    // backward-compatible: old parsers (schemaVersion ≤ 4) ignore unknown keys per the existing
+    // Bumped 5 → 6 for the resolvedLog field (#279, M026 S02). The bump is additive and
+    // backward-compatible: old parsers (schemaVersion ≤ 5) ignore unknown keys per the existing
     // defensive-parse pattern (parseSummaryHiddenMetadata in summary-metadata.ts line ~40).
-    schemaVersion: 5,
+    schemaVersion: 6,
     runId,
     headSha: change.headSha,
     provider: change.provider,
@@ -129,5 +129,9 @@ export function createPublishHiddenMetadata(
     ...(summary?.gateDecision !== undefined ? { gateDecision: summary.gateDecision } : {}),
     ...(partialBySize !== undefined ? { partialBySize } : {}),
     ...(findingsHash !== undefined ? { findingsHash } : {}),
+    // Cross-round resolved-finding log (#279, schemaVersion 6+). Additive — old parsers ignore it.
+    ...(summary?.resolvedLog !== undefined && summary.resolvedLog.length > 0
+      ? { resolvedLog: summary.resolvedLog }
+      : {}),
   };
 }

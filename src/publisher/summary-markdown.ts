@@ -548,6 +548,33 @@ export function formatReviewSummaryMarkdown(
     lines.push("");
   }
 
+  // Cross-round resolved-finding history (#279, M026 S02): collapsed <details> section.
+  // Only rendered when the log is present and at least one entry is not currently a
+  // recurring finding (recurred entries are shown in current findings, not as resolved).
+  if (summary.resolvedLog !== undefined && summary.resolvedLog.length > 0) {
+    const currentFindingIds = new Set(summary.findings.map((f) => f.id).filter(Boolean));
+    // Also include withheld findings as "current" so recurred-but-withheld entries don't render.
+    for (const f of summary.groundingWithheld ?? []) {
+      if (f.id !== undefined) currentFindingIds.add(f.id);
+    }
+    const visibleEntries = summary.resolvedLog.filter(
+      (entry) => !currentFindingIds.has(entry.stableId),
+    );
+    if (visibleEntries.length > 0) {
+      lines.push(`<details><summary>🗂 Resolved over this PR (${visibleEntries.length})</summary>`);
+      lines.push("");
+      for (const entry of visibleEntries) {
+        lines.push(`- ✅ ${escapeMarkdown(entry.title)} — fixed in \`${entry.resolvedAtSha}\``);
+      }
+      if (summary.resolvedLogTruncated === true) {
+        lines.push("- …older resolved findings omitted");
+      }
+      lines.push("");
+      lines.push("</details>");
+      lines.push("");
+    }
+  }
+
   // Break-glass footer (always, before the generated-by line)
   lines.push(BREAK_GLASS_FOOTER);
   lines.push("");

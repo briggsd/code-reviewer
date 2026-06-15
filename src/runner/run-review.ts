@@ -990,6 +990,16 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       };
     })();
 
+    // Accumulate cross-round resolved-finding log (#279, M026 S02).
+    // Read the prior log from the prior comment's hidden metadata (already carried in
+    // PriorReviewState.hiddenMetadata — no VCS adapter changes needed). Merge with this
+    // round's newly-fixed classifications, dedup (first-resolution wins), cap to 50.
+    const resolvedLogResult = buildResolvedLog(
+      context.priorState?.hiddenMetadata,
+      fused.summary.reReview?.classifications,
+      context.metadata.headSha.slice(0, 7),
+    );
+
     const fusedSummary: ReviewSummary = {
       ...fused.summary,
       ...(admissionDecision.degraded
@@ -1014,6 +1024,9 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
           }
         : {}),
       ...(runStats !== undefined ? { runStats } : {}),
+      ...(resolvedLogResult !== undefined ? { resolvedLog: resolvedLogResult.entries } : {}),
+      // Display-only flag: not persisted in hidden metadata (recomputed each round from the log).
+      ...(resolvedLogResult?.truncated === true ? { resolvedLogTruncated: true } : {}),
     };
 
     // Convergence detection (#149 — Tier 1): a re-review whose finding set is unchanged
@@ -1670,4 +1683,93 @@ async function emitTelemetry(input: {
 
 export function createRunId(now: Date): string {
   return `local-${now.toISOString().replaceAll(/[:.]/g, "-")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Cross-round resolved-finding log (#279, M026 S02)
+// ---------------------------------------------------------------------------
+
+/** Resolved-log entry shape persisted in hidden metadata and accumulated across rounds. */
+export type ResolvedLogEntry = { stableId: string; title: string; resolvedAtSha: string };
+
+/**
+ * Defensively parse a `resolvedLog` value from untrusted prior-comment hidden metadata (#84).
+ * Accepts only an array of objects with three non-empty bounded string fields.
+ * Drops malformed entries; never throws.
+ */
+export function parseResolvedLog(raw: unknown): ResolvedLogEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const result: ResolvedLogEntry[] = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      continue;
+    }
+    const { stableId, title, resolvedAtSha } = item as Record<string, unknown>;
+    if (
+      typeof stableId !== "string" ||
+      stableId.length === 0 ||
+      stableId.length > 256 ||
+      typeof title !== "string" ||
+      title.length === 0 ||
+      title.length > 200 ||
+      typeof resolvedAtSha !== "string" ||
+      resolvedAtSha.length === 0 ||
+      resolvedAtSha.length > 64
+    ) {
+      continue;
+    }
+    result.push({ stableId, title, resolvedAtSha });
+  }
+  return result;
+}
+
+/** Maximum number of resolved-log entries retained across rounds. */
+const RESOLVED_LOG_CAP = 50;
+
+/**
+ * Build the accumulated resolved-log for this round:
+ * 1. Parse the prior log defensively from untrusted hidden metadata.
+ * 2. Map this round's "fixed" classifications to new entries.
+ * 3. Merge: prior entries first (first-resolution wins on stableId clash), then new.
+ * 4. Cap to RESOLVED_LOG_CAP most-recent entries.
+ *
+ * Returns `{ entries, truncated }` where `truncated` is true when the merged set
+ * exceeded the cap BEFORE slicing (so an exactly-50 result is NOT truncated).
+ * Returns `undefined` when there is nothing to log (no prior log, no new fixes).
+ */
+export function buildResolvedLog(
+  priorHiddenMetadata: Record<string, unknown> | undefined,
+  classifications: ReviewSummary["reReview"] extends undefined
+    ? never
+    : NonNullable<ReviewSummary["reReview"]>["classifications"] | undefined,
+  headShortSha: string,
+): { entries: ResolvedLogEntry[]; truncated: boolean } | undefined {
+  const priorLog = parseResolvedLog(priorHiddenMetadata?.resolvedLog);
+
+  const newlyResolved: ResolvedLogEntry[] = [];
+  for (const c of classifications ?? []) {
+    if (c.status !== "fixed") continue;
+    newlyResolved.push({
+      stableId: c.stableId,
+      title: c.priorFinding?.title ?? c.stableId,
+      resolvedAtSha: headShortSha,
+    });
+  }
+
+  if (priorLog.length === 0 && newlyResolved.length === 0) return undefined;
+
+  // Dedup by stableId — first-resolution wins (entries in priorLog take precedence).
+  const seen = new Set<string>();
+  const merged: ResolvedLogEntry[] = [];
+  for (const entry of [...priorLog, ...newlyResolved]) {
+    if (!seen.has(entry.stableId)) {
+      seen.add(entry.stableId);
+      merged.push(entry);
+    }
+  }
+
+  // Compute truncation BEFORE slicing: truncated iff merged exceeds cap.
+  const truncated = merged.length > RESOLVED_LOG_CAP;
+  const entries = truncated ? merged.slice(-RESOLVED_LOG_CAP) : merged;
+  return entries.length > 0 ? { entries, truncated } : undefined;
 }

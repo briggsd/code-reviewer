@@ -171,11 +171,11 @@ The `run_metrics` telemetry event also includes an `incremental` block when the 
 
 ## Hidden summary metadata
 
-Published summary comments/notes include hidden metadata with `schemaVersion: 5` and `findingIds` (and optionally `findingPaths`, `findingReviewers`, `partialBySize`, and `findingsHash`). At schemaVersion 4 (legacy), `findingsHash` is absent; at schemaVersion 3 (legacy), `partialBySize` is also absent; at schemaVersion 2 (legacy), `findingReviewers` is absent and placeholder findings use reviewer `"unknown"`; at schemaVersion 1 (legacy), `findingPaths` is also absent and placeholder findings have no `location`; incremental re-review falls back to full review or carries forward all prior findings conservatively. (The `schemaVersion: 2` example in the `findingPaths` section above shows the v2 shape for reference.)
+Published summary comments/notes include hidden metadata with `schemaVersion: 6` and `findingIds` (and optionally `findingPaths`, `findingReviewers`, `partialBySize`, `findingsHash`, and `resolvedLog`). At schemaVersion 5 (legacy), `resolvedLog` is absent; at schemaVersion 4 (legacy), `findingsHash` is also absent; at schemaVersion 3 (legacy), `partialBySize` is also absent; at schemaVersion 2 (legacy), `findingReviewers` is absent and placeholder findings use reviewer `"unknown"`; at schemaVersion 1 (legacy), `findingPaths` is also absent and placeholder findings have no `location`; incremental re-review falls back to full review or carries forward all prior findings conservatively. (The `schemaVersion: 2` example in the `findingPaths` section above shows the v2 shape for reference.)
 
 ```json
 {
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "runId": "run-123",
   "headSha": "abc123",
   "provider": "github",
@@ -188,10 +188,14 @@ Published summary comments/notes include hidden metadata with `schemaVersion: 5`
   "findingReviewers": {
     "fnd_0123456789abcdef": "security"
   },
-  "findingsHash": "a1b2c3d4e5f6a7b8"
+  "findingsHash": "a1b2c3d4e5f6a7b8",
+  "resolvedLog": [
+    { "stableId": "fnd_0123456789abcdef", "title": "Auth token not rotated", "resolvedAtSha": "abc1234" }
+  ]
 }
 ```
 
+- **`resolvedLog`** (v6, optional): cross-round resolved-finding history (#279, M026 S02). An array of objects `{ stableId, title, resolvedAtSha }` accumulated across re-review rounds — each entry records a finding that was classified `fixed` in some prior round and the short head SHA where it was resolved. Capped at 50 entries (oldest dropped when exceeded). Absent on first review or when no findings have been resolved yet. Parsed defensively: malformed entries are dropped silently; only non-empty string values with bounded length are accepted. Parsers built on schemaVersion ≤ 5 ignore this field (backward-compatible additive field).
 - **`findingsHash`** (v5, optional): a 16-hex-character SHA-256 prefix of the sorted stable finding-ID set. Empty string when there are no findings. Used by the convergence gate to detect a stable finding set across re-reviews without comparing full ID arrays. Parsers built on schemaVersion ≤ 4 ignore this field (backward-compatible additive field).
 - **`partialBySize`** (v4, optional): admitted/dropped file counts and byte totals when the diff exceeded the patch-size budget. See `docs/adoption.md` for the schemaVersion 3→4 note.
 

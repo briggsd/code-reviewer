@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { Finding, PriorFindingState, PriorReviewState, ReviewSummary } from "../src/index.ts";
 import {
+  buildResolvedLog,
   classifyReReviewFindings,
   createReReviewSummary,
   formatReviewSummaryMarkdown,
   isReReviewConverged,
   loadReviewFixture,
+  parseResolvedLog,
   runReview,
 } from "../src/index.ts";
 
@@ -494,3 +496,274 @@ function createSummary(findings: Finding[]): ReviewSummary {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Cross-round resolved-log accumulation (#279, M026 S02)
+// ---------------------------------------------------------------------------
+
+describe("resolvedLog accumulation — parseResolvedLog + buildResolvedLog", () => {
+  // --- parseResolvedLog defensive parse ---
+
+  test("parseResolvedLog: returns empty array for non-array input", () => {
+    expect(parseResolvedLog(undefined)).toEqual([]);
+    expect(parseResolvedLog(null)).toEqual([]);
+    expect(parseResolvedLog("string")).toEqual([]);
+    expect(parseResolvedLog(42)).toEqual([]);
+    expect(parseResolvedLog({})).toEqual([]);
+  });
+
+  test("parseResolvedLog: accepts valid entries and drops malformed ones", () => {
+    const raw = [
+      // valid
+      { stableId: "fnd_a", title: "Issue A", resolvedAtSha: "abc1234" },
+      // missing stableId
+      { title: "No id", resolvedAtSha: "abc1234" },
+      // empty title
+      { stableId: "fnd_b", title: "", resolvedAtSha: "abc1234" },
+      // sha too long (> 64)
+      { stableId: "fnd_c", title: "Issue C", resolvedAtSha: "x".repeat(65) },
+      // null entry
+      null,
+      // non-object entry
+      "string",
+      // another valid
+      { stableId: "fnd_d", title: "Issue D", resolvedAtSha: "def5678" },
+    ];
+    const result = parseResolvedLog(raw);
+    expect(result).toEqual([
+      { stableId: "fnd_a", title: "Issue A", resolvedAtSha: "abc1234" },
+      { stableId: "fnd_d", title: "Issue D", resolvedAtSha: "def5678" },
+    ]);
+  });
+
+  test("parseResolvedLog: drops entries with over-long fields", () => {
+    const raw = [
+      { stableId: "x".repeat(257), title: "t", resolvedAtSha: "abc1234" }, // stableId > 256
+      { stableId: "fnd_x", title: "t".repeat(201), resolvedAtSha: "abc1234" }, // title > 200
+    ];
+    expect(parseResolvedLog(raw)).toEqual([]);
+  });
+
+  test("parseResolvedLog: never throws on adversarial input", () => {
+    // These should all parse defensively without throwing
+    expect(() =>
+      parseResolvedLog([{ stableId: null, title: null, resolvedAtSha: null }]),
+    ).not.toThrow();
+    expect(() => parseResolvedLog([new Error("bad")])).not.toThrow();
+    expect(() => parseResolvedLog([{ stableId: {}, title: [], resolvedAtSha: 42 }])).not.toThrow();
+    expect(parseResolvedLog([{ stableId: null, title: null, resolvedAtSha: null }])).toEqual([]);
+  });
+
+  // --- buildResolvedLog accumulation ---
+
+  test("buildResolvedLog: returns undefined when no prior log and no fixed classifications", () => {
+    const result = buildResolvedLog(undefined, [], "abc1234");
+    expect(result).toBeUndefined();
+  });
+
+  test("buildResolvedLog: newly-fixed classifications appear in log with current headSha", () => {
+    const classifications = [
+      {
+        stableId: "fnd_fixed",
+        status: "fixed" as const,
+        priorFinding: {
+          ...recurringFinding,
+          id: "fnd_fixed",
+          title: "Fixed issue",
+        },
+        lastSeenHeadSha: "old-head",
+      },
+    ];
+    const result = buildResolvedLog(undefined, classifications, "abc1234");
+    expect(result).toBeDefined();
+    expect(result?.truncated).toBe(false);
+    expect(result?.entries).toEqual([
+      { stableId: "fnd_fixed", title: "Fixed issue", resolvedAtSha: "abc1234" },
+    ]);
+  });
+
+  test("buildResolvedLog: prior log entries are preserved and merged with new", () => {
+    const priorHiddenMetadata = {
+      resolvedLog: [{ stableId: "fnd_old", title: "Old issue", resolvedAtSha: "oldhash" }],
+    };
+    const classifications = [
+      {
+        stableId: "fnd_new_fixed",
+        status: "fixed" as const,
+        priorFinding: {
+          ...recurringFinding,
+          id: "fnd_new_fixed",
+          title: "Newly fixed issue",
+        },
+        lastSeenHeadSha: "old-head",
+      },
+    ];
+    const result = buildResolvedLog(priorHiddenMetadata, classifications, "newsha7");
+    expect(result?.truncated).toBe(false);
+    expect(result?.entries).toEqual([
+      // prior comes first
+      { stableId: "fnd_old", title: "Old issue", resolvedAtSha: "oldhash" },
+      // new resolution appended
+      { stableId: "fnd_new_fixed", title: "Newly fixed issue", resolvedAtSha: "newsha7" },
+    ]);
+  });
+
+  test("buildResolvedLog: dedup — first-resolution sha preserved when stableId already in prior log", () => {
+    const priorHiddenMetadata = {
+      resolvedLog: [{ stableId: "fnd_x", title: "Issue X", resolvedAtSha: "first_sha" }],
+    };
+    // Same stableId appears as newly-fixed again (e.g. reopened then fixed again)
+    const classifications = [
+      {
+        stableId: "fnd_x",
+        status: "fixed" as const,
+        priorFinding: {
+          ...recurringFinding,
+          id: "fnd_x",
+          title: "Issue X",
+        },
+        lastSeenHeadSha: "old-head",
+      },
+    ];
+    const result = buildResolvedLog(priorHiddenMetadata, classifications, "second_sha");
+    // Only one entry — first-resolution (oldhash) wins
+    expect(result?.entries).toHaveLength(1);
+    expect(result?.entries[0]?.resolvedAtSha).toBe("first_sha");
+    expect(result?.truncated).toBe(false);
+  });
+
+  test("buildResolvedLog: caps at 50 entries — truncated=true, exactly-50 result", () => {
+    // 49 prior entries + 2 newly-fixed = 51 → capped to last 50, truncated=true
+    const priorLog = Array.from({ length: 49 }, (_, i) => ({
+      stableId: `fnd_prior_${i}`,
+      title: `Prior Issue ${i}`,
+      resolvedAtSha: "oldhash",
+    }));
+    const classifications = [
+      {
+        stableId: "fnd_new_1",
+        status: "fixed" as const,
+        priorFinding: {
+          ...recurringFinding,
+          id: "fnd_new_1",
+          title: "New Fixed 1",
+        },
+        lastSeenHeadSha: "old-head",
+      },
+      {
+        stableId: "fnd_new_2",
+        status: "fixed" as const,
+        priorFinding: {
+          ...recurringFinding,
+          id: "fnd_new_2",
+          title: "New Fixed 2",
+        },
+        lastSeenHeadSha: "old-head",
+      },
+    ];
+    const result = buildResolvedLog({ resolvedLog: priorLog }, classifications, "newsha");
+    expect(result?.entries).toHaveLength(50);
+    expect(result?.truncated).toBe(true);
+    // The cap keeps the last 50 — the first prior entry (fnd_prior_0) is dropped
+    expect(result?.entries.find((e) => e.stableId === "fnd_prior_0")).toBeUndefined();
+    // The newly-fixed entries are included (they're at the end)
+    expect(result?.entries.find((e) => e.stableId === "fnd_new_1")).toBeDefined();
+    expect(result?.entries.find((e) => e.stableId === "fnd_new_2")).toBeDefined();
+  });
+
+  test("buildResolvedLog: exactly 50 entries — truncated=false (not over cap)", () => {
+    // 50 prior entries + 0 new = 50 → NOT truncated (merged.length === cap, not >)
+    const priorLog = Array.from({ length: 50 }, (_, i) => ({
+      stableId: `fnd_prior_${i}`,
+      title: `Prior Issue ${i}`,
+      resolvedAtSha: "oldhash",
+    }));
+    const result = buildResolvedLog({ resolvedLog: priorLog }, [], "newsha");
+    expect(result?.entries).toHaveLength(50);
+    expect(result?.truncated).toBe(false);
+  });
+
+  test("buildResolvedLog: malformed prior resolvedLog is safely dropped, new entries still accumulate", () => {
+    // Simulate adversarial prior hidden metadata
+    const priorHiddenMetadata = {
+      resolvedLog: "not-an-array",
+    };
+    const classifications = [
+      {
+        stableId: "fnd_fixed",
+        status: "fixed" as const,
+        priorFinding: {
+          ...recurringFinding,
+          id: "fnd_fixed",
+          title: "Fixed issue",
+        },
+        lastSeenHeadSha: "old-head",
+      },
+    ];
+    const result = buildResolvedLog(priorHiddenMetadata, classifications, "abc1234");
+    // Malformed prior dropped; new entry still accumulated
+    expect(result?.truncated).toBe(false);
+    expect(result?.entries).toEqual([
+      { stableId: "fnd_fixed", title: "Fixed issue", resolvedAtSha: "abc1234" },
+    ]);
+  });
+
+  // --- Integration: resolvedLog flows through runReview ---
+
+  test("runReview accumulates resolvedLog when a prior finding is fixed", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const firstRun = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+    const stableId = firstRun.summary.findings[0]?.id;
+    if (stableId === undefined) {
+      throw new Error("expected stable finding id");
+    }
+
+    // Second run: prior state has a DIFFERENT finding that will be classified as "fixed"
+    // (because it's not in the current summary). The prior hidden metadata has a resolvedLog
+    // with an older resolution from a previous round.
+    const secondRun = await runReview({
+      fixture: {
+        ...fixture,
+        priorState: {
+          previousRunId: "prior-run",
+          previousHeadSha: "old-head",
+          hiddenMetadata: {
+            resolvedLog: [
+              { stableId: "fnd_even_older", title: "Even older issue", resolvedAtSha: "aaa1111" },
+            ],
+          },
+          findings: [
+            {
+              stableId: "fnd_prior_fixed",
+              finding: {
+                ...(firstRun.summary.findings[0] as Finding),
+                id: "fnd_prior_fixed",
+                title: "Prior finding that got fixed",
+              },
+              status: "open" as const,
+              lastSeenHeadSha: "old-head",
+            },
+          ],
+        },
+      },
+      now: new Date("2026-06-09T00:00:01.000Z"),
+    });
+
+    const log = secondRun.summary.resolvedLog;
+    expect(log).toBeDefined();
+    // Should contain the prior log entry (from hiddenMetadata) + the newly fixed one
+    expect(log?.find((e) => e.stableId === "fnd_even_older")).toBeDefined();
+    expect(log?.find((e) => e.stableId === "fnd_prior_fixed")).toBeDefined();
+    // The newly-fixed one uses the current headSha (7-char short)
+    const newEntry = log?.find((e) => e.stableId === "fnd_prior_fixed");
+    expect(newEntry?.resolvedAtSha).toBe(fixture.metadata.headSha.slice(0, 7));
+  });
+
+  test("runReview: no resolvedLog when no prior state (first review)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const firstRun = await runReview({ fixture, now: new Date("2026-06-09T00:00:00.000Z") });
+
+    // First review — no prior state → no resolvedLog
+    expect(firstRun.summary.resolvedLog).toBeUndefined();
+  });
+});

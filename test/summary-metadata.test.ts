@@ -216,6 +216,7 @@ describe("summary hidden metadata parsing", () => {
 
 // ---------------------------------------------------------------------------
 // schemaVersion 4 + partialBySize counts (#145) / schemaVersion 5 + findingsHash (#149)
+// schemaVersion 6 + resolvedLog (#279)
 // ---------------------------------------------------------------------------
 
 const CHANGE: ChangeMetadata = {
@@ -228,10 +229,10 @@ const CHANGE: ChangeMetadata = {
   labels: [],
 };
 
-describe("schemaVersion 5 hidden metadata (#149)", () => {
-  test("createPublishHiddenMetadata emits schemaVersion 5", () => {
+describe("schemaVersion 6 hidden metadata (#279)", () => {
+  test("createPublishHiddenMetadata emits schemaVersion 6", () => {
     const meta = createPublishHiddenMetadata("run-1", CHANGE);
-    expect(meta.schemaVersion).toBe(5);
+    expect(meta.schemaVersion).toBe(6);
   });
 
   test("partialBySize counts block is included when summary.partialBySize is present", () => {
@@ -261,7 +262,7 @@ describe("schemaVersion 5 hidden metadata (#149)", () => {
 
     const meta = createPublishHiddenMetadata("run-1", CHANGE, summary);
 
-    expect(meta.schemaVersion).toBe(5);
+    expect(meta.schemaVersion).toBe(6);
     const partialBySize = meta.partialBySize as
       | {
           admittedFileCount: number;
@@ -437,5 +438,89 @@ describe("schemaVersion 5 hidden metadata (#149)", () => {
     const parsed = parseSummaryHiddenMetadata(bodyWithBadHash);
     // Rejected — treated as absent (safe direction: no fast-path).
     expect(parsed?.findingsHash).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// schemaVersion 6 — resolvedLog (#279, M026 S02)
+// ---------------------------------------------------------------------------
+
+describe("schemaVersion 6 — resolvedLog (#279)", () => {
+  const BASE_SUMMARY = {
+    decision: "approved" as const,
+    outcome: "pass" as const,
+    title: "Test",
+    body: "body",
+    findings: [],
+    risk: {
+      tier: "lite" as const,
+      reason: "test",
+      matchedRules: [],
+      sensitivePaths: [],
+      reviewedFileCount: 1,
+      ignoredFileCount: 0,
+    },
+  };
+
+  test("createPublishHiddenMetadata writes resolvedLog when present and non-empty", () => {
+    const summary = {
+      ...BASE_SUMMARY,
+      resolvedLog: [{ stableId: "fnd_old", title: "Old auth issue", resolvedAtSha: "abc1234" }],
+    };
+    const meta = createPublishHiddenMetadata("run-6", CHANGE, summary);
+
+    expect(meta.schemaVersion).toBe(6);
+    expect(meta.resolvedLog).toEqual([
+      { stableId: "fnd_old", title: "Old auth issue", resolvedAtSha: "abc1234" },
+    ]);
+  });
+
+  test("createPublishHiddenMetadata omits resolvedLog when absent (back-compat)", () => {
+    const meta = createPublishHiddenMetadata("run-6", CHANGE, BASE_SUMMARY);
+
+    expect(meta.schemaVersion).toBe(6);
+    expect(meta.resolvedLog).toBeUndefined();
+  });
+
+  test("resolvedLog round-trips through hidden metadata (write → embed → parse → raw)", () => {
+    const resolvedLog = [
+      { stableId: "fnd_a", title: "Issue A", resolvedAtSha: "aaaaaaa" },
+      { stableId: "fnd_b", title: "Issue B", resolvedAtSha: "bbbbbbb" },
+    ];
+    const summary = { ...BASE_SUMMARY, resolvedLog };
+    const meta = createPublishHiddenMetadata("run-6", CHANGE, summary);
+
+    // Embed in a comment body (mirrors what the publisher does with includeHiddenMetadata)
+    const commentBody = [
+      "## AI Review",
+      "",
+      "<!-- ai-code-review-factory",
+      JSON.stringify(meta, null, 2),
+      "-->",
+    ].join("\n");
+
+    const parsed = parseSummaryHiddenMetadata(commentBody);
+    // The resolvedLog is preserved in raw (parseSummaryHiddenMetadata preserves all raw keys)
+    expect(parsed?.raw.resolvedLog).toEqual(resolvedLog);
+  });
+
+  test("a v5 comment (no resolvedLog) still parses cleanly (back-compat)", () => {
+    const bodyV5 = [
+      "<!-- ai-code-review-factory",
+      JSON.stringify({
+        schemaVersion: 5,
+        runId: "run-old",
+        headSha: "abc123",
+        findingIds: ["fnd_1"],
+        findingsHash: "abcdef0123456789",
+      }),
+      "-->",
+    ].join("\n");
+
+    const parsed = parseSummaryHiddenMetadata(bodyV5);
+    expect(parsed?.schemaVersion).toBe(5);
+    expect(parsed?.findingIds).toEqual(["fnd_1"]);
+    // resolvedLog is not in raw — treated as absent
+    expect(parsed?.raw.resolvedLog).toBeUndefined();
   });
 });
