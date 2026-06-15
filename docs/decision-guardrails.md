@@ -215,4 +215,13 @@
   thinking is a CAP not a floor → trivial diffs correctly yield fast empty reviews. A fast/empty
   CI review on a small clean PR is EXPECTED, not a regression. Only reopen if a *substantive* diff
   produces an empty/no-thinking review (use the repro recipe in "Last action" to check).
+- A reviewer/coordinator Pi turn that ends in `stopReason:"error"` is a **failure, not an empty
+  review** (#283). `processRunner.run()` *returns* (does not throw) such turns, so
+  `assertNoTerminalModelError` (sibling to `assertNotTruncatedOutput`) throws on them in both
+  `runReviewer` and the coordinator loop, preserving the provider error text so `classifyError`
+  maps it to `provider_error`. `provider_error` is **non-degradable** → all-reviewers-error makes
+  the run throw → CI exits non-zero (fail-loud). Do NOT revert this to reading an errored turn as
+  `0 findings` — that reproduces the #281 silent ✅-Approved-on-credit-outage. This is the
+  *substantive-diff* counterpart to the #65 trivial-diff exemption above: a fast empty review on a
+  trivial diff is fine; an empty review because every reviewer hit a provider error is the bug.
 - Do not expose provider secrets or disable the real-Pi review workflow's default-off gate.

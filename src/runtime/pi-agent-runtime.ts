@@ -527,6 +527,7 @@ export class PiAgentRuntime implements AgentRuntime {
       const effectiveModel = resolvedModel.model?.model;
 
       assertNotTruncatedOutput(processResult.events, agentRunId);
+      assertNoTerminalModelError(processResult.events, agentRunId);
       const allowedReviewerRoles = [
         "coordinator",
         ...input.selectedReviewers.map((reviewer) => reviewer.role),
@@ -744,6 +745,7 @@ export class PiAgentRuntime implements AgentRuntime {
         }
 
         assertNotTruncatedOutput(processResult.events, agentRunId);
+        assertNoTerminalModelError(processResult.events, agentRunId);
         // Structured tool is the PRIMARY path (M015 S03, #126): when the reviewer called
         // `submit_findings`, read the validated args off the event stream — no `JSON.parse`, no
         // `repairUnescapedStringQuotes`. Pi is instruct-only (no forced `tool_choice`), so the call
@@ -1395,6 +1397,65 @@ function assertNotTruncatedOutput(events: unknown[], agentRunId: string): void {
       `Pi model output truncated by length limit (${finishReason}) for ${agentRunId}`,
     );
   }
+}
+
+// A Pi turn that ended in a model/provider error (stopReason "error" + an errorMessage) means
+// the reviewer never actually ran — it must be a classified FAILURE, not an empty "0 findings"
+// review (#283). processRunner.run() returns (does not throw) such turns, so detect them here.
+// The thrown message preserves the original errorMessage text so classifyError() in the catch
+// path matches it to provider_error/terminal (e.g. the "credit balance too low" 400 string).
+function assertNoTerminalModelError(events: unknown[], agentRunId: string): void {
+  const message = findTerminalModelError(events);
+  if (message !== undefined) {
+    throw new Error(`Pi model call failed for ${agentRunId}: ${message}`);
+  }
+}
+
+function findTerminalModelError(events: unknown[]): string | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const message = collectTerminalModelError(events[index]);
+    if (message !== undefined) {
+      return message;
+    }
+  }
+
+  return undefined;
+}
+
+function collectTerminalModelError(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const directError = readTerminalModelError(record);
+  if (directError !== undefined) {
+    return directError;
+  }
+
+  for (const field of ["message", "response", "result", "data"]) {
+    const nested = record[field];
+    if (typeof nested === "object" && nested !== null) {
+      const nestedError = readTerminalModelError(nested as Record<string, unknown>);
+      if (nestedError !== undefined) {
+        return nestedError;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function readTerminalModelError(record: Record<string, unknown>): string | undefined {
+  const stopReason = record["stopReason"] ?? record["stop_reason"];
+  if (stopReason !== "error") {
+    return undefined;
+  }
+
+  const errorMessage = record["errorMessage"] ?? record["error_message"] ?? record["message"];
+  return typeof errorMessage === "string" && errorMessage.length > 0
+    ? errorMessage
+    : "provider error (no errorMessage in turn)";
 }
 
 function findLengthLimitFinishReason(events: unknown[]): string | undefined {

@@ -176,6 +176,65 @@ class AllReviewersTruncatePiProcessRunner extends FakePiProcessRunner {
   }
 }
 
+// Mirrors TruncatedSecurityPiProcessRunner but for the #283 defect: processRunner.run() RETURNS
+// (does not throw) a result whose events contain a turn with stopReason "error". Without the fix
+// this would silently produce 0 findings; with the fix assertNoTerminalModelError detects it and
+// throws, routing into the existing catch → createReviewerFailure → provider_error classification.
+class ErroringSecurityPiProcessRunner extends FakePiProcessRunner {
+  override async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "security") {
+      this.calls.push(input);
+      return {
+        finalText: "",
+        events: [
+          {
+            type: "message_end",
+            message: {
+              role: "assistant",
+              content: [],
+              stopReason: "error",
+              errorMessage:
+                "400 invalid_request_error: Your credit balance is too low to access the Claude API. Please go to Plans & Billing to upgrade or purchase credits.",
+            },
+          },
+        ],
+        rawOutput: "",
+      };
+    }
+
+    return super.run(input);
+  }
+}
+
+// Every reviewer returns a model-error response (not a throw) — the exact #281 scenario.
+// Without the fix: 0 findings, decision:approved, degraded:false (silent non-review).
+// With the fix: all reviewers fail → review_failed / degraded.
+class AllReviewersErrorPiProcessRunner extends FakePiProcessRunner {
+  override async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role !== "coordinator") {
+      this.calls.push(input);
+      return {
+        finalText: "",
+        events: [
+          {
+            type: "message_end",
+            message: {
+              role: "assistant",
+              content: [],
+              stopReason: "error",
+              errorMessage:
+                "400 invalid_request_error: Your credit balance is too low to access the Claude API. Please go to Plans & Billing to upgrade or purchase credits.",
+            },
+          },
+        ],
+        rawOutput: "",
+      };
+    }
+
+    return super.run(input);
+  }
+}
+
 class FlakySecurityPiProcessRunner extends FakePiProcessRunner {
   private securityFailuresRemaining = 1;
 
@@ -1610,6 +1669,83 @@ describe("PiAgentRuntime", () => {
     } finally {
       await rm(outputDirectory, { recursive: true, force: true });
     }
+  });
+
+  // #283 regression: a Pi turn whose events contain stopReason "error" (e.g. 400 credit balance)
+  // must route to agent.failed / provider_error, NOT silently produce 0 findings.
+  test("classifies stopReason:error turn as provider_error failure, not empty review (#283)", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-model-error-"));
+
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runner = new ErroringSecurityPiProcessRunner();
+      const runtime = new PiAgentRuntime({
+        processRunner: runner,
+        timestamp: "2026-06-09T00:00:00.000Z",
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      });
+      await traceSink.close();
+
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const failedSecurity = events.find(
+        (event) => event.type === "agent.failed" && event.role === "security",
+      );
+
+      // The erroring reviewer must be classified as failed, not completed with 0 findings.
+      expect(
+        result.coordinatorResult?.reviewerResults.find((r) => r.role === "security"),
+      ).toBeUndefined();
+      expect(result.coordinatorResult?.reviewerFailures?.[0]?.errorClassification.category).toBe(
+        "provider_error",
+      );
+      expect(failedSecurity?.data?.errorCategory).toBe("provider_error");
+      // provider_error is non-retryable — only one attempt.
+      expect(runner.calls.filter((call) => call.role === "security")).toHaveLength(1);
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  // KEYSTONE (#283): all reviewers return stopReason:error (the exact #281 scenario).
+  // Before the fix: decision:approved, degraded:false, 0 findings — a silent non-review (WRONG).
+  // After the fix: provider_error is an OPERATIONAL category (not degradable per the design at
+  // DEGRADABLE_REVIEWER_FAILURE_CATEGORIES), so runCoordinator re-throws → runReview throws →
+  // CI exits with code 1. This is "fail-loud" — the correct opposite of silently approving.
+  // The key assertion: runReview MUST throw (not return a result), never return decision:approved.
+  test("all-reviewers stopReason:error → throws (fail-loud), never silently approved (#283 keystone)", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const runner = new AllReviewersErrorPiProcessRunner();
+    const telemetrySink = new RecordingTelemetrySink();
+    const runtime = new PiAgentRuntime({
+      processRunner: runner,
+      defaultModel: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      timestamp: "2026-06-09T00:00:00.000Z",
+    });
+
+    // provider_error is a crash-loud (non-degradable) category per the design: when ALL reviewers
+    // fail with a provider_error, runCoordinator throws rather than returning review_failed.
+    // This is the correct outcome: the CI process exits non-zero, blocking the merge in fail-closed
+    // and alarming on-call instead of silently approving with 0 findings.
+    await expect(
+      runReview({
+        fixture,
+        runtime,
+        telemetrySink,
+        now: new Date("2026-06-09T00:00:00.000Z"),
+      }),
+    ).rejects.toThrow(/credit balance/i);
   });
 
   test("retries retryable reviewer failures once within the overall run budget", async () => {
