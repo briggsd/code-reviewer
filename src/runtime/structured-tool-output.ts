@@ -52,18 +52,58 @@ export type StructuredToolArgs =
   | { readonly status: "absent" };
 
 /**
- * Pull the arguments of the first `tool_execution_start` event for `toolName` from a Pi `--mode
- * json` event stream. First-wins: with `terminate: true` the tool is called at most once, but if a
- * model ever calls it twice we keep the first call so the consumed payload is deterministic.
- * Returns `{ status: "absent" }` when the tool was never called, so callers fall back to the prose
- * parse rather than failing. Non-object events and events missing `type`/`toolName` are ignored.
+ * Pull the arguments of the first **Pi-accepted** `tool_execution_start` event for `toolName` from
+ * a Pi `--mode json` event stream.
+ *
+ * Pi validates tool arguments via TypeBox and reports the outcome in the paired
+ * `tool_execution_end` event (`isError: true` = TypeBox rejected; `isError: false` = accepted).
+ * When a model retries after a TypeBox rejection (the #244 `documentation` reviewer case), the
+ * stream contains multiple start/end pairs for the same tool. Naively taking the first
+ * `tool_execution_start` returns the rejected (incomplete) args, whose findings all fail
+ * `validateFinding` → "all findings failed validation" → `schema_invalid`.
+ *
+ * Fix: pair each `tool_execution_start` with its `tool_execution_end` by `toolCallId` and skip
+ * calls whose paired end has `isError === true` (TypeBox-rejected). Return the args of the first
+ * call whose paired end does NOT have `isError === true` (i.e. Pi accepted it). This preserves
+ * first-wins determinism on the happy path (single call, or multiple calls all accepted).
+ *
+ * Returns `{ status: "absent" }` when the tool was never called or all calls were rejected, so
+ * callers fall back to the prose parse rather than failing. Non-object events and events missing
+ * `type`/`toolName` are ignored.
  */
 export function readToolCallArgs(events: readonly unknown[], toolName: string): StructuredToolArgs {
+  // Collect toolCallId → isError for all tool_execution_end events for this tool.
+  // We build this map up-front so we can look up the outcome of each start event.
+  const endResultByCallId = new Map<string, boolean>();
+  for (const event of events) {
+    if (!isRecord(event)) {
+      continue;
+    }
+    if (
+      event.type === "tool_execution_end" &&
+      event.toolName === toolName &&
+      typeof event.toolCallId === "string"
+    ) {
+      endResultByCallId.set(event.toolCallId, event.isError === true);
+    }
+  }
+
+  // Walk start events in order; return args of the first call Pi accepted (isError !== true).
   for (const event of events) {
     if (!isRecord(event)) {
       continue;
     }
     if (event.type === "tool_execution_start" && event.toolName === toolName) {
+      const callId = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
+      if (callId !== undefined) {
+        const isError = endResultByCallId.get(callId);
+        // Skip this call if Pi explicitly rejected it (isError === true).
+        if (isError === true) {
+          continue;
+        }
+        // isError === false (accepted) or undefined (no matching end event yet) → return args.
+      }
+      // No toolCallId → cannot pair with an end event; treat as accepted (best-effort).
       return { status: "found", args: event.args };
     }
   }

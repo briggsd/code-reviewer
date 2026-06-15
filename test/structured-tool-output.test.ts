@@ -38,21 +38,105 @@ describe("readToolCallArgs", () => {
     expect(result).toEqual({ status: "found", args });
   });
 
-  test("is first-wins when the tool is called more than once", () => {
+  // "first valid call wins": when multiple calls both succeed, return the first one's args.
+  // This preserves first-wins determinism on the happy path (with paired end events).
+  test("is first-valid-wins when the tool is called more than once (both accepted)", () => {
     const events = [
       {
         type: "tool_execution_start",
+        toolCallId: "toolu_A",
         toolName: SUBMIT_FINDINGS_TOOL_NAME,
         args: { findings: [1] },
       },
       {
+        type: "tool_execution_end",
+        toolCallId: "toolu_A",
+        toolName: SUBMIT_FINDINGS_TOOL_NAME,
+        isError: false,
+      },
+      {
         type: "tool_execution_start",
+        toolCallId: "toolu_B",
         toolName: SUBMIT_FINDINGS_TOOL_NAME,
         args: { findings: [2] },
+      },
+      {
+        type: "tool_execution_end",
+        toolCallId: "toolu_B",
+        toolName: SUBMIT_FINDINGS_TOOL_NAME,
+        isError: false,
       },
     ];
     const result = readToolCallArgs(events, SUBMIT_FINDINGS_TOOL_NAME);
     expect(result).toEqual({ status: "found", args: { findings: [1] } });
+  });
+
+  // #244 regression: the first call's end has isError: true (TypeBox-rejected partial args);
+  // a later call is accepted by Pi — readToolCallArgs must return the later (valid) call's args.
+  test("#244 regression: skips TypeBox-rejected first call (isError:true) and returns the later accepted call", () => {
+    const partialArgs = { findings: [] }; // partial/incomplete — Pi rejected it
+    const validArgs = { findings: [validFinding()] }; // complete — Pi accepted it
+    const events = [
+      // First call: Pi rejected (TypeBox validation failed)
+      {
+        type: "tool_execution_start",
+        toolCallId: "toolu_1",
+        toolName: SUBMIT_FINDINGS_TOOL_NAME,
+        args: partialArgs,
+      },
+      {
+        type: "tool_execution_end",
+        toolCallId: "toolu_1",
+        toolName: SUBMIT_FINDINGS_TOOL_NAME,
+        isError: true,
+      },
+      // Second call: Pi accepted
+      {
+        type: "tool_execution_start",
+        toolCallId: "toolu_2",
+        toolName: SUBMIT_FINDINGS_TOOL_NAME,
+        args: validArgs,
+      },
+      {
+        type: "tool_execution_end",
+        toolCallId: "toolu_2",
+        toolName: SUBMIT_FINDINGS_TOOL_NAME,
+        isError: false,
+      },
+    ];
+    const result = readToolCallArgs(events, SUBMIT_FINDINGS_TOOL_NAME);
+    expect(result).toEqual({ status: "found", args: validArgs });
+  });
+
+  // All calls rejected (all end events have isError:true) → absent, caller falls back to prose.
+  test("returns absent when all calls were TypeBox-rejected (isError:true)", () => {
+    const events = [
+      {
+        type: "tool_execution_start",
+        toolCallId: "toolu_1",
+        toolName: SUBMIT_FINDINGS_TOOL_NAME,
+        args: { findings: [1] },
+      },
+      {
+        type: "tool_execution_end",
+        toolCallId: "toolu_1",
+        toolName: SUBMIT_FINDINGS_TOOL_NAME,
+        isError: true,
+      },
+      {
+        type: "tool_execution_start",
+        toolCallId: "toolu_2",
+        toolName: SUBMIT_FINDINGS_TOOL_NAME,
+        args: { findings: [2] },
+      },
+      {
+        type: "tool_execution_end",
+        toolCallId: "toolu_2",
+        toolName: SUBMIT_FINDINGS_TOOL_NAME,
+        isError: true,
+      },
+    ];
+    expect(readToolCallArgs(events, SUBMIT_FINDINGS_TOOL_NAME)).toEqual({ status: "absent" });
   });
 
   test("ignores tool_execution_start events for other tools", () => {
