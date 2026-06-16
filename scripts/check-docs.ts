@@ -129,7 +129,21 @@ function buildKnownFacts(): KnownFacts {
   };
   const scriptNames = new Set<string>(pkg.scripts ? Object.keys(pkg.scripts) : []);
 
-  return { existingPaths, scriptNames, envVarNames: collectEnvVarNames() };
+  // Count-drift facts: live ground-truth counts for quantities docs mention explicitly.
+  // "test files": .ts files directly under test/ (not nested, matching bun:test convention).
+  // "src modules": distinct direct subdirectories of src/ that contain tracked files.
+  const testFileCount = trackedFiles.filter((f) => /^test\/[^/]+\.ts$/.test(f)).length;
+  const srcModuleDirs = new Set<string>();
+  for (const f of trackedFiles) {
+    const m = /^src\/([^/]+)\//.exec(f);
+    if (m?.[1]) srcModuleDirs.add(m[1]);
+  }
+  const countFacts: ReadonlyMap<string, number> = new Map([
+    ["test files", testFileCount],
+    ["src modules", srcModuleDirs.size],
+  ]);
+
+  return { existingPaths, scriptNames, envVarNames: collectEnvVarNames(), countFacts };
 }
 
 /**

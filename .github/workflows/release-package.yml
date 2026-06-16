@@ -80,6 +80,7 @@ jobs:
           name: ai-code-review-package-${{ github.sha }}
           path: dist/*.tgz
           if-no-files-found: error
+          retention-days: 14
 
   # workflow_dispatch ONLY: the maintainer's pre-release validation. This is the only job that
   # consumes provider secrets (the live holdout quality gate makes real model calls), so it is
@@ -139,6 +140,7 @@ jobs:
           name: quality-stamp-${{ github.sha }}
           path: dist/quality-stamp.json
           if-no-files-found: warn
+          retention-days: 14
 
   # Tag-only: attach the built tarball to a GitHub Release. Split out from `pack` so the build job
   # stays least-privilege (contents: read); contents: write is confined to this job. It `needs:

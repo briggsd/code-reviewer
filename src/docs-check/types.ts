@@ -37,6 +37,19 @@ export interface KnownFacts {
   scriptNames: ReadonlySet<string>;
   /** `AI_REVIEW_*` env var names referenced anywhere in code/CI (source of truth). */
   envVarNames: ReadonlySet<string>;
+  /**
+   * Count-drift facts (#276 / M027): known ground-truth counts for quantities
+   * that docs tend to mention explicitly. When a doc's `(~N)` claim near a
+   * labelled quantity drifts significantly from the real count, an advisory
+   * fires so a reviewer catches the stale number without relying on the LLM.
+   *
+   * Keys are human-readable labels (e.g. `"test files"`, `"src modules"`).
+   * Values are the live counts read by the IO wrapper.
+   *
+   * Optional: callers that do not populate this field get no count-drift
+   * advisories (backward-compatible).
+   */
+  countFacts?: ReadonlyMap<string, number>;
 }
 
 /** A single problem the checker reports, with its source location. */

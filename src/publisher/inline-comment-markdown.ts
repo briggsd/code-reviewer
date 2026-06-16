@@ -5,7 +5,9 @@
  * #74 markdown-escaping and the `ai-code-review-factory-inline` dedup metadata are
  * identical across providers and cannot drift.
  */
+
 import type { ChangeMetadata, Finding } from "../contracts/index.ts";
+import { assertNever } from "../contracts/index.ts";
 import { escapeMarkdown } from "./markdown-escape.ts";
 
 /**
@@ -116,8 +118,22 @@ export function inlineCommentKey(findingId: string, headSha: string): string {
 // Module-private helpers — not exported; only used by formatInlineFindingComment above.
 
 function formatSeverity(severity: Finding["severity"]): string {
-  const icon = severity === "critical" ? "🚨" : severity === "warning" ? "⚠️" : "💬";
-
+  // Exhaustiveness guard: each Severity member mapped; new members require a matching
+  // case or the switch becomes a compile error.
+  let icon: string;
+  switch (severity) {
+    case "critical":
+      icon = "🚨";
+      break;
+    case "warning":
+      icon = "⚠️";
+      break;
+    case "suggestion":
+      icon = "💬";
+      break;
+    default:
+      icon = assertNever(severity, "Severity");
+  }
   return `${icon} ${formatTitleCase(severity)}`;
 }
 

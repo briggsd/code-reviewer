@@ -52,6 +52,7 @@ jobs:
           name: ai-review-${{ github.event.pull_request.number }}
           path: .ai-review/runs
           include-hidden-files: true
+          retention-days: 14
 
   trusted-publish:
     name: AI review publish summary
@@ -95,6 +96,7 @@ jobs:
           name: ai-review-trusted-${{ github.event.pull_request.number }}
           path: .ai-review/runs
           include-hidden-files: true
+          retention-days: 14
 
   trusted-real-review:
     name: AI review publish real Pi summary
@@ -166,3 +168,4 @@ jobs:
           name: ai-review-real-${{ github.event.pull_request.number }}
           path: .ai-review/runs
           include-hidden-files: true
+          retention-days: 14

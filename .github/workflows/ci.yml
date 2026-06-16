@@ -69,6 +69,12 @@ jobs:
       - name: Complexity ratchet (cognitive complexity baseline)
         run: bun run complexity:check
 
+      # Workflow hygiene (#276): BLOCKING. Every `actions/upload-artifact` step must
+      # set `retention-days` so PII/diff content does not persist indefinitely.
+      # Mirrored by `bun run gate`.
+      - name: Workflow hygiene (retention-days gate)
+        run: bun run workflows:check
+
   quality:
     name: Advisory quality tools
     runs-on: ubuntu-latest

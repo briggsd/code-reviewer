@@ -6,7 +6,7 @@
     "src/cli.ts": 2,
     "src/cli/review-progress-reporter.ts": 1,
     "src/docs-check/check.ts": 1,
-    "src/docs-check/extract.ts": 1,
+    "src/docs-check/extract.ts": 2,
     "src/evals/score.ts": 1,
     "src/publisher/publish-summary.ts": 1,
     "src/publisher/summary-markdown.ts": 1,

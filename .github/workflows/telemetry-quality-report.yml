@@ -45,3 +45,4 @@ jobs:
         with:
           name: telemetry-quality-report
           path: telemetry-quality-report.json
+          retention-days: 14

@@ -164,6 +164,27 @@ export function checkDocs(
         message: `is ${lineCount} lines (> ${oversized}) — review for staleness/splitting`,
       });
     }
+
+    // count-drift advisory (#276 / M027): when countFacts are provided, compare
+    // any `(~N label)` claim against the live ground truth. Fires only when the
+    // drift exceeds 25% (|claimed − actual| / actual > 0.25) — gross staleness,
+    // not pedantic rounding. Advisory only, never blocking.
+    if (facts.countFacts !== undefined && facts.countFacts.size > 0) {
+      for (const claim of refs.countClaims) {
+        const actual = facts.countFacts.get(claim.label);
+        if (actual === undefined) continue; // no fact registered for this label
+        if (actual === 0) continue; // avoid division by zero
+        const drift = Math.abs(claim.count - actual) / actual;
+        if (drift > 0.25) {
+          advisory.push({
+            doc: doc.path,
+            line: claim.line,
+            reference: claim.raw,
+            message: `count-drift: doc says ${claim.raw} (${claim.label}) but live count is ${actual} (${Math.round(drift * 100)}% off — update the doc)`,
+          });
+        }
+      }
+    }
   }
 
   // repo-map coverage advisory: every src/<dir>/ must appear in the map doc.

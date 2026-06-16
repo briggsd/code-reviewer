@@ -153,3 +153,23 @@ export interface TimeoutPolicy {
   coordinatorMs: number;
   overallMs: number;
 }
+
+/**
+ * Exhaustiveness guard for union type branches.
+ *
+ * Place in the `default` arm of a switch or the final `else` of an if/else chain that
+ * covers every member of a union type. TypeScript narrows the union to `never` at that
+ * point — if a new member is added to the union without a matching branch, this call
+ * becomes a compile error rather than a silent runtime gap.
+ *
+ * Usage:
+ *   switch (tier) {
+ *     case "trivial": ...
+ *     case "lite": ...
+ *     case "full": ...
+ *     default: assertNever(tier, "RiskTier");
+ *   }
+ */
+export function assertNever(value: never, label?: string): never {
+  throw new Error(`assertNever: unhandled ${label ?? "union"} value: ${JSON.stringify(value)}`);
+}

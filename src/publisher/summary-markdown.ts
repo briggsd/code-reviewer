@@ -1,4 +1,5 @@
-import type { Finding, ReviewDecision, ReviewSummary } from "../contracts/index.ts";
+import type { Finding, ReviewDecision, ReviewSummary, Severity } from "../contracts/index.ts";
+import { assertNever } from "../contracts/index.ts";
 import { deriveDisposition } from "../runner/finding-disposition.ts";
 import { escapeMarkdown } from "./markdown-escape.ts";
 
@@ -41,16 +42,32 @@ function sortedReviewerKeys(findings: Finding[]): string[] {
 
 const SEVERITY_ORDER: Record<string, number> = { critical: 0, warning: 1, suggestion: 2 };
 
-function severityEmoji(severity: string): string {
-  if (severity === "critical") return "🔴";
-  if (severity === "warning") return "⚠️";
-  return "💬";
+function severityEmoji(severity: Severity): string {
+  switch (severity) {
+    case "critical":
+      return "🔴";
+    case "warning":
+      return "⚠️";
+    case "suggestion":
+      return "💬";
+    default:
+      // Exhaustiveness guard: a new Severity member added without a matching case here
+      // becomes a compile error (TypeScript narrows to never).
+      return assertNever(severity, "Severity");
+  }
 }
 
-function severityPlural(severity: string, count: number): string {
-  if (severity === "critical") return count === 1 ? "critical" : "criticals";
-  if (severity === "warning") return count === 1 ? "warning" : "warnings";
-  return count === 1 ? "suggestion" : "suggestions";
+function severityPlural(severity: Severity, count: number): string {
+  switch (severity) {
+    case "critical":
+      return count === 1 ? "critical" : "criticals";
+    case "warning":
+      return count === 1 ? "warning" : "warnings";
+    case "suggestion":
+      return count === 1 ? "suggestion" : "suggestions";
+    default:
+      return assertNever(severity, "Severity");
+  }
 }
 
 function sortFindingsBySeverity(findings: Finding[]): Finding[] {
@@ -87,9 +104,18 @@ function severityBadge(findings: Finding[]): string {
 function recommendationTier(findings: Finding[]): string {
   for (const sev of ["critical", "warning", "suggestion"] as const) {
     if (findings.some((f) => f.severity === sev)) {
-      if (sev === "critical") return "🔴 Major Comments";
-      if (sev === "warning") return "⚠️ Minor Comments";
-      return "💬 Optional Nits";
+      // Exhaustiveness guard: each Severity member is handled; new members require a
+      // matching case or the switch becomes a compile error.
+      switch (sev) {
+        case "critical":
+          return "🔴 Major Comments";
+        case "warning":
+          return "⚠️ Minor Comments";
+        case "suggestion":
+          return "💬 Optional Nits";
+        default:
+          return assertNever(sev, "Severity");
+      }
     }
   }
   return "💬 Optional Nits";

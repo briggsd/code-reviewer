@@ -28,6 +28,7 @@ import type {
   TelemetrySink,
   TraceSink,
 } from "../contracts/index.ts";
+import { assertNever } from "../contracts/index.ts";
 import { resolveRuntimeKind, sanitizeJobKind } from "../runtime/runtime-kind.ts";
 import { applyAcknowledgements } from "./acknowledgements.ts";
 import {
@@ -1435,17 +1436,24 @@ export function scaleTimeoutsForRiskTier(
   timeouts: ReviewConfig["timeouts"],
   tier: RiskTier,
 ): ReviewConfig["timeouts"] {
-  if (tier === "full") {
-    return timeouts;
+  switch (tier) {
+    case "full":
+      // Full-tier uses configured timeouts unscaled.
+      return timeouts;
+    case "trivial":
+    case "lite": {
+      const scale = riskTierTimeoutScale(tier);
+      return {
+        reviewerMs: scaleTimeout(timeouts.reviewerMs, scale),
+        coordinatorMs: scaleTimeout(timeouts.coordinatorMs, scale),
+        overallMs: scaleTimeout(timeouts.overallMs, scale),
+      };
+    }
+    default:
+      // Exhaustiveness guard: a new RiskTier member added to the union without a
+      // matching case arm here becomes a compile error (TypeScript narrows to never).
+      return assertNever(tier, "RiskTier");
   }
-
-  const scale = riskTierTimeoutScale(tier);
-
-  return {
-    reviewerMs: scaleTimeout(timeouts.reviewerMs, scale),
-    coordinatorMs: scaleTimeout(timeouts.coordinatorMs, scale),
-    overallMs: scaleTimeout(timeouts.overallMs, scale),
-  };
 }
 
 export function scaleTimeoutForRiskTier(timeoutMs: number, tier: RiskTier): number {

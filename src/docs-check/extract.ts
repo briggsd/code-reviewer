@@ -32,6 +32,13 @@ export interface DocReferences {
   /** `AI_REVIEW_*` env var names. */
   envVars: FoundReference[];
   /**
+   * Count claims: `(~N)` patterns adjacent to a recognizable label (e.g. "tests",
+   * "specs", "modules"). Used by the count-drift advisory rule in check.ts (#276).
+   * Each entry carries the numeric claim and the label token that follows or
+   * precedes it in the text.
+   */
+  countClaims: CountClaim[];
+  /**
    * True when a code fence was opened but never closed by a matching delimiter
    * (same char, ≥ length). The remainder of the doc is treated as fenced
    * (blanked), so path/link refs after it are NOT extracted — the checker
@@ -45,6 +52,20 @@ export interface DocReferences {
   lineCount: number;
 }
 
+/** A numeric count claim extracted from a doc (e.g. `(~32)` labelled "test files"). */
+export interface CountClaim {
+  /** The stated count. */
+  count: number;
+  /** True when the `~` approximation prefix was present. */
+  approximate: boolean;
+  /** Normalized label (lowercase). */
+  label: string;
+  /** 1-based line number. */
+  line: number;
+  /** The raw matched text, for use in advisory messages. */
+  raw: string;
+}
+
 const FENCE_RE = /^\s*(`{3,}|~{3,})([^\n]*)$/;
 const INLINE_CODE_RE = /`([^`\n]+)`/g;
 const INLINE_CODE_SPAN_RE = /`[^`\n]+`/g;
@@ -54,6 +75,39 @@ const LINK_RE = /(?<!!)\[(?:[^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const BUN_RUN_RE = /\bbun run\s+([^\s|;&`'"]+)/g;
 const ENV_RE = /\bAI_REVIEW_[A-Z0-9_]+/g;
 const SCRIPT_NAME_RE = /^[a-zA-Z][\w-]*(?::[\w-]+)*$/;
+
+/**
+ * Count-claim patterns for the count-drift advisory (#276 / M027).
+ *
+ * Detects patterns like `(~32)` or `(~32 tests)` or `(84 files)` in text.
+ * The label is captured from:
+ *   - text immediately INSIDE the parens after the number: `(~32 tests)`
+ *   - text immediately BEFORE the parens: `test specs (~32)`
+ *
+ * Pattern anatomy: optional `~`, digits, optional space+word (in-paren label).
+ * The in-paren label or the preceding word becomes the normalized label.
+ * Deliberately narrow: requires parens so stray years like "added in 2024" don't
+ * fire. The leading `~` signals an approximate/claimed count worth checking.
+ */
+const COUNT_CLAIM_PAREN_RE = /\((~?)(\d+)(?:\s+([a-z][a-z\s]*?[a-z]))?\)/gi;
+// When no in-paren label is present, the word before the `(` is captured with
+// an inline regex anchored at the end of the line-up-to-match string:
+//   /([a-z][a-z-]*)\s*\(~?\d+[^)]*\)\s*$/i
+
+/** Known label synonyms — maps doc words to canonical KnownFacts.countFacts keys. */
+const LABEL_SYNONYMS: ReadonlyMap<string, string> = new Map([
+  ["tests", "test files"],
+  ["test", "test files"],
+  ["specs", "test files"],
+  ["spec", "test files"],
+  ["modules", "src modules"],
+  ["module", "src modules"],
+]);
+
+function normalizeLabel(raw: string): string {
+  const lower = raw.trim().toLowerCase();
+  return LABEL_SYNONYMS.get(lower) ?? lower;
+}
 /**
  * Tokens carrying these are placeholders/templates/globs, not concrete paths:
  * glob/template metacharacters, an ellipsis, or the milestone `M0xx` convention.
@@ -172,6 +226,7 @@ export function extractReferences(text: string): DocReferences {
 
   const scripts: FoundReference[] = [];
   const envVars: FoundReference[] = [];
+  const countClaims: CountClaim[] = [];
 
   lines.forEach((line, index) => {
     const lineNo = index + 1;
@@ -186,6 +241,50 @@ export function extractReferences(text: string): DocReferences {
     for (const match of line.matchAll(ENV_RE)) {
       envVars.push({ raw: match[0], line: lineNo });
     }
+
+    // Count-claim extraction. Recognised forms:
+    //   (a) `(~N)` — approximate-only, no label (filtered out unless N>=2)
+    //   (b) `(N label)` / `(~N label)` — in-paren label (e.g. `(~32 tests)`)
+    //   (c) label-before-paren fallback — word immediately before the `(`
+    //       (e.g. `tests (~32)` where the label precedes the parenthesis)
+    // Only approximate counts (`~N`) or explicit in-paren/before-paren labels
+    // are captured to keep noise low. Years (4-digit numbers) are filtered out.
+    for (const match of line.matchAll(COUNT_CLAIM_PAREN_RE)) {
+      const approxPrefix = match[1] ?? "";
+      const numStr = match[2] ?? "";
+      const inParenLabel = (match[3] ?? "").trim();
+      const num = Number.parseInt(numStr, 10);
+
+      // Skip years and small noise (single-digit counts in parens are common prose)
+      if (num >= 1900 && num <= 2100) continue; // year filter
+      if (num < 2 && inParenLabel.length === 0) continue; // single-digit without label
+
+      const approximate = approxPrefix === "~";
+
+      // Determine label: prefer in-paren label; fall back to word-before-paren
+      let label = inParenLabel.length > 0 ? normalizeLabel(inParenLabel) : "";
+
+      if (label.length === 0) {
+        // Try to find the word immediately before this `(` in the line
+        // by re-scanning with WORD_BEFORE_PAREN_RE anchored at the match offset.
+        const lineUpTo = line.slice(0, (match.index ?? 0) + match[0].length);
+        const beforeMatch = /([a-z][a-z-]*)\s*\(~?\d+[^)]*\)\s*$/i.exec(lineUpTo);
+        if (beforeMatch?.[1] !== undefined) {
+          label = normalizeLabel(beforeMatch[1]);
+        }
+      }
+
+      // Only emit claims with a recognizable label (skip bare `(~N)` in prose)
+      if (label.length === 0) continue;
+
+      countClaims.push({
+        count: num,
+        approximate,
+        label,
+        line: lineNo,
+        raw: match[0],
+      });
+    }
   });
 
   return {
@@ -193,6 +292,7 @@ export function extractReferences(text: string): DocReferences {
     linkPaths,
     scripts,
     envVars,
+    countClaims,
     unclosedFence,
     unclosedFenceLine,
     lineCount: lines.length,
