@@ -216,7 +216,7 @@ describe("summary hidden metadata parsing", () => {
 
 // ---------------------------------------------------------------------------
 // schemaVersion 4 + partialBySize counts (#145) / schemaVersion 5 + findingsHash (#149)
-// schemaVersion 6 + resolvedLog (#279)
+// schemaVersion 6 + resolvedLog (#279) / schemaVersion 7 + recurrenceDepths (#260)
 // ---------------------------------------------------------------------------
 
 const CHANGE: ChangeMetadata = {
@@ -229,10 +229,10 @@ const CHANGE: ChangeMetadata = {
   labels: [],
 };
 
-describe("schemaVersion 6 hidden metadata (#279)", () => {
-  test("createPublishHiddenMetadata emits schemaVersion 6", () => {
+describe("schemaVersion 7 hidden metadata (#260)", () => {
+  test("createPublishHiddenMetadata emits schemaVersion 7", () => {
     const meta = createPublishHiddenMetadata("run-1", CHANGE);
-    expect(meta.schemaVersion).toBe(6);
+    expect(meta.schemaVersion).toBe(7);
   });
 
   test("partialBySize counts block is included when summary.partialBySize is present", () => {
@@ -262,7 +262,7 @@ describe("schemaVersion 6 hidden metadata (#279)", () => {
 
     const meta = createPublishHiddenMetadata("run-1", CHANGE, summary);
 
-    expect(meta.schemaVersion).toBe(6);
+    expect(meta.schemaVersion).toBe(7);
     const partialBySize = meta.partialBySize as
       | {
           admittedFileCount: number;
@@ -362,6 +362,7 @@ describe("schemaVersion 6 hidden metadata (#279)", () => {
     expect(typeof meta.findingsHash).toBe("string");
     expect((meta.findingsHash as string).length).toBe(16);
     expect(/^[0-9a-f]{16}$/.test(meta.findingsHash as string)).toBe(true);
+    expect(meta.recurrenceDepths).toEqual({ fnd_aaa: 1, fnd_bbb: 1 });
 
     // Parse it back out — round-trip.
     const body = ["<!-- ai-code-review-factory", JSON.stringify(meta), "-->"].join("\n");
@@ -469,7 +470,7 @@ describe("schemaVersion 6 — resolvedLog (#279)", () => {
     };
     const meta = createPublishHiddenMetadata("run-6", CHANGE, summary);
 
-    expect(meta.schemaVersion).toBe(6);
+    expect(meta.schemaVersion).toBe(7);
     expect(meta.resolvedLog).toEqual([
       { stableId: "fnd_old", title: "Old auth issue", resolvedAtSha: "abc1234" },
     ]);
@@ -478,7 +479,7 @@ describe("schemaVersion 6 — resolvedLog (#279)", () => {
   test("createPublishHiddenMetadata omits resolvedLog when absent (back-compat)", () => {
     const meta = createPublishHiddenMetadata("run-6", CHANGE, BASE_SUMMARY);
 
-    expect(meta.schemaVersion).toBe(6);
+    expect(meta.schemaVersion).toBe(7);
     expect(meta.resolvedLog).toBeUndefined();
   });
 
@@ -522,5 +523,74 @@ describe("schemaVersion 6 — resolvedLog (#279)", () => {
     expect(parsed?.findingIds).toEqual(["fnd_1"]);
     // resolvedLog is not in raw — treated as absent
     expect(parsed?.raw.resolvedLog).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// schemaVersion 7 — recurrenceDepths (#260)
+// ---------------------------------------------------------------------------
+
+describe("schemaVersion 7 — recurrenceDepths (#260)", () => {
+  test("recurrenceDepths round-trip through parse and prior state", () => {
+    const body = [
+      "<!-- ai-code-review-factory",
+      JSON.stringify({
+        schemaVersion: 7,
+        runId: "run-7",
+        headSha: "abc123",
+        findingIds: ["fnd_a", "fnd_b"],
+        recurrenceDepths: {
+          fnd_a: 3,
+          fnd_b: 1,
+        },
+      }),
+      "-->",
+    ].join("\n");
+
+    const parsed = parseSummaryHiddenMetadata(body);
+    expect(parsed?.recurrenceDepths).toEqual({ fnd_a: 3, fnd_b: 1 });
+
+    if (parsed === undefined) {
+      throw new Error("expected metadata to parse");
+    }
+    const state = createPriorReviewStateFromMetadata(parsed, ref);
+    expect(state.findings[0]?.recurrenceDepth).toBe(3);
+    expect(state.findings[1]?.recurrenceDepth).toBe(1);
+  });
+
+  test("recurrenceDepths parser rejects unsafe values and legacy comments remain valid", () => {
+    const body = [
+      "<!-- ai-code-review-factory",
+      JSON.stringify({
+        schemaVersion: 7,
+        runId: "run-7",
+        headSha: "abc123",
+        findingIds: ["fnd_valid", "fnd_zero", "fnd_string", "fnd_huge"],
+        recurrenceDepths: {
+          fnd_valid: 2,
+          fnd_zero: 0,
+          fnd_string: "3",
+          fnd_huge: 10_001,
+        },
+      }),
+      "-->",
+    ].join("\n");
+
+    const parsed = parseSummaryHiddenMetadata(body);
+    expect(parsed?.recurrenceDepths).toEqual({ fnd_valid: 2 });
+
+    const legacy = parseSummaryHiddenMetadata(
+      [
+        "<!-- ai-code-review-factory",
+        JSON.stringify({
+          schemaVersion: 6,
+          runId: "run-6",
+          headSha: "abc123",
+          findingIds: ["fnd_legacy"],
+        }),
+        "-->",
+      ].join("\n"),
+    );
+    expect(legacy?.recurrenceDepths).toBeUndefined();
   });
 });

@@ -85,6 +85,16 @@ export function createPublishHiddenMetadata(
   }
   const hasFindingReviewers = Object.keys(findingReviewers).length > 0;
 
+  // recurrenceDepths: id → consecutive reviewed rounds currently open (#260, schemaVersion 7+).
+  // First reviews seed depth=1; re-reviews use the computed per-finding depths.
+  const recurrenceDepths: Record<string, number> = {};
+  if (findingIds !== undefined) {
+    for (const id of findingIds) {
+      recurrenceDepths[id] = summary?.reReview?.convergence?.recurrenceDepths[id] ?? 1;
+    }
+  }
+  const hasRecurrenceDepths = Object.keys(recurrenceDepths).length > 0;
+
   // partialBySize counts-only block (#145, schemaVersion 4+). Counts + byte totals only (M008).
   // Old parsers (schemaVersion ≤ 3) ignore unknown keys — backward-compatible.
   const partialBySize =
@@ -112,10 +122,10 @@ export function createPublishHiddenMetadata(
       : undefined;
 
   return {
-    // Bumped 5 → 6 for the resolvedLog field (#279, M026 S02). The bump is additive and
-    // backward-compatible: old parsers (schemaVersion ≤ 5) ignore unknown keys per the existing
+    // Bumped 6 → 7 for recurrenceDepths (#260). The bump is additive and backward-compatible:
+    // old parsers ignore unknown keys per the existing
     // defensive-parse pattern (parseSummaryHiddenMetadata in summary-metadata.ts line ~40).
-    schemaVersion: 6,
+    schemaVersion: 7,
     runId,
     headSha: change.headSha,
     provider: change.provider,
@@ -124,6 +134,7 @@ export function createPublishHiddenMetadata(
     ...(findingIds !== undefined ? { findingIds } : {}),
     ...(hasFindingPaths ? { findingPaths } : {}),
     ...(hasFindingReviewers ? { findingReviewers } : {}),
+    ...(hasRecurrenceDepths ? { recurrenceDepths } : {}),
     // Comprehension-gate verdict (#26): additive, present only when the reviewer ran. v1 parsers
     // ignore unknown keys, so this stays backward-compatible with the existing metadata reader.
     ...(summary?.gateDecision !== undefined ? { gateDecision: summary.gateDecision } : {}),

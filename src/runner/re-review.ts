@@ -1,4 +1,5 @@
 import type {
+  ConvergenceMetrics,
   PriorFindingState,
   PriorReviewState,
   ReReviewSummary,
@@ -107,6 +108,13 @@ export function createReReviewSummary(
   const withheldFindingIds = priorState.findings
     .map((finding) => finding.stableId)
     .filter((stableId) => withheld.has(stableId) && !currentById.has(stableId));
+  const convergence = computeConvergenceMetrics(
+    currentFindings.map((finding) => finding.id as string),
+    newFindingIds,
+    recurringFindingIds,
+    priorById,
+    priorState.hiddenMetadata,
+  );
 
   return {
     newFindingIds,
@@ -166,7 +174,71 @@ export function createReReviewSummary(
         };
       }),
     ],
+    convergence,
   };
+}
+
+function computeConvergenceMetrics(
+  currentFindingIds: readonly string[],
+  newFindingIds: readonly string[],
+  recurringFindingIds: readonly string[],
+  priorById: ReadonlyMap<string, PriorFindingState>,
+  priorHiddenMetadata: PriorReviewState["hiddenMetadata"],
+): ConvergenceMetrics {
+  const recurring = new Set(recurringFindingIds);
+  const newIds = new Set(newFindingIds);
+  const resolvedIds = parseResolvedStableIds(priorHiddenMetadata?.resolvedLog);
+  const recurrenceDepths: Record<string, number> = {};
+  let maxRecurrenceDepth = 0;
+  let flappingFindingCount = 0;
+
+  for (const stableId of currentFindingIds) {
+    const prior = priorById.get(stableId);
+    const depth =
+      recurring.has(stableId) && prior !== undefined
+        ? (sanitizeDepth(prior.recurrenceDepth) ?? 2)
+        : 1;
+    recurrenceDepths[stableId] = depth;
+    maxRecurrenceDepth = Math.max(maxRecurrenceDepth, depth);
+
+    // A flap is a re-raised finding: it is new relative to the immediately prior open
+    // set, but prior hidden metadata says the same stable ID was resolved in an earlier
+    // round. This is counts-only; finding bodies/paths never enter telemetry.
+    if (newIds.has(stableId) && resolvedIds.has(stableId)) {
+      flappingFindingCount += 1;
+    }
+  }
+
+  return {
+    maxRecurrenceDepth,
+    flappingFindingCount,
+    currentFindingCount: currentFindingIds.length,
+    recurrenceDepths,
+  };
+}
+
+function parseResolvedStableIds(raw: unknown): ReadonlySet<string> {
+  const stableIds = new Set<string>();
+  if (!Array.isArray(raw)) {
+    return stableIds;
+  }
+
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      continue;
+    }
+    const stableId = (entry as { stableId?: unknown }).stableId;
+    if (typeof stableId === "string" && stableId.length > 0 && stableId.length <= 256) {
+      stableIds.add(stableId);
+    }
+  }
+  return stableIds;
+}
+
+function sanitizeDepth(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 10_000
+    ? Math.min(value + 1, 10_000)
+    : undefined;
 }
 
 function requireCurrentFinding(

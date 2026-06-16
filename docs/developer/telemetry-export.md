@@ -163,6 +163,19 @@ results include a counts-only `fusion` block:
 The block carries only counts and reviewer role identifiers. It never includes raw finding ids,
 titles, bodies, evidence, locations, recommendations, diff text, or prompts.
 
+**Convergence/flap efficacy (#260):** completed `ai_review.run_metrics` events with re-review
+state include a counts-only `convergence` block:
+
+- `maxRecurrenceDepth` — the largest consecutive open-round count among current findings.
+- `flappingFindingCount` — current findings that are new relative to the immediately prior open
+  set but whose stable ID appears in prior resolved history.
+- `currentFindingCount` — current findings measured in the convergence block; denominator for
+  the pooled flap rate.
+
+The block carries only integers. It never includes finding IDs, titles, bodies, evidence,
+locations, paths, diff text, prompts, or secrets. The ID-keyed recurrence-depth map is persisted
+only in hidden summary metadata so a later round can update the aggregate counts.
+
 ### Acceptance mapping (run.correction)
 
 The `acceptanceByReviewer` field maps reviewer role identifiers (model-authored) to
@@ -238,6 +251,8 @@ JSON as an artifact.
 | `proseFindingDropRate` | `analysis.rates.proseFindingDropRate` | `maxProseFindingDropRate` | above → bad | 0.10 |
 | `fusionRawMinusSurvivingRate` | `analysis.rates.fusionRawMinusSurvivingRate` | descriptive only | n/a | n/a |
 | `fusionDropRate` | `analysis.rates.fusionDropRate` | `maxFusionDropRate` | above → bad | 0.30 (not yet active; requires `attributionComplete: true`) |
+| `convergenceFlapRate` | `analysis.convergence.flapRate` | `maxConvergenceFlapRate` | above → bad | 0.20 |
+| `maxRecurrenceDepth` | `analysis.convergence.maxRecurrenceDepth` | `maxRecurrenceDepth` | above → bad | 3 |
 | `thinReviewRate` (overall + per-tier) | `analysis.rates.thinReviewRate` (overall) / `analysis.byTier[tier].thinReviewRate` (per tier) | `maxThinReviewRate` | above → bad | 0.20 |
 | `overrideRate` | `analysis.runEvents?.overrideRate` | `maxOverrideRate` | above → bad | 0.10 |
 | `acceptanceRate` | `acceptanceByReviewer[r].acceptanceRate` or `acceptanceByTier[t].acceptanceRate` | `minAcceptanceRate` | below → bad | 0.50 |
@@ -259,12 +274,17 @@ reported as breaches. `fusionDropRate` is finding-level (`droppedCount / rawFind
 pooled only across completed runs whose fusion block has `attributionComplete: true`; current
 `attributionComplete: false` raw-minus-surviving telemetry is descriptive and is not thresholded
 by the quality report. A true-drop sample denominator of 0 is treated as no data and skipped by
-the quality report. `thinReviewRate` is reported
-from run_metrics at both the overall level (`rates.thinReviewRate`) and per tier
-(`byTier[tier].thinReviewRate`), so a single report can surface both an `overall` and a
-`tier:<name>` thin-review hypothesis. `groundingWithholdRate` is finding-level (demoted ÷
-produced, pooled across runs); `groundingDropRate` is run-level (fraction of runs with any
-demoted finding) — they are complementary signals.
+the quality report.
+
+`convergenceFlapRate` is finding-level (`flappingFindingCount / currentFindingCount`) pooled
+across runs with a convergence block. `maxRecurrenceDepth` is count-valued, not a percentage, and
+uses the number of runs with convergence data as its confidence sample size.
+
+`thinReviewRate` is reported from run_metrics at both the overall level
+(`rates.thinReviewRate`) and per tier (`byTier[tier].thinReviewRate`), so a single report can
+surface both an `overall` and a `tier:<name>` thin-review hypothesis. `groundingWithholdRate` is
+finding-level (demoted ÷ produced, pooled across runs); `groundingDropRate` is run-level
+(fraction of runs with any demoted finding) — they are complementary signals.
 
 #### Counts-only constraint (M008)
 

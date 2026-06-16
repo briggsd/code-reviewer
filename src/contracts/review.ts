@@ -249,6 +249,16 @@ export interface ReReviewFindingClassification {
   lastSeenHeadSha?: string;
 }
 
+/** Counts-only convergence signal (#260, M023).
+ *  `recurrenceDepths` is persisted in hidden metadata as stable finding ID → consecutive
+ *  reviewed rounds currently open. Telemetry emits only the aggregate counts below. */
+export interface ConvergenceMetrics {
+  maxRecurrenceDepth: number;
+  flappingFindingCount: number;
+  currentFindingCount: number;
+  recurrenceDepths: Record<string, number>;
+}
+
 export interface ReReviewSummary {
   newFindingIds: string[];
   recurringFindingIds: string[];
@@ -260,6 +270,7 @@ export interface ReReviewSummary {
    */
   carriedForwardFindingIds: string[];
   classifications: ReReviewFindingClassification[];
+  convergence?: ConvergenceMetrics;
 }
 
 export interface ReviewSummary {
@@ -340,6 +351,8 @@ export interface PriorFindingState {
   vcsCommentId?: string;
   status: "open" | "resolved" | "acknowledged" | "disputed";
   lastSeenHeadSha: string;
+  /** Consecutive reviewed rounds this finding has remained open. Absent in legacy metadata. */
+  recurrenceDepth?: number;
 }
 
 export interface PriorReviewState {

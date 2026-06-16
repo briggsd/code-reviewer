@@ -1,0 +1,86 @@
+{
+  "runId": "fixture-convergence-flap-pr",
+  "safetyMode": "trusted",
+  "metadata": {
+    "provider": "github",
+    "repository": {
+      "provider": "github",
+      "owner": "example",
+      "name": "payments-api",
+      "slug": "example/payments-api",
+      "defaultBranch": "main"
+    },
+    "changeId": "17",
+    "headSha": "flap-head-789",
+    "baseSha": "def456",
+    "sourceBranch": "feature/account-lookup",
+    "targetBranch": "main",
+    "title": "Reintroduce account lookup endpoint path",
+    "description": "Third review after a finding was resolved and then reappeared.",
+    "author": {
+      "username": "contributor"
+    },
+    "labels": [
+      "api"
+    ]
+  },
+  "diff": {
+    "files": [
+      {
+        "path": "auth/accounts.ts",
+        "status": "modified",
+        "additions": 8,
+        "deletions": 2,
+        "isBinary": false,
+        "patch": "@@ -20,6 +20,14 @@ export async function getAccount(req) {\n+  const accountId = req.query.accountId;\n+  return db.accounts.findById(accountId);\n }"
+      }
+    ],
+    "totalAdditions": 8,
+    "totalDeletions": 2,
+    "truncated": false
+  },
+  "config": {
+    "mode": "blocking",
+    "failOn": [
+      "critical"
+    ]
+  },
+  "priorState": {
+    "previousRunId": "fixture-round-2-clean",
+    "previousHeadSha": "clean-head-456",
+    "findings": [],
+    "hiddenMetadata": {
+      "schemaVersion": 6,
+      "runId": "fixture-round-2-clean",
+      "headSha": "clean-head-456",
+      "findingIds": [],
+      "resolvedLog": [
+        {
+          "stableId": "fnd_fixture_flapping_auth",
+          "title": "Account lookup misses authorization",
+          "resolvedAtSha": "clean-h"
+        }
+      ]
+    }
+  },
+  "fakeFindings": [
+    {
+      "id": "fnd_fixture_flapping_auth",
+      "reviewer": "security",
+      "severity": "critical",
+      "category": "auth",
+      "title": "Account lookup misses authorization",
+      "body": "The lookup again uses a request-supplied accountId without proving the caller can access that account.",
+      "location": {
+        "path": "auth/accounts.ts",
+        "line": 24,
+        "side": "RIGHT"
+      },
+      "confidence": "high",
+      "evidence": [
+        "The patch again returns db.accounts.findById(accountId) without an ownership check."
+      ],
+      "recommendation": "Check account ownership or required permission before returning account data."
+    }
+  ]
+}

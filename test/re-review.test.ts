@@ -1,13 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import type { Finding, PriorFindingState, PriorReviewState, ReviewSummary } from "../src/index.ts";
+import type {
+  Finding,
+  PriorFindingState,
+  PriorReviewState,
+  ReviewSummary,
+  TelemetryEvent,
+  TelemetryFlushResult,
+  TelemetrySink,
+} from "../src/index.ts";
 import {
   buildResolvedLog,
   classifyReReviewFindings,
+  createPriorReviewStateFromMetadata,
+  createPublishHiddenMetadata,
   createReReviewSummary,
   formatReviewSummaryMarkdown,
   isReReviewConverged,
   loadReviewFixture,
   parseResolvedLog,
+  parseSummaryHiddenMetadata,
   runReview,
 } from "../src/index.ts";
 
@@ -40,6 +51,22 @@ const newFinding: Finding = {
   recommendation: "Return a validation error when accountId is missing.",
 };
 
+class RecordingTelemetrySink implements TelemetrySink {
+  readonly events: TelemetryEvent[] = [];
+
+  emit(event: TelemetryEvent): void {
+    this.events.push(event);
+  }
+
+  async flush(): Promise<TelemetryFlushResult> {
+    return { deliveredCount: this.events.length, failedCount: 0, droppedCount: 0, pendingCount: 0 };
+  }
+
+  async close(): Promise<TelemetryFlushResult> {
+    return this.flush();
+  }
+}
+
 const priorState: PriorReviewState = {
   previousRunId: "prior-run",
   previousHeadSha: "old-head",
@@ -71,6 +98,15 @@ describe("re-review finding classification", () => {
     expect(reReview.newFindingIds).toEqual(["fnd_new"]);
     expect(reReview.recurringFindingIds).toEqual(["fnd_recurring"]);
     expect(reReview.fixedFindingIds).toEqual(["fnd_fixed"]);
+    expect(reReview.convergence).toEqual({
+      maxRecurrenceDepth: 2,
+      flappingFindingCount: 0,
+      currentFindingCount: 2,
+      recurrenceDepths: {
+        fnd_new: 1,
+        fnd_recurring: 2,
+      },
+    });
     expect(reReview.classifications.map((classification) => classification.status)).toEqual([
       "new",
       "recurring",
@@ -134,6 +170,123 @@ describe("re-review finding classification", () => {
     expect(result.summary.reReview?.newFindingIds).toEqual([]);
     expect(result.summary.reReview?.recurringFindingIds).toEqual(["fnd_fixture_recurring_auth"]);
     expect(result.summary.reReview?.fixedFindingIds).toEqual(["fnd_fixture_fixed_null_check"]);
+  });
+
+  test("recurrence depth increments from persisted metadata and legacy recurring findings fall back to depth 2", () => {
+    const summary = createSummary([recurringFinding]);
+    const reReview = createReReviewSummary(summary, {
+      ...priorState,
+      findings: [
+        {
+          ...(priorState.findings[0] as PriorFindingState),
+          recurrenceDepth: 3,
+        },
+      ],
+    });
+
+    if (reReview.convergence === undefined) {
+      throw new Error("expected convergence metrics");
+    }
+    expect(reReview.convergence.maxRecurrenceDepth).toBe(4);
+    expect(reReview.convergence.recurrenceDepths.fnd_recurring).toBe(4);
+
+    const legacy = createReReviewSummary(summary, {
+      ...priorState,
+      findings: [priorState.findings[0] as PriorFindingState],
+    });
+    if (legacy.convergence === undefined) {
+      throw new Error("expected legacy convergence metrics");
+    }
+    expect(legacy.convergence.recurrenceDepths.fnd_recurring).toBe(2);
+  });
+
+  test("3-round fixture counts a finding that resolves then reappears as flapping", async () => {
+    const telemetrySink = new RecordingTelemetrySink();
+    const round3 = await runReview({
+      fixture: await loadReviewFixture("examples/fixtures/convergence-flap-pr.json"),
+      now: new Date("2026-06-09T00:00:02.000Z"),
+      telemetrySink,
+    });
+
+    expect(round3.summary.reReview?.newFindingIds).toEqual(["fnd_fixture_flapping_auth"]);
+    expect(round3.summary.reReview?.convergence).toEqual({
+      maxRecurrenceDepth: 1,
+      flappingFindingCount: 1,
+      currentFindingCount: 1,
+      recurrenceDepths: {
+        fnd_fixture_flapping_auth: 1,
+      },
+    });
+
+    const metrics = telemetrySink.events.find((event) => event.type === "ai_review.run_metrics");
+    const convergence = metrics?.data?.convergence as
+      | {
+          maxRecurrenceDepth: number;
+          flappingFindingCount: number;
+          currentFindingCount: number;
+          recurrenceDepths?: unknown;
+        }
+      | undefined;
+    expect(convergence).toEqual({
+      maxRecurrenceDepth: 1,
+      flappingFindingCount: 1,
+      currentFindingCount: 1,
+    });
+    expect(convergence?.recurrenceDepths).toBeUndefined();
+  });
+
+  test("recurrence depths persist through hidden metadata across review rounds", () => {
+    const round2Summary = {
+      ...createSummary([recurringFinding]),
+      reReview: createReReviewSummary(createSummary([recurringFinding]), {
+        ...priorState,
+        findings: [
+          {
+            ...(priorState.findings[0] as PriorFindingState),
+            recurrenceDepth: 1,
+          },
+        ],
+      }),
+    };
+    const metadata = createPublishHiddenMetadata(
+      "round-2",
+      {
+        provider: "github",
+        repository: {
+          provider: "github",
+          owner: "example",
+          name: "payments-api",
+          slug: "example/payments-api",
+        },
+        changeId: "17",
+        headSha: "round-2-head",
+        title: "Round 2",
+        author: { username: "contributor" },
+        labels: [],
+      },
+      round2Summary,
+    );
+
+    const parsed = parseSummaryHiddenMetadata(
+      ["<!-- ai-code-review-factory", JSON.stringify(metadata), "-->"].join("\n"),
+    );
+    if (parsed === undefined) {
+      throw new Error("expected metadata to parse");
+    }
+    expect(parsed.recurrenceDepths).toEqual({ fnd_recurring: 2 });
+
+    const restored = createPriorReviewStateFromMetadata(parsed, {
+      provider: "github",
+      repository: {
+        provider: "github",
+        owner: "example",
+        name: "payments-api",
+        slug: "example/payments-api",
+      },
+      changeId: "17",
+      headSha: "round-3-head",
+    });
+    expect(restored.findings[0]?.recurrenceDepth).toBe(2);
   });
 
   test("omits empty zero-count re-review state", () => {

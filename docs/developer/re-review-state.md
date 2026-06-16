@@ -173,11 +173,11 @@ The `run_metrics` telemetry event also includes an `incremental` block when the 
 
 ## Hidden summary metadata
 
-Published summary comments/notes include hidden metadata with `schemaVersion: 6` and `findingIds` (and optionally `findingPaths`, `findingReviewers`, `partialBySize`, `findingsHash`, and `resolvedLog`). At schemaVersion 5 (legacy), `resolvedLog` is absent; at schemaVersion 4 (legacy), `findingsHash` is also absent; at schemaVersion 3 (legacy), `partialBySize` is also absent; at schemaVersion 2 (legacy), `findingReviewers` is absent and placeholder findings use reviewer `"unknown"`; at schemaVersion 1 (legacy), `findingPaths` is also absent and placeholder findings have no `location`; incremental re-review falls back to full review or carries forward all prior findings conservatively. (The `schemaVersion: 2` example in the `findingPaths` section above shows the v2 shape for reference.)
+Published summary comments/notes include hidden metadata with `schemaVersion: 7` and `findingIds` (and optionally `findingPaths`, `findingReviewers`, `partialBySize`, `findingsHash`, `resolvedLog`, and `recurrenceDepths`). At schemaVersion 6 (legacy), `recurrenceDepths` is absent; at schemaVersion 5 (legacy), `resolvedLog` is absent; at schemaVersion 4 (legacy), `findingsHash` is also absent; at schemaVersion 3 (legacy), `partialBySize` is also absent; at schemaVersion 2 (legacy), `findingReviewers` is absent and placeholder findings use reviewer `"unknown"`; at schemaVersion 1 (legacy), `findingPaths` is also absent and placeholder findings have no `location`; incremental re-review falls back to full review or carries forward all prior findings conservatively. (The `schemaVersion: 2` example in the `findingPaths` section above shows the v2 shape for reference.)
 
 ```json
 {
-  "schemaVersion": 6,
+  "schemaVersion": 7,
   "runId": "run-123",
   "headSha": "abc123",
   "provider": "github",
@@ -190,6 +190,9 @@ Published summary comments/notes include hidden metadata with `schemaVersion: 6`
   "findingReviewers": {
     "fnd_0123456789abcdef": "security"
   },
+  "recurrenceDepths": {
+    "fnd_0123456789abcdef": 3
+  },
   "findingsHash": "a1b2c3d4e5f6a7b8",
   "resolvedLog": [
     { "stableId": "fnd_0123456789abcdef", "title": "Auth token not rotated", "resolvedAtSha": "abc1234" }
@@ -197,6 +200,7 @@ Published summary comments/notes include hidden metadata with `schemaVersion: 6`
 }
 ```
 
+- **`recurrenceDepths`** (v7, optional): stable finding ID → consecutive reviewed rounds the finding has remained open (#260). First reviews seed a depth of `1`; recurring findings increment by one on the next reviewed round; legacy prior metadata without the field falls back to depth `2` for a recurring finding because it was present in both the prior and current reviewed rounds. The map is persisted for current findings only. Parsed defensively: only bounded positive integers are accepted. Parsers built on schemaVersion ≤ 6 ignore this field (backward-compatible additive field).
 - **`resolvedLog`** (v6, optional): cross-round resolved-finding history (#279, M026 S02). An array of objects `{ stableId, title, resolvedAtSha }` accumulated across re-review rounds — each entry records a finding that was classified `fixed` in some prior round and the short head SHA where it was resolved. Capped at 50 entries (oldest dropped when exceeded). Absent on first review or when no findings have been resolved yet. Parsed defensively: malformed entries are dropped silently; only non-empty string values with bounded length are accepted. Parsers built on schemaVersion ≤ 5 ignore this field (backward-compatible additive field).
 - **`findingsHash`** (v5, optional): a 16-hex-character SHA-256 prefix of the sorted stable finding-ID set. Empty string when there are no findings. Used by the convergence gate to detect a stable finding set across re-reviews without comparing full ID arrays. Parsers built on schemaVersion ≤ 4 ignore this field (backward-compatible additive field).
 - **`partialBySize`** (v4, optional): admitted/dropped file counts and byte totals when the diff exceeded the patch-size budget. See `../user/adoption.md` for the schemaVersion 3→4 note.
@@ -220,6 +224,13 @@ When `ReviewContext.priorState` is present, the runner attaches `summary.reRevie
 - `fixedFindingIds`: prior finding IDs that are absent from the current review **and were not withheld by evidence grounding this run**.
 - `withheldFindingIds`: prior finding IDs absent from the current review **because evidence grounding dropped the matching finding this run** (its `quotedCode` could not be located in the changed files). The finding was not necessarily resolved — it was withheld for lack of grounding evidence, so it is excluded from `fixedFindingIds` and reported separately (#69).
 - `classifications`: per-ID records with status `new`, `recurring`, `fixed`, or `withheld`, plus current/prior finding details where available. `withheld` entries carry `priorFinding`/`lastSeenHeadSha` (like `fixed`) and no current `finding`.
+- `convergence`: counts-only measurement state: `maxRecurrenceDepth`, `flappingFindingCount`, `currentFindingCount`, and the hidden-metadata-only `recurrenceDepths` map.
+
+`maxRecurrenceDepth` is the largest current finding depth in the run. `flappingFindingCount`
+counts current findings that are new relative to the immediately prior open set but whose stable
+ID appears in prior `resolvedLog` — the raised → resolved/absent → re-raised pattern. Both
+signals are measurement-only and never affect CI status, reviewer prompts, or the convergence
+publish-suppression decision.
 
 Summary markdown renders a **Re-review status** section with the new/recurring/fixed/withheld counts (withheld and fixed each also list their IDs when non-empty). Fixed findings are reported in the summary only; provider threads are not resolved yet.
 

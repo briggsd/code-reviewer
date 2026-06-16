@@ -20,6 +20,8 @@ export interface ParsedSummaryMetadata {
   findingPaths?: Record<string, string>;
   /** schemaVersion 3+: id → reviewer role for prior findings. */
   findingReviewers?: Record<string, string>;
+  /** schemaVersion 7+: id → consecutive open reviewed-round count. */
+  recurrenceDepths?: Record<string, number>;
   /**
    * schemaVersion 5+: SHA-256 (16-hex) of the sorted stable finding-ID set (#149).
    * Substrate for cross-round convergence robustness. Absent in older comments — treated as
@@ -86,6 +88,22 @@ export function parseSummaryHiddenMetadata(
       }
     }
 
+    // Parse recurrenceDepths defensively. This is UNTRUSTED prior-comment content and only
+    // feeds convergence analytics. Accept bounded positive integers; rejected values fall
+    // back to legacy depth inference in createReReviewSummary.
+    let recurrenceDepths: Record<string, number> | undefined;
+    if (isJsonObject(parsed.recurrenceDepths)) {
+      const filtered: Record<string, number> = {};
+      for (const [key, value] of Object.entries(parsed.recurrenceDepths)) {
+        if (isSafeRecurrenceDepth(value)) {
+          filtered[key] = value;
+        }
+      }
+      if (Object.keys(filtered).length > 0) {
+        recurrenceDepths = filtered;
+      }
+    }
+
     return {
       ...(typeof parsed.schemaVersion === "number" ? { schemaVersion: parsed.schemaVersion } : {}),
       ...(typeof parsed.runId === "string" ? { runId: parsed.runId } : {}),
@@ -98,6 +116,7 @@ export function parseSummaryHiddenMetadata(
         : [],
       ...(findingPaths !== undefined ? { findingPaths } : {}),
       ...(findingReviewers !== undefined ? { findingReviewers } : {}),
+      ...(recurrenceDepths !== undefined ? { recurrenceDepths } : {}),
       // Parse findingsHash defensively: accept only a 16-hex string (schemaVersion 5+).
       // This is UNTRUSTED prior-comment content. It influences convergence substrate only —
       // the Tier-1 decision uses the authoritative re-review delta, not this hash.
@@ -132,6 +151,9 @@ export function createPriorReviewStateFromMetadata(
         ),
         status: "open",
         lastSeenHeadSha,
+        ...(metadata.recurrenceDepths?.[stableId] !== undefined
+          ? { recurrenceDepth: metadata.recurrenceDepths[stableId] }
+          : {}),
       }),
     ),
   };
@@ -191,4 +213,8 @@ function isSafeReviewerRole(value: string): boolean {
     }
   }
   return true;
+}
+
+function isSafeRecurrenceDepth(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 10_000;
 }

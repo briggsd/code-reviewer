@@ -394,6 +394,99 @@ describe("buildQualityReport — suppression quality signals (#224-#227)", () =>
   });
 });
 
+// ─── Convergence quality signals (#260) ─────────────────────────────────────
+
+describe("buildQualityReport — convergence signals (#260)", () => {
+  test("convergenceFlapRate breach uses measured finding denominator", () => {
+    const analysis = makeAnalysis({
+      convergence: {
+        runCount: 5,
+        currentFindingCount: 10,
+        flappingFindingCount: 3,
+        flapRate: 0.3,
+        maxRecurrenceDepth: 2,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "convergenceFlapRate");
+    expect(h).toBeDefined();
+    expect(h?.direction).toBe("above");
+    expect(h?.threshold).toBeCloseTo(0.2, 5);
+    expect(h?.sampleSize).toBe(10);
+  });
+
+  test("maxRecurrenceDepth breach uses convergence-run denominator", () => {
+    const analysis = makeAnalysis({
+      convergence: {
+        runCount: 4,
+        currentFindingCount: 4,
+        flappingFindingCount: 0,
+        flapRate: 0,
+        maxRecurrenceDepth: 5,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "maxRecurrenceDepth");
+    expect(h).toBeDefined();
+    expect(h?.direction).toBe("above");
+    expect(h?.value).toBe(5);
+    expect(h?.threshold).toBe(3);
+    expect(h?.sampleSize).toBe(4);
+    expect(h?.lowConfidence).toBe(true);
+  });
+
+  test("convergence metrics are skipped when no convergence analysis is present", () => {
+    const report = buildQualityReport(makeAnalysis({ runCount: 10 }));
+    expect(report.hypotheses.find((x) => x.metric === "convergenceFlapRate")).toBeUndefined();
+    expect(report.hypotheses.find((x) => x.metric === "maxRecurrenceDepth")).toBeUndefined();
+  });
+
+  test("convergence thresholds can be overridden", () => {
+    const analysis = makeAnalysis({
+      convergence: {
+        runCount: 10,
+        currentFindingCount: 10,
+        flappingFindingCount: 2,
+        flapRate: 0.2,
+        maxRecurrenceDepth: 3,
+      },
+    });
+
+    const defaultReport = buildQualityReport(analysis);
+    expect(
+      defaultReport.hypotheses.find((x) => x.metric === "convergenceFlapRate"),
+    ).toBeUndefined();
+    expect(defaultReport.hypotheses.find((x) => x.metric === "maxRecurrenceDepth")).toBeUndefined();
+
+    const overrideReport = buildQualityReport(analysis, {
+      maxConvergenceFlapRate: 0.1,
+      maxRecurrenceDepth: 2,
+    });
+    expect(overrideReport.hypotheses.find((x) => x.metric === "convergenceFlapRate")).toBeDefined();
+    expect(overrideReport.hypotheses.find((x) => x.metric === "maxRecurrenceDepth")).toBeDefined();
+  });
+
+  test("formatQualityReport renders maxRecurrenceDepth as a count, not a percent", () => {
+    const analysis = makeAnalysis({
+      convergence: {
+        runCount: 5,
+        currentFindingCount: 5,
+        flappingFindingCount: 0,
+        flapRate: 0,
+        maxRecurrenceDepth: 4,
+      },
+    });
+
+    const output = formatQualityReport(buildQualityReport(analysis));
+    expect(output).toContain("maxRecurrenceDepth");
+    expect(output).toContain("       4");
+    expect(output).toContain("         >3");
+    expect(output).not.toContain("400.0%");
+  });
+});
+
 // ─── runEvents-gated metrics ──────────────────────────────────────────────────
 
 describe("buildQualityReport — runEvents-gated metrics", () => {
@@ -990,6 +1083,27 @@ describe("buildQualityReport — sort order", () => {
     );
     const groundingIdx = highConfident.findIndex((x) => x.metric === "groundingDropRate");
     expect(thinIdx).toBeLessThan(groundingIdx);
+  });
+
+  test("normalizes count-valued recurrence depth so large rate breaches can sort first", () => {
+    const report = buildQualityReport(
+      makeAnalysis({
+        runCount: 10,
+        reviewerFailureRate: 0.8, // threshold 0.10 → rate breach magnitude 0.70
+        convergence: {
+          runCount: 10,
+          currentFindingCount: 0,
+          flappingFindingCount: 0,
+          flapRate: null,
+          maxRecurrenceDepth: 4, // threshold 3 → normalized count breach magnitude 1/3
+        },
+      }),
+    );
+
+    const metrics = report.hypotheses.map((h) => h.metric);
+    expect(metrics.indexOf("reviewerFailureRate")).toBeLessThan(
+      metrics.indexOf("maxRecurrenceDepth"),
+    );
   });
 });
 

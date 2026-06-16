@@ -142,6 +142,17 @@ export interface DispositionAnalysis {
   bySeverity: Record<string, DispositionPrecisionSegment>;
 }
 
+/** Pooled convergence/flap measurement (#260). Counts-only. */
+export interface ConvergenceAnalysis {
+  runCount: number;
+  currentFindingCount: number;
+  flappingFindingCount: number;
+  /** flappingFindingCount ÷ currentFindingCount; null when no findings were measured. */
+  flapRate: number | null;
+  /** Maximum per-finding consecutive open-round depth observed in the sample. */
+  maxRecurrenceDepth: number;
+}
+
 export interface RunMetricsAnalysis {
   runCount: number;
   /** Runs whose run_metrics carried >=1 reviewer-kind failure (#212). */
@@ -243,6 +254,8 @@ export interface RunMetricsAnalysis {
   /** Per-finding disposition outcome analysis (#256, M023 S04).
    *  Absent when no run has a dispositions block (first-review-only fleet). */
   dispositions?: DispositionAnalysis;
+  /** Convergence/flap measurement (#260). Absent when no run has a convergence block. */
+  convergence?: ConvergenceAnalysis;
 }
 
 interface TierAccumulator {
@@ -285,6 +298,8 @@ interface RunMetricsEventData extends Record<string, JsonValue> {
   structuredOutput?: Record<string, JsonValue>;
   failures?: JsonValue[];
   fusion?: Record<string, JsonValue>;
+  /** Counts-only convergence/flap metrics (#260). */
+  convergence?: Record<string, JsonValue>;
   /** Per-finding disposition counts (#256, M023 S04). Absent on first review. */
   dispositions?: Record<string, JsonValue>;
 }
@@ -402,6 +417,10 @@ function accumulateOptionalBlocks(
     fusionAttributedRawFindingTotal: number;
     fusionRawMinusSurvivingTotal: number;
     fusionRawFindingTotal: number;
+    convergenceRunCount: number;
+    convergenceCurrentFindingTotal: number;
+    convergenceFlappingFindingTotal: number;
+    convergenceMaxRecurrenceDepth: number;
   },
 ): void {
   const groundingBlock = data.grounding;
@@ -456,6 +475,17 @@ function accumulateOptionalBlocks(
       counters.fusionAttributedDroppedTotal += asNumber(fusionBlock.droppedCount);
       counters.fusionAttributedRawFindingTotal += rawFindingCount;
     }
+  }
+
+  const convergenceBlock = data.convergence;
+  if (convergenceBlock !== undefined && isPlainObject(convergenceBlock)) {
+    counters.convergenceRunCount += 1;
+    counters.convergenceCurrentFindingTotal += asNumber(convergenceBlock.currentFindingCount);
+    counters.convergenceFlappingFindingTotal += asNumber(convergenceBlock.flappingFindingCount);
+    counters.convergenceMaxRecurrenceDepth = Math.max(
+      counters.convergenceMaxRecurrenceDepth,
+      asNumber(convergenceBlock.maxRecurrenceDepth),
+    );
   }
 
   const ignoredFileCount = asNumber(data.ignoredFileCount);
@@ -805,6 +835,10 @@ export function analyzeRunMetrics(
     fusionAttributedRawFindingTotal: 0,
     fusionRawMinusSurvivingTotal: 0,
     fusionRawFindingTotal: 0,
+    convergenceRunCount: 0,
+    convergenceCurrentFindingTotal: 0,
+    convergenceFlappingFindingTotal: 0,
+    convergenceMaxRecurrenceDepth: 0,
   };
 
   let thinReviewRunCount = 0;
@@ -959,6 +993,10 @@ export function analyzeRunMetrics(
     fusionAttributedRawFindingTotal,
     fusionRawMinusSurvivingTotal,
     fusionRawFindingTotal,
+    convergenceRunCount,
+    convergenceCurrentFindingTotal,
+    convergenceFlappingFindingTotal,
+    convergenceMaxRecurrenceDepth,
   } = optionalBlockCounters;
 
   return {
@@ -1026,6 +1064,20 @@ export function analyzeRunMetrics(
       : {}),
     ...(supplementalEventsAnalysis.runEvents !== undefined
       ? { runEvents: supplementalEventsAnalysis.runEvents }
+      : {}),
+    ...(convergenceRunCount > 0
+      ? {
+          convergence: {
+            runCount: convergenceRunCount,
+            currentFindingCount: convergenceCurrentFindingTotal,
+            flappingFindingCount: convergenceFlappingFindingTotal,
+            flapRate:
+              convergenceCurrentFindingTotal === 0
+                ? null
+                : convergenceFlappingFindingTotal / convergenceCurrentFindingTotal,
+            maxRecurrenceDepth: convergenceMaxRecurrenceDepth,
+          },
+        }
       : {}),
     // Disposition analysis (#256, M023 S04): absent when no run has disposition data.
     ...(() => {
@@ -1354,6 +1406,18 @@ function formatRatesSection(analysis: RunMetricsAnalysis): string[] {
   lines.push(`  acknowledgementRunRate    ${(r.acknowledgementRunRate * 100).toFixed(1)}%`);
   lines.push(`  thinReviewRate            ${(r.thinReviewRate * 100).toFixed(1)}%`);
   lines.push(`  structuredOutputRate      ${(r.structuredOutputRate * 100).toFixed(1)}%`);
+  if (analysis.convergence !== undefined) {
+    const flapRate =
+      analysis.convergence.flapRate === null
+        ? "n/a"
+        : `${(analysis.convergence.flapRate * 100).toFixed(1)}%`;
+    lines.push(
+      `  convergenceFlapRate       ${flapRate} (n=${analysis.convergence.currentFindingCount})`,
+    );
+    lines.push(
+      `  maxRecurrenceDepth        ${analysis.convergence.maxRecurrenceDepth} (runs=${analysis.convergence.runCount})`,
+    );
+  }
   lines.push(`  reviewerFailureRunCount   ${analysis.reviewerFailureRunCount}`);
   const rfRateStr =
     analysis.reviewerFailureRate === null

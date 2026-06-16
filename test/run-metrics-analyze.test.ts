@@ -426,6 +426,87 @@ describe("analyzeRunMetrics fusionDropRate (#258)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// #260 convergence / flap metric
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics convergence metrics (#260)", () => {
+  const convergenceEvents: TelemetryEvent[] = [
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-15T00:00:00.000Z",
+      runId: "convergence-a",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "significant_concerns",
+        outcome: "fail",
+        findingCount: 2,
+        findingsByReviewer: { security: 2 },
+        convergence: {
+          maxRecurrenceDepth: 4,
+          flappingFindingCount: 1,
+          currentFindingCount: 2,
+        },
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-15T01:00:00.000Z",
+      runId: "convergence-b",
+      data: {
+        runtime: "pi",
+        riskTier: "lite",
+        decision: "minor_issues",
+        outcome: "pass",
+        findingCount: 1,
+        findingsByReviewer: { correctness: 1 },
+        convergence: {
+          maxRecurrenceDepth: 2,
+          flappingFindingCount: 0,
+          currentFindingCount: 1,
+        },
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-15T02:00:00.000Z",
+      runId: "convergence-dummy",
+      data: {
+        runtime: "dummy",
+        riskTier: "full",
+        decision: "approved",
+        outcome: "pass",
+        findingCount: 1,
+        convergence: {
+          maxRecurrenceDepth: 99,
+          flappingFindingCount: 99,
+          currentFindingCount: 99,
+        },
+      },
+    },
+  ];
+
+  test("aggregates flap rate and max recurrence depth across real runs", () => {
+    const analysis = analyzeRunMetrics(convergenceEvents);
+    expect(analysis.convergence).toEqual({
+      runCount: 2,
+      currentFindingCount: 3,
+      flappingFindingCount: 1,
+      flapRate: 1 / 3,
+      maxRecurrenceDepth: 4,
+    });
+  });
+
+  test("formatRunMetricsAnalysis includes convergence metrics when present", () => {
+    const output = formatRunMetricsAnalysis(analyzeRunMetrics(convergenceEvents));
+    expect(output).toContain("convergenceFlapRate");
+    expect(output).toContain("maxRecurrenceDepth");
+    expect(output).toContain("n=3");
+    expect(output).toContain("runs=2");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // M015 S05 (#128): structuredOutputRate
 // ---------------------------------------------------------------------------
 

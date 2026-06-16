@@ -79,6 +79,8 @@ Use the full raw CLI template in `examples/ci/github-actions-ai-review.yml` or t
 
 - **Hidden-metadata `schemaVersion` bump 5 → 6 (#279).** The metadata block now reports `schemaVersion: 6` and adds an optional `resolvedLog` field: an array of `{ stableId, title, resolvedAtSha }` objects accumulated across re-review rounds, recording which findings were resolved and in which commit. The log is capped at 50 entries (oldest dropped when exceeded) and is absent until at least one finding is classified `fixed` in a re-review. The bump is **additive and backward-compatible**: parsers that ignore unknown keys are unaffected. **Action:** any tooling that asserts an exact `schemaVersion === 5` on the metadata block must be updated to accept `>= 5` (or `6`).
 
+- **Hidden-metadata `schemaVersion` bump 6 → 7 (#260).** The metadata block now reports `schemaVersion: 7` and adds an optional `recurrenceDepths` field: a map from stable finding ID to the consecutive reviewed-round count for findings currently open. This supports counts-only convergence telemetry (`maxRecurrenceDepth` and flapping-finding counts) without putting finding bodies, paths, diff text, or prompts into telemetry. The bump is **additive and backward-compatible**: parsers that ignore unknown keys are unaffected. **Action:** any tooling that asserts an exact `schemaVersion === 6` on the metadata block must be updated to accept `>= 6` (or `7`).
+
 - [ ] Bun is installed before `bun add --global "$AI_REVIEW_PACKAGE"`.
 - [ ] `AI_REVIEW_PACKAGE` is an immutable internal tarball URL or exact-version pinned package source.
 - [ ] Self-managed GitLab jobs pass `--api-base-url` from `$CI_API_V4_URL` or an explicit `AI_REVIEW_GITLAB_API_BASE_URL`.

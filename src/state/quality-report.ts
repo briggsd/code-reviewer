@@ -25,7 +25,9 @@ export type HypothesisMetric =
   | "severityDismissRate"
   | "completionRate"
   | "structuredOutputRate"
-  | "reviewerFailureRate";
+  | "reviewerFailureRate"
+  | "convergenceFlapRate"
+  | "maxRecurrenceDepth";
 
 export type SegmentType = "overall" | "tier" | "reviewer" | "severity";
 
@@ -37,7 +39,7 @@ export interface QualityHypothesis {
   /** Segment key: "overall", a tier name ("full"/"lite"/...), reviewer role, or severity. */
   segment: string;
   metric: HypothesisMetric;
-  /** Observed rate in [0,1]. */
+  /** Observed value: usually a rate in [0,1], except count-valued metrics such as maxRecurrenceDepth. */
   value: number;
   /** The threshold it breached. */
   threshold: number;
@@ -71,6 +73,10 @@ export interface QualityReportThresholds {
   minCompletionRate: number; // default 0.90
   minStructuredOutputRate: number; // default 0.90
   maxReviewerFailureRate: number; // default 0.10
+  /** Finding-level flapping rate (re-raised after prior resolution ÷ measured current findings). default 0.20 */
+  maxConvergenceFlapRate: number; // default 0.20
+  /** Maximum consecutive open-round depth for any finding before surfacing a convergence hypothesis. default 3 */
+  maxRecurrenceDepth: number; // default 3
   /** Segments below this sample size are surfaced but marked lowConfidence. default 5 */
   minSampleSize: number;
 }
@@ -91,6 +97,8 @@ export const DEFAULT_QUALITY_THRESHOLDS: QualityReportThresholds = {
   minCompletionRate: 0.9,
   minStructuredOutputRate: 0.9,
   maxReviewerFailureRate: 0.1,
+  maxConvergenceFlapRate: 0.2,
+  maxRecurrenceDepth: 3,
   minSampleSize: 5,
 };
 
@@ -261,6 +269,31 @@ export function buildQualityReport(
     });
   }
 
+  // convergence/flap metrics (#260): optional, present only for events that emitted the
+  // counts-only convergence block.
+  if (analysis.convergence !== undefined) {
+    if (analysis.convergence.flapRate !== null) {
+      checkBreach(hypotheses, t, {
+        segmentType: "overall",
+        segment: "overall",
+        metric: "convergenceFlapRate",
+        value: analysis.convergence.flapRate,
+        threshold: t.maxConvergenceFlapRate,
+        direction: "above",
+        sampleSize: analysis.convergence.currentFindingCount,
+      });
+    }
+    checkBreach(hypotheses, t, {
+      segmentType: "overall",
+      segment: "overall",
+      metric: "maxRecurrenceDepth",
+      value: analysis.convergence.maxRecurrenceDepth,
+      threshold: t.maxRecurrenceDepth,
+      direction: "above",
+      sampleSize: analysis.convergence.runCount,
+    });
+  }
+
   // overrideRate + completionRate — only if runEvents is present
   if (analysis.runEvents !== undefined) {
     const re = analysis.runEvents;
@@ -414,11 +447,13 @@ export function formatQualityReport(report: QualityReport): string {
     const segLabel = `${h.segmentType}:${h.segment}`;
     const direction = h.direction === "above" ? ">" : "<";
     const note = h.lowConfidence ? `  [low-confidence n=${h.sampleSize}]` : "";
+    const valueDisplay = formatHypothesisValue(h.metric, h.value);
+    const thresholdDisplay = `${direction}${formatHypothesisValue(h.metric, h.threshold)}`;
     lines.push(
       padRight(segLabel, 28) +
         padRight(h.metric, 20) +
-        padLeft(`${(h.value * 100).toFixed(1)}%`, 8) +
-        padLeft(`${direction}${(h.threshold * 100).toFixed(1)}%`, 11) +
+        padLeft(valueDisplay, 8) +
+        padLeft(thresholdDisplay, 11) +
         note,
     );
   }
@@ -503,7 +538,23 @@ function checkAcceptanceAndWithhold(
 }
 
 function breachMagnitude(h: QualityHypothesis): number {
-  return h.direction === "above" ? h.value - h.threshold : h.threshold - h.value;
+  const rawMagnitude = h.direction === "above" ? h.value - h.threshold : h.threshold - h.value;
+  return normalizeBreachMagnitude(h.metric, rawMagnitude, h.threshold);
+}
+
+function normalizeBreachMagnitude(
+  metric: HypothesisMetric,
+  rawMagnitude: number,
+  threshold: number,
+): number {
+  if (metric === "maxRecurrenceDepth" && threshold > 0) {
+    return rawMagnitude / threshold;
+  }
+  return rawMagnitude;
+}
+
+function formatHypothesisValue(metric: HypothesisMetric, value: number): string {
+  return metric === "maxRecurrenceDepth" ? value.toFixed(0) : `${(value * 100).toFixed(1)}%`;
 }
 
 // Local copies of padRight/padLeft — intentional local copy, do NOT export from

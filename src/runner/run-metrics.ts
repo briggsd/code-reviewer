@@ -312,6 +312,13 @@ export function createRunMetricsTelemetryEvent(input: {
       // M008: no finding text, counts only.
       ...(input.converged === true ? { converged: true } : {}),
     };
+    if (input.summary.reReview.convergence !== undefined) {
+      data.convergence = {
+        maxRecurrenceDepth: input.summary.reReview.convergence.maxRecurrenceDepth,
+        flappingFindingCount: input.summary.reReview.convergence.flappingFindingCount,
+        currentFindingCount: input.summary.reReview.convergence.currentFindingCount,
+      };
+    }
   }
 
   if (input.incremental !== undefined) {
