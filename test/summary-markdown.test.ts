@@ -840,6 +840,163 @@ describe("preservation of existing behaviors", () => {
     expect(section).not.toMatch(/(?<!\\)`x`(?!`)/);
   });
 
+  // ---------------------------------------------------------------------------
+  // Re-review: count/detail consistency (#289)
+  // ---------------------------------------------------------------------------
+
+  test("fixed count/detail mismatch: fixedFindingIds has entry but no matching classification — fallback row emitted (count N ⇒ N detail rows)", () => {
+    // Regression for #289: fixedFindingIds has 1 entry but classifications has no fixed record.
+    // Before the fix this rendered "Fixed prior findings: 1" with zero detail rows (silent gap).
+    const summary: ReviewSummary = {
+      ...makeSummary({ findings: [] }),
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: ["fnd_orphan"],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: [],
+        classifications: [], // intentionally empty — mismatch
+      },
+    };
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // Count still says 1
+    expect(markdown).toContain("Fixed prior findings: 1");
+    // Fallback row uses the stable ID as a code span
+    expect(markdown).toContain("✅ `fnd_orphan`");
+    // No silent gap: count the "  - ✅" detail rows
+    const detailRows = markdown.split("\n").filter((line) => line.startsWith("  - ✅"));
+    expect(detailRows).toHaveLength(1);
+  });
+
+  test("withheld count/detail mismatch: withheldFindingIds has entry but no matching classification — fallback row emitted", () => {
+    // Regression for #289: withheldFindingIds has 1 entry but classifications has no withheld record.
+    const summary: ReviewSummary = {
+      ...makeSummary({ findings: [] }),
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: [],
+        withheldFindingIds: ["fnd_orphan_w"],
+        carriedForwardFindingIds: [],
+        classifications: [], // intentionally empty — mismatch
+      },
+    };
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // Count still says 1
+    expect(markdown).toContain("Withheld prior findings: 1");
+    // Fallback row uses the stable ID as a code span + withheld suffix
+    expect(markdown).toContain("`fnd_orphan_w` — withheld");
+    // No silent gap: count the "  - " detail rows under Withheld
+    const withheldIdx = markdown.indexOf("Withheld prior findings: 1");
+    const afterWithheld = markdown.slice(withheldIdx);
+    const withheldDetailRows = afterWithheld
+      .split("\n")
+      .filter((line) => line.startsWith("  - ") && line.includes("withheld"));
+    expect(withheldDetailRows).toHaveLength(1);
+  });
+
+  test("mixed: one fixed with classification + one orphan fixed ID — count 2, both detail rows present", () => {
+    // Two fixed IDs: one has a classification record, one is orphan. Both must appear as detail rows.
+    const summary: ReviewSummary = {
+      ...makeSummary({ findings: [] }),
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: ["fnd_with_class", "fnd_orphan2"],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: [],
+        classifications: [
+          {
+            stableId: "fnd_with_class",
+            status: "fixed",
+            priorFinding: {
+              id: "fnd_with_class",
+              reviewer: "security",
+              severity: "warning",
+              category: "auth",
+              title: "Auth token leak",
+              body: "Token was leaked.",
+              confidence: "high",
+              evidence: [],
+              recommendation: "Rotate tokens.",
+            },
+            lastSeenHeadSha: "abc1234567",
+          },
+          // fnd_orphan2 intentionally absent from classifications
+        ],
+      },
+    };
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // Count is 2 (1 classified + 1 orphan)
+    expect(markdown).toContain("Fixed prior findings: 2");
+    // Classified row: readable title + sha
+    expect(markdown).toContain("✅ Auth token leak — last seen `abc1234`");
+    // Orphan row: fallback to stable ID code span
+    expect(markdown).toContain("✅ `fnd_orphan2`");
+    // Exactly 2 detail rows
+    const detailRows = markdown.split("\n").filter((line) => line.startsWith("  - ✅"));
+    expect(detailRows).toHaveLength(2);
+  });
+
+  test("normal case unchanged: classified fixed/withheld IDs still render readable titles (no regression)", () => {
+    // Both fixedFindingIds and withheldFindingIds have matching classifications — normal path.
+    const summary: ReviewSummary = {
+      ...makeSummary({ findings: [] }),
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: ["fnd_f1"],
+        withheldFindingIds: ["fnd_w1"],
+        carriedForwardFindingIds: [],
+        classifications: [
+          {
+            stableId: "fnd_f1",
+            status: "fixed",
+            priorFinding: {
+              id: "fnd_f1",
+              reviewer: "security",
+              severity: "warning",
+              category: "auth",
+              title: "XSS in template",
+              body: "Cross-site scripting.",
+              confidence: "high",
+              evidence: [],
+              recommendation: "Escape output.",
+            },
+            lastSeenHeadSha: "deadbeef001",
+          },
+          {
+            stableId: "fnd_w1",
+            status: "withheld",
+            priorFinding: {
+              id: "fnd_w1",
+              reviewer: "code_quality",
+              severity: "suggestion",
+              category: "style",
+              title: "Magic number in config",
+              body: "Hard-coded value.",
+              confidence: "medium",
+              evidence: [],
+              recommendation: "Use a constant.",
+            },
+            lastSeenHeadSha: "cafe5678abc",
+          },
+        ],
+      },
+    };
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // Counts are still derived correctly
+    expect(markdown).toContain("Fixed prior findings: 1");
+    expect(markdown).toContain("Withheld prior findings: 1");
+    // Readable titles preserved
+    expect(markdown).toContain("✅ XSS in template — last seen `deadbee`");
+    expect(markdown).toContain("Magic number in config — withheld, last seen `cafe567`");
+  });
+
   test("break-glass footer always present before _Generated by_ line", () => {
     const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [] }));
 

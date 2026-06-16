@@ -570,13 +570,36 @@ export function formatReviewSummaryMarkdown(
 
   // Re-review status section — exact heading + bullet format unchanged
   if (summary.reReview !== undefined) {
+    // Derive fixed/withheld detail rows and counts from the same source (classifications)
+    // so count and detail rows cannot diverge (#289). If fixedFindingIds has an entry with
+    // no matching classification record, we still emit a fallback row keyed by stable ID —
+    // guaranteeing count N ⇒ exactly N detail rows.
+    const fixedClassifications = summary.reReview.classifications.filter(
+      (c) => c.status === "fixed",
+    );
+    const withheldClassifications = summary.reReview.classifications.filter(
+      (c) => c.status === "withheld",
+    );
+    // IDs present in fixedFindingIds but absent from classifications (mismatch fallback).
+    const fixedClassifiedIds = new Set(fixedClassifications.map((c) => c.stableId));
+    const withheldClassifiedIds = new Set(withheldClassifications.map((c) => c.stableId));
+    const fixedOrphanIds = summary.reReview.fixedFindingIds.filter(
+      (id) => !fixedClassifiedIds.has(id),
+    );
+    const withheldOrphanIds = summary.reReview.withheldFindingIds.filter(
+      (id) => !withheldClassifiedIds.has(id),
+    );
+    // Count = classification rows + orphan IDs, so count always equals rendered detail rows.
+    const fixedCount = fixedClassifications.length + fixedOrphanIds.length;
+    const withheldCount = withheldClassifications.length + withheldOrphanIds.length;
+
     lines.push("### Re-review status");
     lines.push("");
     lines.push(`- New findings: ${summary.reReview.newFindingIds.length}`);
     lines.push(`- Recurring findings: ${summary.reReview.recurringFindingIds.length}`);
-    lines.push(`- Fixed prior findings: ${summary.reReview.fixedFindingIds.length}`);
-    if (summary.reReview.fixedFindingIds.length > 0) {
-      for (const c of summary.reReview.classifications.filter((c) => c.status === "fixed")) {
+    lines.push(`- Fixed prior findings: ${fixedCount}`);
+    if (fixedCount > 0) {
+      for (const c of fixedClassifications) {
         const title =
           c.priorFinding?.title !== undefined
             ? escapeMarkdown(c.priorFinding.title)
@@ -587,10 +610,14 @@ export function formatReviewSummaryMarkdown(
             : "";
         lines.push(`  - ✅ ${title}${lastSeen}`);
       }
+      // Fallback rows for IDs with no matching classification record.
+      for (const id of fixedOrphanIds) {
+        lines.push(`  - ✅ \`${id}\``);
+      }
     }
-    lines.push(`- Withheld prior findings: ${summary.reReview.withheldFindingIds.length}`);
-    if (summary.reReview.withheldFindingIds.length > 0) {
-      for (const c of summary.reReview.classifications.filter((c) => c.status === "withheld")) {
+    lines.push(`- Withheld prior findings: ${withheldCount}`);
+    if (withheldCount > 0) {
+      for (const c of withheldClassifications) {
         const title =
           c.priorFinding?.title !== undefined
             ? escapeMarkdown(c.priorFinding.title)
@@ -598,6 +625,10 @@ export function formatReviewSummaryMarkdown(
         const lastSeen =
           c.lastSeenHeadSha !== undefined ? `, last seen \`${c.lastSeenHeadSha.slice(0, 7)}\`` : "";
         lines.push(`  - ${title} — withheld${lastSeen}`);
+      }
+      // Fallback rows for IDs with no matching classification record.
+      for (const id of withheldOrphanIds) {
+        lines.push(`  - \`${id}\` — withheld`);
       }
     }
     // Disposition rollup (#280): iterate all classifications and derive per-finding
