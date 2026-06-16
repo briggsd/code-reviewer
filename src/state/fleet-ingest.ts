@@ -35,7 +35,7 @@ import { projectEventForEgress } from "./rollup-export.ts";
  * repository slugs that survived the boundary — never any rejected content, never a reason
  * string derived from payload bytes. This is itself an M008-safe artifact.
  */
-export interface FleetIngestSummary {
+interface FleetIngestSummary {
   /** Events that passed the type allowlist + counts-only boundary and were accepted. */
   acceptedCount: number;
   /**

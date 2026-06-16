@@ -42,7 +42,7 @@ Full design: **docs/developer/architecture.md**. Project purpose & status: **REA
 - **Entry point:** `src/cli.ts` (installed as the `ai-code-review` bin).
 
 ```bash
-bun run gate           # check + boundaries + lint + docs:check + complexity:check + workflows:check  ← THE pre-PR verification gate (mirrors CI's blocking check job)
+bun run gate           # check + boundaries + lint + docs:check + complexity:check + workflows:check + knip  ← THE pre-PR verification gate (mirrors CI's blocking check job)
 bun run check          # bunx tsc --noEmit && bun test (the tsc+test core; CI blocks on gate, not just check)
 bun test               # bun:test suite (tests live in test/)
 bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --runtime dummy
@@ -60,7 +60,7 @@ bun run docs:check     # docs dead-reference linter over tracked *.md (dead path
 bun run docs:stale     # docs staleness heuristics (env-var drift, oversized docs, src/ dirs missing from CLAUDE.md map, unclosed code fences; ADVISORY, CI quality job)
 bun run complexity:check   # blocking cognitive-complexity ratchet vs complexity-baseline.json; update the baseline (ratchet down, or raise for accepted complexity) with `bun run complexity:update`
 bun run workflows:check    # blocking workflow hygiene gate: every upload-artifact step must have retention-days (BLOCKING in CI's check job + gate)
-bun run knip           # unused files/exports/deps (advisory)
+bun run knip           # unused files/exports/deps (BLOCKING in CI's check job + gate, #158)
 bun run dup            # jscpd copy-paste detection over src/ (advisory)
 ```
 
@@ -168,7 +168,7 @@ Details + diagram: **docs/developer/architecture.md**.
   (`bun run lint`, blocking since #96 — formatter adopted, debt cleared; bulk-reformat commits are
   listed in `.git-blame-ignore-revs`), and **`bun run docs:check`** (#92/#29 — dead path/`bun run`
   script references in tracked `*.md`; milestone docs are historical and exempt from blocking).
-  **knip**, **jscpd** (`bun run dup`), and **`bun run docs:stale`** (docs staleness heuristics)
+  **`bun run knip`** is now **BLOCKING** (#158, dead-code ratchet). **jscpd** (`bun run dup`) and **`bun run docs:stale`** (docs staleness heuristics)
   stay **advisory** (CI `quality` job, continue-on-error). Actions in the project's own four workflows are SHA-pinned
   (#96); adoption templates in `examples/ci/` keep readable mutable tags by design
   (`test/ci-templates.test.ts` locks that — don't "fix" them).

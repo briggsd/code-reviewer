@@ -16,7 +16,7 @@
  */
 
 /** A reference found in a doc, with its 1-based line number. */
-export interface FoundReference {
+interface FoundReference {
   /** The reference token as written (placeholders/URLs already filtered out). */
   raw: string;
   line: number;
@@ -53,7 +53,7 @@ export interface DocReferences {
 }
 
 /** A numeric count claim extracted from a doc (e.g. `(~32)` labelled "test files"). */
-export interface CountClaim {
+interface CountClaim {
   /** The stated count. */
   count: number;
   /** True when the `~` approximation prefix was present. */

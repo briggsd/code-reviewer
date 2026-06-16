@@ -76,7 +76,7 @@ const AGGREGATE_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_.:-]{0,63}$/;
  * role, or decision label can ever collide with it (a real key literally named
  * `other` passes the pattern and is preserved untouched).
  */
-export const SANITIZED_KEY_BUCKET = "__other__";
+const SANITIZED_KEY_BUCKET = "__other__";
 
 /**
  * Shape pattern for repository slugs (`owner/repo`). Each segment must START

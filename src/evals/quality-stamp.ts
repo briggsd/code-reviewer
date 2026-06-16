@@ -18,7 +18,7 @@ export function summarizeEvalRun(results: readonly ScenarioScore[]): EvalRunSumm
   return { passed, total, meanSatisfaction, blocked: total === 0 || passed !== total };
 }
 
-export interface QualityStampScenario {
+interface QualityStampScenario {
   name: string;
   satisfaction: number;
   threshold: number;

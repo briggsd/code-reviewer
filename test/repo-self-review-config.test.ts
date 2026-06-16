@@ -87,7 +87,7 @@ describe("repo .ai-review.json conventions (#162)", () => {
 
     // Non-empty array — at least the 10 entries added in #162 Step 1.
     expect(Array.isArray(config.conventions)).toBe(true);
-    expect((config.conventions ?? []).length).toBeGreaterThanOrEqual(8);
+    expect((config.conventions ?? []).length).toBeGreaterThanOrEqual(10);
 
     // Spot-check: one Tier 2 entry (silent-contract rule) and one Tier 3 entry (zero-width-space).
     expect(config.conventions?.some((c) => c.includes("silent contract"))).toBe(true);

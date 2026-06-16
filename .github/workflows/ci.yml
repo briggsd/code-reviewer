@@ -52,8 +52,8 @@ jobs:
         run: bun run boundaries
 
       # Biome lint + format: BLOCKING since #96 (lint debt cleared + formatter adopted;
-      # the bulk reformat commit is listed in .git-blame-ignore-revs). knip/jscpd remain
-      # advisory in the quality job below.
+      # the bulk reformat commit is listed in .git-blame-ignore-revs). jscpd remains
+      # advisory in the quality job below; knip is now BLOCKING (#158).
       - name: Lint & format (Biome)
         run: bun run lint -- --reporter=github
 
@@ -74,6 +74,11 @@ jobs:
       # Mirrored by `bun run gate`.
       - name: Workflow hygiene (retention-days gate)
         run: bun run workflows:check
+
+      # Dead-code ratchet (#158): BLOCKING. knip exits non-zero on any unused file,
+      # export, or dependency — keeps the dead-code baseline at zero. Mirrored by `bun run gate`.
+      - name: Unused exports / dead-code (Knip)
+        run: bun run knip
 
   quality:
     name: Advisory quality tools
@@ -100,10 +105,6 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      - name: Unused exports / dependencies (Knip)
-        continue-on-error: true
-        run: bun run knip
 
       - name: Duplicate-code detection (jscpd)
         continue-on-error: true

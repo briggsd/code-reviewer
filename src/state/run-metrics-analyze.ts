@@ -51,7 +51,7 @@ export interface AnalyzeOptions {
   thinReviewOutputTokenFloor?: number;
 }
 
-export interface TierSegment {
+interface TierSegment {
   runCount: number;
   findingsPerRun: number;
   outputTokensPerRun: number;
@@ -87,7 +87,7 @@ export interface TierSegment {
   outputTokensPerFinding: number | null;
 }
 
-export interface DecisionSegment {
+interface DecisionSegment {
   runCount: number;
   findingsPerRun: number;
   outputTokensPerRun: number;
@@ -104,7 +104,7 @@ export interface ReviewerAcceptanceStat {
   acceptanceRate?: number;
 }
 
-export interface MergeDespiteFailSegment {
+interface MergeDespiteFailSegment {
   /** Matched observations whose prior review run should have blocked. */
   priorBlockedObservationCount: number;
   /** Blocking prior runs that were later observed as merged, with or without override. */
@@ -115,13 +115,13 @@ export interface MergeDespiteFailSegment {
   mergeDespiteFailRate: number | null;
 }
 
-export interface MergeDespiteFailAnalysis {
+interface MergeDespiteFailAnalysis {
   pooled: MergeDespiteFailSegment;
   byRepository: Record<string, MergeDespiteFailSegment>;
   byTier: Record<string, MergeDespiteFailSegment>;
 }
 
-export interface RunEventsAnalysis {
+interface RunEventsAnalysis {
   startCount: number;
   completedCount: number;
   correctionCount: number;
@@ -159,7 +159,7 @@ interface SupplementalEventsAnalysis {
 }
 
 /** Precision stats for a single reviewer or severity segment (#256, M023 S04). */
-export interface DispositionPrecisionSegment {
+interface DispositionPrecisionSegment {
   fixed: number;
   dismissed: number;
   ignored: number;
@@ -170,7 +170,7 @@ export interface DispositionPrecisionSegment {
 
 /** Pooled + segmented disposition outcome analysis (#256, M023 S04).
  *  Absent when no run has emitted a `dispositions` block (first-review-only fleet). */
-export interface DispositionAnalysis {
+interface DispositionAnalysis {
   /** Pooled totals across all runs with disposition data. */
   pooled: DispositionPrecisionSegment;
   /** Per-reviewer breakdown (stable-sorted keys). */
@@ -180,7 +180,7 @@ export interface DispositionAnalysis {
 }
 
 /** Pooled convergence/flap measurement (#260). Counts-only. */
-export interface ConvergenceAnalysis {
+interface ConvergenceAnalysis {
   runCount: number;
   currentFindingCount: number;
   flappingFindingCount: number;

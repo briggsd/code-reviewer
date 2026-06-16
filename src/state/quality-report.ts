@@ -14,7 +14,7 @@ import type {
 
 // ─── public types ────────────────────────────────────────────────────────────
 
-export type HypothesisMetric =
+type HypothesisMetric =
   | "groundingDropRate"
   | "groundingWithholdRate"
   | "diffFilterDropRate"
@@ -36,12 +36,12 @@ export type HypothesisMetric =
   | "noSuggestionLeakRate"
   | "offDiffCitationLeakRate";
 
-export type SegmentType = "overall" | "tier" | "reviewer" | "severity";
+type SegmentType = "overall" | "tier" | "reviewer" | "severity";
 
 /** "above" = breached a MAX threshold (bad-high); "below" = fell under a MIN threshold (bad-low). */
-export type BreachDirection = "above" | "below";
+type BreachDirection = "above" | "below";
 
-export interface QualityHypothesis {
+interface QualityHypothesis {
   segmentType: SegmentType;
   /** Segment key: "overall", a tier name ("full"/"lite"/...), reviewer role, or severity. */
   segment: string;

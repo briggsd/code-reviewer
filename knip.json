@@ -1,6 +1,9 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/index.ts", "scripts/*.ts", "test/**/*.{ts,tsx}"],
+  "entry": ["src/index.ts", "scripts/*.ts", "scripts/pi-extensions/*.ts", "test/**/*.{ts,tsx}"],
   "project": ["src/**/*.ts", "scripts/**/*.ts"],
-  "ignoreDependencies": ["bun-types"]
+  "ignoreDependencies": ["bun-types", "@earendil-works/pi-coding-agent", "typebox"],
+  "rules": {
+    "duplicates": "off"
+  }
 }

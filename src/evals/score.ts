@@ -154,7 +154,7 @@ export interface ScenarioScore {
   runCount: number;
 }
 
-export interface CriterionScore {
+interface CriterionScore {
   label: string;
   passRate: number;
   critical: boolean;

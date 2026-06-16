@@ -20,7 +20,7 @@
   },
   "scripts": {
     "check": "bunx tsc --noEmit && bun test",
-    "gate": "bun run check && bun run boundaries && bun run lint && bun run docs:check && bun run complexity:check && bun run workflows:check",
+    "gate": "bun run check && bun run boundaries && bun run lint && bun run docs:check && bun run complexity:check && bun run workflows:check && bun run knip",
     "test": "bun test",
     "start": "bun run src/cli.ts",
     "workflows:check": "bun run scripts/check-workflows.ts",
