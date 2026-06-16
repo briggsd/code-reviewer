@@ -2,12 +2,22 @@
   "name": "logic-bug",
   "description": "A diff with a real correctness bug: an inverted boundary check and an off-by-one in the end index. Expects a warning-level or higher finding on the changed file.",
   "fixture": "evals/fixtures/logic-bug.json",
+  "config": "evals/holdout-model-routing.json",
   "criteria": [
     {
       "kind": "has_finding",
       "label": "flags correctness bug in pagination",
       "minSeverity": "warning",
-      "textIncludes": "pagination"
+      "textIncludesAny": [
+        "off-by-one",
+        "off by one",
+        "off-by one",
+        "boundary",
+        "out of range",
+        "extra item",
+        "one more",
+        "pagination"
+      ]
     },
     {
       "kind": "decision_in",

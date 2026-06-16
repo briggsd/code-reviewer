@@ -4,6 +4,7 @@ import { join, normalize } from "node:path";
 import type { EvalScenario } from "../src/evals/index.ts";
 import { evaluateCriterion, scoreRun, scoreScenario } from "../src/evals/index.ts";
 import type { Finding, ReviewSummary, RiskAssessment } from "../src/index.ts";
+import { normalizeReviewConfig } from "../src/index.ts";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -177,6 +178,171 @@ describe("evaluateCriterion — has_finding", () => {
     expect(
       evaluateCriterion({ kind: "has_finding", label: "test", textIncludes: "inject" }, summary),
     ).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // textIncludesAny — OR-semantics across needle list
+  // ---------------------------------------------------------------------------
+
+  test("textIncludesAny: matches logic-bug vocab needle 'off-by-one' in title", () => {
+    const summary = makeSummary([
+      makeFinding({ title: "Off-by-one in page end", body: "End index is wrong." }),
+    ]);
+    expect(
+      evaluateCriterion(
+        {
+          kind: "has_finding",
+          label: "test",
+          minSeverity: "warning",
+          textIncludesAny: [
+            "off-by-one",
+            "off by one",
+            "off-by one",
+            "boundary",
+            "out of range",
+            "extra item",
+            "one more",
+            "pagination",
+            "slice",
+            "index",
+          ],
+        },
+        summary,
+      ),
+    ).toBe(true);
+  });
+
+  test("textIncludesAny: matches hardcoded-secret vocab needle 'api key' (case-insensitive)", () => {
+    const summary = makeSummary([
+      makeFinding({
+        severity: "warning",
+        title: "Hardcoded API key committed in source",
+        body: "The value was found inline.",
+      }),
+    ]);
+    expect(
+      evaluateCriterion(
+        {
+          kind: "has_finding",
+          label: "test",
+          minSeverity: "warning",
+          textIncludesAny: [
+            "secret",
+            "credential",
+            "api key",
+            "api_key",
+            "apikey",
+            "token",
+            "password",
+            "hardcoded",
+          ],
+        },
+        summary,
+      ),
+    ).toBe(true);
+  });
+
+  test("textIncludesAny: unrelated finding matches neither logic-bug nor secret vocab", () => {
+    const summary = makeSummary([
+      makeFinding({
+        title: "Missing JSDoc on exported function",
+        body: "The function lacks documentation.",
+        recommendation: "Add a JSDoc comment.",
+        evidence: [],
+      }),
+    ]);
+    const logicBugResult = evaluateCriterion(
+      {
+        kind: "has_finding",
+        label: "test",
+        minSeverity: "warning",
+        textIncludesAny: [
+          "off-by-one",
+          "off by one",
+          "off-by one",
+          "boundary",
+          "out of range",
+          "extra item",
+          "one more",
+          "pagination",
+          "slice",
+          "index",
+        ],
+      },
+      summary,
+    );
+    const secretResult = evaluateCriterion(
+      {
+        kind: "has_finding",
+        label: "test",
+        minSeverity: "warning",
+        textIncludesAny: [
+          "secret",
+          "credential",
+          "api key",
+          "api_key",
+          "apikey",
+          "token",
+          "password",
+          "hardcoded",
+        ],
+      },
+      summary,
+    );
+    expect(logicBugResult).toBe(false);
+    expect(secretResult).toBe(false);
+  });
+
+  test("textIncludesAny: returns false when no needle matches (OR semantics)", () => {
+    const summary = makeSummary([
+      makeFinding({ title: "Missing null check", body: "Dereference without guard." }),
+    ]);
+    expect(
+      evaluateCriterion(
+        { kind: "has_finding", label: "test", textIncludesAny: ["secret", "token", "password"] },
+        summary,
+      ),
+    ).toBe(false);
+  });
+
+  test("textIncludesAny + textIncludes: BOTH must match the same finding (AND semantics)", () => {
+    // Finding matches textIncludesAny("token") but NOT textIncludes("hardcoded") — should fail
+    const summaryPartial = makeSummary([
+      makeFinding({
+        title: "Token used in URL",
+        body: "The access token is passed as a query param.",
+      }),
+    ]);
+    expect(
+      evaluateCriterion(
+        {
+          kind: "has_finding",
+          label: "test",
+          textIncludes: "hardcoded",
+          textIncludesAny: ["token", "password"],
+        },
+        summaryPartial,
+      ),
+    ).toBe(false);
+
+    // Finding matches BOTH textIncludes("hardcoded") AND textIncludesAny("token") — should pass
+    const summaryBoth = makeSummary([
+      makeFinding({
+        title: "Hardcoded token in source",
+        body: "The value is committed directly.",
+      }),
+    ]);
+    expect(
+      evaluateCriterion(
+        {
+          kind: "has_finding",
+          label: "test",
+          textIncludes: "hardcoded",
+          textIncludesAny: ["token", "password"],
+        },
+        summaryBoth,
+      ),
+    ).toBe(true);
   });
 });
 
@@ -904,5 +1070,28 @@ describe("holdout/dev split disjointness (#129)", () => {
     const holdout = (await loadScenarioFiles(HOLDOUT_DIR)).map(toSplitKey);
     const dev = (await loadScenarioFiles(DEV_DIR)).map(toSplitKey);
     expect(findSplitCollisions(holdout, dev)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// .ai-review.json modelRouting — routes complex roles to opus (M029)
+// ---------------------------------------------------------------------------
+
+describe(".ai-review.json modelRouting routes complex roles to a non-dummy model", () => {
+  test("parses and routes code_quality, security, performance, coordinator to claude-opus-4-8", async () => {
+    const raw = await readFile(join(import.meta.dir, "../.ai-review.json"), "utf-8");
+    const parsed: unknown = JSON.parse(raw);
+    const config = normalizeReviewConfig(parsed);
+
+    const roles = config.modelRouting.roles ?? {};
+    const opusModel = "claude-opus-4-8";
+    const opusProvider = "anthropic";
+
+    for (const role of ["code_quality", "security", "performance", "coordinator"] as const) {
+      const routing = roles[role];
+      expect(routing, `modelRouting.roles.${role} should be defined`).toBeDefined();
+      expect(routing?.model, `modelRouting.roles.${role}.model`).toBe(opusModel);
+      expect(routing?.provider, `modelRouting.roles.${role}.provider`).toBe(opusProvider);
+    }
   });
 });

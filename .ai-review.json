@@ -1,4 +1,12 @@
 {
+  "modelRouting": {
+    "roles": {
+      "code_quality": { "provider": "anthropic", "model": "claude-opus-4-8" },
+      "security": { "provider": "anthropic", "model": "claude-opus-4-8" },
+      "performance": { "provider": "anthropic", "model": "claude-opus-4-8" },
+      "coordinator": { "provider": "anthropic", "model": "claude-opus-4-8" }
+    }
+  },
   "sensitivePaths": [
     "auth/**",
     "crypto/**",

@@ -20,6 +20,13 @@ export type EvalCriterion =
       reviewer?: string;
       pathIncludes?: string;
       textIncludes?: string;
+      /**
+       * Matches a finding at `minSeverity`+ whose lowercased text — title / body /
+       * recommendation / evidence[] / quotedCode[] — includes ANY of the listed needles
+       * (case-insensitive substring). When both `textIncludes` and `textIncludesAny` are
+       * set, BOTH must match the same finding.
+       */
+      textIncludesAny?: string[];
     })
   // No finding at or above the given severity (e.g. clean diff must not raise warning+).
   | (EvalCriterionBase & { kind: "no_findings_at_or_above"; severity: Severity })
@@ -43,6 +50,12 @@ export interface EvalScenario {
   description: string;
   /** Path (repo-root-relative) to a holdout fixture with NO fakeFindings. */
   fixture: string;
+  /**
+   * Optional path (repo-root-relative) to a JSON config overlay applied on top of the
+   * fixture's base config via `--config` before the run. Use for per-scenario model routing
+   * or other config overrides without modifying the shared fixture.
+   */
+  config?: string;
   /** K runs; runner default applies when omitted. */
   runs?: number;
   /** Per-scenario satisfaction threshold in [0,1]; runner default 0.8 when omitted. */

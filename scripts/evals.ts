@@ -176,6 +176,10 @@ async function runOnce(scenario: EvalScenario, runNumber: number): Promise<Revie
       tmpDir,
     ];
 
+    if (scenario.config !== undefined) {
+      command.push("--config", scenario.config);
+    }
+
     if (provider !== undefined && model !== undefined) {
       command.push("--pi-provider", provider, "--pi-model", model);
     }

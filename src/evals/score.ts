@@ -69,6 +69,25 @@ function matchesFinding(
     }
   }
 
+  // textIncludesAny: at least one needle matches any text field (case-insensitive).
+  // When both textIncludes and textIncludesAny are set, BOTH must match.
+  if (criterion.textIncludesAny !== undefined && criterion.textIncludesAny.length > 0) {
+    const haystack = [
+      finding.title,
+      finding.body,
+      finding.recommendation,
+      ...finding.evidence,
+      ...(finding.quotedCode ?? []),
+    ].map((s) => s.toLowerCase());
+    const anyMatches = criterion.textIncludesAny.some((needle) => {
+      const lower = needle.toLowerCase();
+      return haystack.some((s) => s.includes(lower));
+    });
+    if (!anyMatches) {
+      return false;
+    }
+  }
+
   return true;
 }
 
