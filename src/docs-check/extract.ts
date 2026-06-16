@@ -32,9 +32,12 @@ export interface DocReferences {
   /** `AI_REVIEW_*` env var names. */
   envVars: FoundReference[];
   /**
-   * Count claims: `(~N)` patterns adjacent to a recognizable label (e.g. "tests",
-   * "specs", "modules"). Used by the count-drift advisory rule in check.ts (#276).
-   * Each entry carries the numeric claim and the label token that follows or
+   * Count claims: `(~N)` or `(N label)` patterns adjacent to a recognizable label
+   * (e.g. `(~32 tests)`, `(32 tests)` for "tests", "specs", "modules"). The `~`
+   * prefix is optional, so both tilde-prefixed estimates and exact stated counts are
+   * collected; the entry's `approximate` flag distinguishes them. Both forms are
+   * compared against live ground truth by the count-drift advisory rule in check.ts
+   * (#276). Each entry carries the numeric claim and the label token that follows or
    * precedes it in the text.
    */
   countClaims: CountClaim[];
