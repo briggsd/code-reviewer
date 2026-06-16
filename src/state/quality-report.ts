@@ -17,6 +17,7 @@ export type HypothesisMetric =
   | "patchAdmissionDegradedRate"
   | "deletionPruningRate"
   | "proseFindingDropRate"
+  | "fusionDropRate"
   | "thinReviewRate"
   | "overrideRate"
   | "acceptanceRate"
@@ -59,6 +60,8 @@ export interface QualityReportThresholds {
   maxDeletionPruningRate: number; // default 0.30
   /** Finding-level prose parser drop rate; climbing-rate MAX threshold. default 0.10 */
   maxProseFindingDropRate: number; // default 0.10
+  /** Finding-level coordinator fusion drop rate; climbing-rate MAX threshold. default 0.30 */
+  maxFusionDropRate: number; // default 0.30
   maxThinReviewRate: number; // default 0.20
   maxOverrideRate: number; // default 0.10
   minAcceptanceRate: number; // default 0.50
@@ -79,6 +82,7 @@ export const DEFAULT_QUALITY_THRESHOLDS: QualityReportThresholds = {
   maxPatchAdmissionDegradedRate: 0.2,
   maxDeletionPruningRate: 0.3,
   maxProseFindingDropRate: 0.1,
+  maxFusionDropRate: 0.3,
   maxThinReviewRate: 0.2,
   maxOverrideRate: 0.1,
   minAcceptanceRate: 0.5,
@@ -194,6 +198,20 @@ export function buildQualityReport(
       threshold: t.maxProseFindingDropRate,
       direction: "above",
       sampleSize: analysis.rates.proseProducedFindingCount,
+    });
+  }
+
+  // fusionDropRate (#258): true dropped/discarded findings only. Current raw-minus-surviving
+  // telemetry is attributionComplete=false, so it is intentionally descriptive, not thresholded.
+  if (analysis.rates.fusionDropSampleFindingCount > 0) {
+    checkBreach(hypotheses, t, {
+      segmentType: "overall",
+      segment: "overall",
+      metric: "fusionDropRate",
+      value: analysis.rates.fusionDropRate,
+      threshold: t.maxFusionDropRate,
+      direction: "above",
+      sampleSize: analysis.rates.fusionDropSampleFindingCount,
     });
   }
 

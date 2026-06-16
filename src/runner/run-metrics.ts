@@ -2,6 +2,7 @@ import type {
   CoordinatorRunResult,
   DispositionCounts,
   Finding,
+  FusionCounts,
   JsonValue,
   ReReviewFindingClassification,
   ReviewContext,
@@ -135,6 +136,10 @@ export function createRunMetrics(input: {
     }
   }
   const effectiveModelIds = [...effectiveModelSet].sort();
+  const fusion =
+    input.coordinatorResult !== undefined
+      ? computeFusionCounts(input.coordinatorResult)
+      : undefined;
 
   return {
     durationsMs: input.durationsMs,
@@ -152,6 +157,7 @@ export function createRunMetrics(input: {
     ...(failureMetrics.length > 0 ? { failures: failureMetrics } : {}),
     ...(structuredOutput !== undefined ? { structuredOutput } : {}),
     ...(effectiveModelIds.length > 0 ? { effectiveModelIds } : {}),
+    ...(fusion !== undefined ? { fusion } : {}),
   };
 }
 
@@ -223,6 +229,23 @@ export function createRunMetricsTelemetryEvent(input: {
   }
   if (input.metrics.effectiveModelIds !== undefined) {
     data.effectiveModelIds = [...input.metrics.effectiveModelIds];
+  }
+  if (input.metrics.fusion !== undefined) {
+    const fusion: Record<string, JsonValue> = {
+      rawFindingCount: input.metrics.fusion.rawFindingCount,
+      survivingFindingCount: input.metrics.fusion.survivingFindingCount,
+      rawMinusSurvivingCount: input.metrics.fusion.rawMinusSurvivingCount,
+      attributionComplete: input.metrics.fusion.attributionComplete,
+      mergedCount: input.metrics.fusion.mergedCount,
+      droppedCount: input.metrics.fusion.droppedCount,
+    };
+    if (
+      input.metrics.fusion.rawByReviewer !== undefined &&
+      Object.keys(input.metrics.fusion.rawByReviewer).length > 0
+    ) {
+      fusion.rawByReviewer = input.metrics.fusion.rawByReviewer as unknown as JsonValue;
+    }
+    data.fusion = fusion;
   }
   if (input.metrics.agents !== undefined) {
     data.agents = input.metrics.agents.map((agent) => ({
@@ -423,6 +446,44 @@ function sumOptional(values: Array<number | undefined>): number | undefined {
   }
 
   return present.reduce((total, value) => total + value, 0);
+}
+
+function computeFusionCounts(coordinatorResult: CoordinatorRunResult): FusionCounts | undefined {
+  if (coordinatorResult.reviewerResults.length === 0) {
+    return undefined;
+  }
+
+  let rawFindingCount = 0;
+  const rawByReviewer = new Map<string, number>();
+  for (const result of coordinatorResult.reviewerResults) {
+    const reviewerFindingCount = result.findings.length;
+    rawFindingCount += reviewerFindingCount;
+    rawByReviewer.set(result.role, (rawByReviewer.get(result.role) ?? 0) + reviewerFindingCount);
+  }
+
+  const rawByReviewerRecord: Record<string, number> = {};
+  for (const role of [...rawByReviewer.keys()].sort()) {
+    rawByReviewerRecord[role] = rawByReviewer.get(role) ?? 0;
+  }
+
+  const survivingFindingCount = coordinatorResult.summary.findings.length;
+  const rawMinusSurvivingCount = Math.max(rawFindingCount - survivingFindingCount, 0);
+  const attributionComplete = false;
+  // Current contracts do not preserve a trusted raw→final finding mapping. Keep true
+  // attribution counts at zero until mapping work can split raw-minus-surviving into
+  // true duplicates vs true drops.
+  const mergedCount = 0;
+  const droppedCount = 0;
+
+  return {
+    rawFindingCount,
+    survivingFindingCount,
+    rawMinusSurvivingCount,
+    attributionComplete,
+    mergedCount,
+    droppedCount,
+    ...(Object.keys(rawByReviewerRecord).length > 0 ? { rawByReviewer: rawByReviewerRecord } : {}),
+  };
 }
 
 const DISPOSITION_ZERO = (): {

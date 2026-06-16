@@ -208,6 +208,21 @@ export interface RunMetricsAnalysis {
     proseFindingDropRate: number;
     /** Denominator behind proseFindingDropRate: surviving + dropped prose findings. */
     proseProducedFindingCount: number;
+    /**
+     * Finding-level: true coordinator-discarded findings ÷ raw reviewer findings, pooled only
+     * across runs whose fusion block has attributionComplete=true.
+     */
+    fusionDropRate: number;
+    /** Denominator behind fusionDropRate: raw reviewer findings from attribution-complete runs. */
+    fusionDropSampleFindingCount: number;
+    /**
+     * Finding-level: observable raw-minus-surviving net loss ÷ raw reviewer findings, pooled
+     * across runs with fusion blocks. This includes normal deduplication and should not be read
+     * as true drop/discard attribution.
+     */
+    fusionRawMinusSurvivingRate: number;
+    /** Denominator behind fusionRawMinusSurvivingRate: raw reviewer findings entering fusion. */
+    fusionRawFindingCount: number;
     /** Fraction of runs whose event carried a non-empty locationBackfill block. */
     locationBackfillRunRate: number;
     /** Fraction of runs whose event carried a non-empty acknowledgements block. */
@@ -269,6 +284,7 @@ interface RunMetricsEventData extends Record<string, JsonValue> {
   acknowledgements?: Record<string, JsonValue>;
   structuredOutput?: Record<string, JsonValue>;
   failures?: JsonValue[];
+  fusion?: Record<string, JsonValue>;
   /** Per-finding disposition counts (#256, M023 S04). Absent on first review. */
   dispositions?: Record<string, JsonValue>;
 }
@@ -382,6 +398,10 @@ function accumulateOptionalBlocks(
     acknowledgementRunCount: number;
     structuredOutputStructuredCount: number;
     structuredOutputTotalCount: number;
+    fusionAttributedDroppedTotal: number;
+    fusionAttributedRawFindingTotal: number;
+    fusionRawMinusSurvivingTotal: number;
+    fusionRawFindingTotal: number;
   },
 ): void {
   const groundingBlock = data.grounding;
@@ -420,6 +440,22 @@ function accumulateOptionalBlocks(
     counters.structuredOutputStructuredCount +=
       asNumber(structuredOutputBlock.structuredCount) ?? 0;
     counters.structuredOutputTotalCount += asNumber(structuredOutputBlock.totalCount) ?? 0;
+  }
+
+  const fusionBlock = data.fusion;
+  if (fusionBlock !== undefined && isPlainObject(fusionBlock)) {
+    const rawFindingCount = asNumber(fusionBlock.rawFindingCount);
+    const survivingFindingCount = asNumber(fusionBlock.survivingFindingCount);
+    counters.fusionRawFindingTotal += rawFindingCount;
+    counters.fusionRawMinusSurvivingTotal +=
+      fusionBlock.rawMinusSurvivingCount === undefined
+        ? Math.max(rawFindingCount - survivingFindingCount, 0)
+        : asNumber(fusionBlock.rawMinusSurvivingCount);
+
+    if (fusionBlock.attributionComplete === true) {
+      counters.fusionAttributedDroppedTotal += asNumber(fusionBlock.droppedCount);
+      counters.fusionAttributedRawFindingTotal += rawFindingCount;
+    }
   }
 
   const ignoredFileCount = asNumber(data.ignoredFileCount);
@@ -765,6 +801,10 @@ export function analyzeRunMetrics(
     acknowledgementRunCount: 0,
     structuredOutputStructuredCount: 0,
     structuredOutputTotalCount: 0,
+    fusionAttributedDroppedTotal: 0,
+    fusionAttributedRawFindingTotal: 0,
+    fusionRawMinusSurvivingTotal: 0,
+    fusionRawFindingTotal: 0,
   };
 
   let thinReviewRunCount = 0;
@@ -915,6 +955,10 @@ export function analyzeRunMetrics(
     acknowledgementRunCount,
     structuredOutputStructuredCount,
     structuredOutputTotalCount,
+    fusionAttributedDroppedTotal,
+    fusionAttributedRawFindingTotal,
+    fusionRawMinusSurvivingTotal,
+    fusionRawFindingTotal,
   } = optionalBlockCounters;
 
   return {
@@ -956,6 +1000,14 @@ export function analyzeRunMetrics(
           : supplementalEventsAnalysis.proseDrops.droppedFindingCount /
             supplementalEventsAnalysis.proseDrops.producedFindingCount,
       proseProducedFindingCount: supplementalEventsAnalysis.proseDrops.producedFindingCount,
+      fusionDropRate:
+        fusionAttributedRawFindingTotal === 0
+          ? 0
+          : fusionAttributedDroppedTotal / fusionAttributedRawFindingTotal,
+      fusionDropSampleFindingCount: fusionAttributedRawFindingTotal,
+      fusionRawMinusSurvivingRate:
+        fusionRawFindingTotal === 0 ? 0 : fusionRawMinusSurvivingTotal / fusionRawFindingTotal,
+      fusionRawFindingCount: fusionRawFindingTotal,
       locationBackfillRunRate: runCount === 0 ? 0 : locationBackfillRunCount / runCount,
       acknowledgementRunRate: runCount === 0 ? 0 : acknowledgementRunCount / runCount,
       thinReviewRate: nonTrivialRunCount === 0 ? 0 : thinReviewRunCount / nonTrivialRunCount,
@@ -1291,6 +1343,12 @@ function formatRatesSection(analysis: RunMetricsAnalysis): string[] {
   );
   lines.push(
     `  proseFindingDropRate     ${(r.proseFindingDropRate * 100).toFixed(1)}% (n=${r.proseProducedFindingCount})`,
+  );
+  lines.push(
+    `  fusionRawMinusSurvivingRate ${(r.fusionRawMinusSurvivingRate * 100).toFixed(1)}% (n=${r.fusionRawFindingCount})`,
+  );
+  lines.push(
+    `  fusionDropRate           ${(r.fusionDropRate * 100).toFixed(1)}% (n=${r.fusionDropSampleFindingCount})`,
   );
   lines.push(`  locationBackfillRunRate   ${(r.locationBackfillRunRate * 100).toFixed(1)}%`);
   lines.push(`  acknowledgementRunRate    ${(r.acknowledgementRunRate * 100).toFixed(1)}%`);

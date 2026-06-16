@@ -143,6 +143,26 @@ events that lack the field; `fusionMsPerRun` additionally reads 0 for short-circ
 all-reviewers-failed runs (no synthesis ran). **Segment by date when mixing pre- and post-#196
 data**, or the historical runs deflate the averages.
 
+**Fusion efficacy (#258):** completed `ai_review.run_metrics` events with coordinator reviewer
+results include a counts-only `fusion` block:
+
+- `rawFindingCount` — total raw findings from completed reviewer results before coordinator fusion.
+- `survivingFindingCount` — final summary findings after coordinator fusion.
+- `rawMinusSurvivingCount` — `max(rawFindingCount - survivingFindingCount, 0)`, the currently
+  observable net loss/compaction count. This includes normal deduplication and is **not** true
+  drop attribution.
+- `attributionComplete` — currently `false`; the runner does not yet preserve a trusted raw-to-final
+  finding mapping.
+- `rawByReviewer` — stable-sorted raw finding counts by dispatched reviewer role, omitted when
+  there are no reviewer-role counts.
+- `mergedCount` — currently `0`; the contracts do not preserve a trusted raw-to-final finding
+  mapping, so duplicate/overlap attribution is not observable yet.
+- `droppedCount` — currently `0`; reserved for future attribution-complete true discarded-only
+  findings.
+
+The block carries only counts and reviewer role identifiers. It never includes raw finding ids,
+titles, bodies, evidence, locations, recommendations, diff text, or prompts.
+
 ### Acceptance mapping (run.correction)
 
 The `acceptanceByReviewer` field maps reviewer role identifiers (model-authored) to
@@ -216,6 +236,8 @@ JSON as an artifact.
 | `patchAdmissionDegradedRate` | `analysis.rates.patchAdmissionDegradedRate` | `maxPatchAdmissionDegradedRate` | above → bad | 0.20 |
 | `deletionPruningRate` | `analysis.rates.deletionPruningRate` | `maxDeletionPruningRate` | above → bad | 0.30 |
 | `proseFindingDropRate` | `analysis.rates.proseFindingDropRate` | `maxProseFindingDropRate` | above → bad | 0.10 |
+| `fusionRawMinusSurvivingRate` | `analysis.rates.fusionRawMinusSurvivingRate` | descriptive only | n/a | n/a |
+| `fusionDropRate` | `analysis.rates.fusionDropRate` | `maxFusionDropRate` | above → bad | 0.30 (not yet active; requires `attributionComplete: true`) |
 | `thinReviewRate` (overall + per-tier) | `analysis.rates.thinReviewRate` (overall) / `analysis.byTier[tier].thinReviewRate` (per tier) | `maxThinReviewRate` | above → bad | 0.20 |
 | `overrideRate` | `analysis.runEvents?.overrideRate` | `maxOverrideRate` | above → bad | 0.10 |
 | `acceptanceRate` | `acceptanceByReviewer[r].acceptanceRate` or `acceptanceByTier[t].acceptanceRate` | `minAcceptanceRate` | below → bad | 0.50 |
@@ -233,7 +255,11 @@ when `runEvents` is present in the analysis. `groundingDropRate`, `groundingWith
 `thinReviewRate` are evaluated from `run_metrics` when their denominators are present.
 `proseFindingDropRate` is evaluated from counts-only `agent.output` trace events whose `runId`
 matches a real-runtime `run_metrics` event. No-data denominators are skipped rather than
-reported as breaches. `thinReviewRate` is reported
+reported as breaches. `fusionDropRate` is finding-level (`droppedCount / rawFindingCount`),
+pooled only across completed runs whose fusion block has `attributionComplete: true`; current
+`attributionComplete: false` raw-minus-surviving telemetry is descriptive and is not thresholded
+by the quality report. A true-drop sample denominator of 0 is treated as no data and skipped by
+the quality report. `thinReviewRate` is reported
 from run_metrics at both the overall level (`rates.thinReviewRate`) and per tier
 (`byTier[tier].thinReviewRate`), so a single report can surface both an `overall` and a
 `tier:<name>` thin-review hypothesis. `groundingWithholdRate` is finding-level (demoted ÷

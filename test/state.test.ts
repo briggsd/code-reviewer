@@ -1154,6 +1154,16 @@ describe("createRunMetrics + createRunMetricsTelemetryEvent latency decompositio
     workingDirectory: "/tmp",
     contextDirectory: "/tmp/ctx",
   };
+  const makeFinding = (reviewer: string): ReviewSummary["findings"][number] => ({
+    reviewer,
+    severity: "warning",
+    category: "correctness",
+    title: "Synthetic finding",
+    body: "Synthetic body",
+    confidence: "medium",
+    evidence: [],
+    recommendation: "Synthetic recommendation",
+  });
 
   test("createRunMetrics threads reviewer durationMs and coordinator fusionMs into agents (#196)", () => {
     const metrics = createRunMetrics({
@@ -1260,6 +1270,132 @@ describe("createRunMetrics + createRunMetricsTelemetryEvent latency decompositio
     expect(securityAgent?.durationMs).toBe(500);
     const coordinatorAgent = agents?.find((a) => a.role === "coordinator");
     expect(coordinatorAgent?.durationMs).toBe(1000);
+  });
+
+  test("createRunMetricsTelemetryEvent serializes counts-only fusion block (#258)", () => {
+    const survivingFinding = makeFinding("security");
+    const metrics = createRunMetrics({
+      durationsMs: { overallMs: 5000, coordinatorMs: 3000 },
+      coordinatorResult: {
+        runId: "r1",
+        agentRunId: "r1:pi:coordinator",
+        summary: {
+          decision: "minor_issues",
+          outcome: "pass",
+          title: "OK",
+          body: "",
+          findings: [survivingFinding, makeFinding("correctness")],
+          risk: minimalContext.risk,
+        },
+        reviewerResults: [
+          {
+            runId: "r1",
+            agentRunId: "r1:pi:security",
+            role: "security",
+            findings: [makeFinding("security"), makeFinding("security")],
+          },
+          {
+            runId: "r1",
+            agentRunId: "r1:pi:correctness",
+            role: "correctness",
+            findings: [
+              makeFinding("correctness"),
+              makeFinding("correctness"),
+              makeFinding("correctness"),
+            ],
+          },
+          {
+            runId: "r1",
+            agentRunId: "r1:pi:performance",
+            role: "performance",
+            findings: [],
+          },
+        ],
+      },
+    });
+
+    expect(metrics.fusion).toEqual({
+      rawFindingCount: 5,
+      survivingFindingCount: 2,
+      rawMinusSurvivingCount: 3,
+      attributionComplete: false,
+      mergedCount: 0,
+      droppedCount: 0,
+      rawByReviewer: {
+        correctness: 3,
+        performance: 0,
+        security: 2,
+      },
+    });
+
+    const event = createRunMetricsTelemetryEvent({
+      runId: "r1",
+      timestamp: "2026-06-14T00:00:00.000Z",
+      context: minimalContext as unknown as Parameters<
+        typeof createRunMetricsTelemetryEvent
+      >[0]["context"],
+      metrics,
+      status: "completed",
+      runtime: "pi",
+      summary: {
+        decision: "minor_issues",
+        outcome: "pass",
+        title: "OK",
+        body: "",
+        findings: [survivingFinding, makeFinding("correctness")],
+        risk: minimalContext.risk,
+      },
+    });
+
+    expect(event.data?.fusion).toEqual({
+      rawFindingCount: 5,
+      survivingFindingCount: 2,
+      rawMinusSurvivingCount: 3,
+      attributionComplete: false,
+      mergedCount: 0,
+      droppedCount: 0,
+      rawByReviewer: {
+        correctness: 3,
+        performance: 0,
+        security: 2,
+      },
+    });
+  });
+
+  test("createRunMetrics fusion droppedCount does not go negative when final exceeds raw (#258)", () => {
+    const metrics = createRunMetrics({
+      durationsMs: { overallMs: 1000 },
+      coordinatorResult: {
+        runId: "r-over",
+        agentRunId: "r-over:pi:coordinator",
+        summary: {
+          decision: "minor_issues",
+          outcome: "pass",
+          title: "OK",
+          body: "",
+          findings: [makeFinding("security"), makeFinding("correctness")],
+          risk: minimalContext.risk,
+        },
+        reviewerResults: [
+          {
+            runId: "r-over",
+            agentRunId: "r-over:pi:security",
+            role: "security",
+            findings: [makeFinding("security")],
+          },
+        ],
+      },
+    });
+
+    expect(metrics.fusion).toEqual({
+      rawFindingCount: 1,
+      survivingFindingCount: 2,
+      rawMinusSurvivingCount: 0,
+      attributionComplete: false,
+      mergedCount: 0,
+      droppedCount: 0,
+      rawByReviewer: { security: 1 },
+    });
   });
 
   test("createRunMetrics omits durationMs from agents when not provided (#196)", () => {

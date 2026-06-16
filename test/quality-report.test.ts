@@ -28,6 +28,10 @@ function makeAnalysis(overrides: AnalysisOverride): RunMetricsAnalysis {
     deletionPruningSampleRunCount: 0,
     proseFindingDropRate: 0,
     proseProducedFindingCount: 0,
+    fusionDropRate: 0,
+    fusionDropSampleFindingCount: 0,
+    fusionRawMinusSurvivingRate: 0,
+    fusionRawFindingCount: 0,
     locationBackfillRunRate: 0,
     acknowledgementRunRate: 0,
     thinReviewRate: 0,
@@ -278,6 +282,115 @@ describe("buildQualityReport — suppression quality signals (#224-#227)", () =>
 
     const report = buildQualityReport(analysis);
     expect(report.hypotheses.find((x) => x.metric === "proseFindingDropRate")).toBeUndefined();
+  });
+
+  test("fusionDropRate breach uses attribution-complete raw-finding sample size (#258)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        fusionDropRate: 0.6,
+        fusionDropSampleFindingCount: 5,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "fusionDropRate");
+    expect(h).toBeDefined();
+    expect(h?.direction).toBe("above");
+    expect(h?.value).toBeCloseTo(0.6, 5);
+    expect(h?.threshold).toBeCloseTo(0.3, 5);
+    expect(h?.sampleSize).toBe(5);
+    expect(h?.lowConfidence).toBe(false);
+  });
+
+  test("fusionDropRate with no attribution-complete denominator is no-data, not a breach (#258)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        fusionDropRate: 1,
+        fusionDropSampleFindingCount: 0,
+        fusionRawMinusSurvivingRate: 1,
+        fusionRawFindingCount: 0,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "fusionDropRate")).toBeUndefined();
+  });
+
+  test("fusion raw-minus-surviving signal is descriptive and not thresholded (#258)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        fusionDropRate: 0,
+        fusionDropSampleFindingCount: 0,
+        fusionRawMinusSurvivingRate: 0.8,
+        fusionRawFindingCount: 5,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "fusionDropRate")).toBeUndefined();
+  });
+
+  test("fusionDropRate at threshold boundary is not a breach (#258)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        fusionDropRate: 0.3,
+        fusionDropSampleFindingCount: 10,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "fusionDropRate")).toBeUndefined();
+  });
+
+  test("fusionDropRate low-confidence hypothesis uses attribution-complete denominator (#258)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        fusionDropRate: 0.75,
+        fusionDropSampleFindingCount: 4,
+      },
+    });
+
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "fusionDropRate");
+    expect(h).toBeDefined();
+    expect(h?.sampleSize).toBe(4);
+    expect(h?.lowConfidence).toBe(true);
+  });
+
+  test("maxFusionDropRate threshold override works (#258)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        fusionDropRate: 0.25,
+        fusionDropSampleFindingCount: 20,
+      },
+    });
+
+    const defaultReport = buildQualityReport(analysis);
+    expect(defaultReport.hypotheses.find((x) => x.metric === "fusionDropRate")).toBeUndefined();
+
+    const overrideReport = buildQualityReport(analysis, { maxFusionDropRate: 0.2 });
+    expect(overrideReport.thresholds.maxFusionDropRate).toBe(0.2);
+    expect(overrideReport.hypotheses.find((x) => x.metric === "fusionDropRate")).toBeDefined();
+  });
+
+  test("formatQualityReport includes fusionDropRate hypothesis (#258)", () => {
+    const analysis = makeAnalysis({
+      runCount: 10,
+      rates: {
+        fusionDropRate: 0.6,
+        fusionDropSampleFindingCount: 5,
+      },
+    });
+
+    const output = formatQualityReport(buildQualityReport(analysis));
+    expect(output).toContain("fusionDropRate");
+    expect(output).toContain("overall:overall");
   });
 });
 
@@ -972,6 +1085,45 @@ describe("buildQualityReport end-to-end via analyzeRunMetrics", () => {
     expect(completionH).toBeDefined();
     expect(completionH?.direction).toBe("below");
     expect(completionH?.value).toBeCloseTo(0.5, 5);
+  });
+
+  test("pipes over-aggressive fusion signal through analyzeRunMetrics then buildQualityReport (#258)", () => {
+    const events: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-14T00:00:00.000Z",
+        runId: "fusion-aggressive",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          reviewedFileCount: 3,
+          decision: "minor_issues",
+          outcome: "pass",
+          durationMs: 3000,
+          findingCount: 2,
+          findingsByReviewer: { security: 2 },
+          fusion: {
+            rawFindingCount: 5,
+            survivingFindingCount: 2,
+            rawMinusSurvivingCount: 3,
+            attributionComplete: false,
+            mergedCount: 0,
+            droppedCount: 0,
+            rawByReviewer: { correctness: 3, security: 2 },
+          },
+        },
+      },
+    ];
+
+    const analysis = analyzeRunMetrics(events);
+    expect(analysis.rates.fusionRawMinusSurvivingRate).toBeCloseTo(3 / 5, 5);
+    expect(analysis.rates.fusionDropRate).toBe(0);
+    expect(analysis.rates.fusionDropSampleFindingCount).toBe(0);
+    expect(analysis.rates.fusionRawFindingCount).toBe(5);
+
+    const report = buildQualityReport(analysis);
+    const fusionH = report.hypotheses.find((x) => x.metric === "fusionDropRate");
+    expect(fusionH).toBeUndefined();
   });
 
   test("pipes suppression signals through analyzeRunMetrics then buildQualityReport (#224-#227)", () => {

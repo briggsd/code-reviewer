@@ -266,7 +266,163 @@ test("analyzeRunMetrics rates are 0 when runCount is 0", () => {
   expect(analysis.rates.acknowledgementRunRate).toBe(0);
   expect(analysis.rates.thinReviewRate).toBe(0);
   expect(analysis.rates.structuredOutputRate).toBe(0);
+  expect(analysis.rates.fusionDropRate).toBe(0);
+  expect(analysis.rates.fusionDropSampleFindingCount).toBe(0);
+  expect(analysis.rates.fusionRawMinusSurvivingRate).toBe(0);
+  expect(analysis.rates.fusionRawFindingCount).toBe(0);
   expect(analysis.structuredOutput).toBeUndefined();
+});
+
+// ---------------------------------------------------------------------------
+// #258 fusionDropRate
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics fusionDropRate (#258)", () => {
+  const fusionEvents: TelemetryEvent[] = [
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-14T00:00:00.000Z",
+      runId: "fusion-a",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "minor_issues",
+        outcome: "pass",
+        findingCount: 2,
+        findingsByReviewer: { security: 2 },
+        fusion: {
+          rawFindingCount: 5,
+          survivingFindingCount: 2,
+          rawMinusSurvivingCount: 3,
+          attributionComplete: false,
+          mergedCount: 0,
+          droppedCount: 0,
+          rawByReviewer: { correctness: 3, security: 2 },
+        },
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-14T01:00:00.000Z",
+      runId: "fusion-b",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "approved",
+        outcome: "pass",
+        findingCount: 1,
+        findingsByReviewer: { security: 1 },
+        fusion: {
+          rawFindingCount: 1,
+          survivingFindingCount: 1,
+          rawMinusSurvivingCount: 0,
+          attributionComplete: false,
+          mergedCount: 0,
+          droppedCount: 0,
+          rawByReviewer: { security: 1 },
+        },
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-14T02:00:00.000Z",
+      runId: "fusion-dummy",
+      data: {
+        runtime: "dummy",
+        riskTier: "full",
+        decision: "approved",
+        outcome: "pass",
+        findingCount: 0,
+        fusion: {
+          rawFindingCount: 100,
+          survivingFindingCount: 0,
+          rawMinusSurvivingCount: 100,
+          attributionComplete: false,
+          mergedCount: 0,
+          droppedCount: 0,
+        },
+      },
+    },
+  ];
+
+  test("pooled raw-minus-surviving rate uses raw-finding denominator across real runs", () => {
+    const analysis = analyzeRunMetrics(fusionEvents);
+    expect(analysis.rates.fusionRawFindingCount).toBe(6);
+    expect(analysis.rates.fusionRawMinusSurvivingRate).toBeCloseTo(3 / 6, 5);
+    expect(analysis.rates.fusionDropRate).toBe(0);
+    expect(analysis.rates.fusionDropSampleFindingCount).toBe(0);
+  });
+
+  test("formatRunMetricsAnalysis includes fusion raw-minus and drop denominators", () => {
+    const output = formatRunMetricsAnalysis(analyzeRunMetrics(fusionEvents));
+    expect(output).toContain("fusionRawMinusSurvivingRate");
+    expect(output).toContain("fusionDropRate");
+    expect(output).toContain("n=6");
+    expect(output).toContain("n=0");
+  });
+
+  test("attribution-complete events contribute to true fusionDropRate", () => {
+    const analysis = analyzeRunMetrics([
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-14T02:30:00.000Z",
+        runId: "fusion-attributed",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "minor_issues",
+          outcome: "pass",
+          findingCount: 3,
+          findingsByReviewer: { security: 3 },
+          fusion: {
+            rawFindingCount: 5,
+            survivingFindingCount: 3,
+            rawMinusSurvivingCount: 2,
+            attributionComplete: true,
+            mergedCount: 0,
+            droppedCount: 2,
+            rawByReviewer: { security: 5 },
+          },
+        },
+      },
+    ]);
+
+    expect(analysis.rates.fusionDropSampleFindingCount).toBe(5);
+    expect(analysis.rates.fusionDropRate).toBeCloseTo(2 / 5, 5);
+    expect(analysis.rates.fusionRawMinusSurvivingRate).toBeCloseTo(2 / 5, 5);
+  });
+
+  test("no raw findings is no-data denominator: rate 0, sample count 0", () => {
+    const analysis = analyzeRunMetrics([
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-14T03:00:00.000Z",
+        runId: "fusion-empty",
+        data: {
+          runtime: "pi",
+          riskTier: "lite",
+          decision: "approved",
+          outcome: "pass",
+          findingCount: 0,
+          findingsByReviewer: {},
+          fusion: {
+            rawFindingCount: 0,
+            survivingFindingCount: 1,
+            rawMinusSurvivingCount: 0,
+            attributionComplete: false,
+            mergedCount: 0,
+            droppedCount: 0,
+            rawByReviewer: { security: 0 },
+          },
+        },
+      },
+    ]);
+
+    expect(analysis.rates.fusionDropRate).toBe(0);
+    expect(analysis.rates.fusionDropSampleFindingCount).toBe(0);
+    expect(analysis.rates.fusionRawMinusSurvivingRate).toBe(0);
+    expect(analysis.rates.fusionRawFindingCount).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

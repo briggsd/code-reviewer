@@ -431,6 +431,22 @@ export interface DispositionCounts {
   >;
 }
 
+/** Counts-only coordinator fusion efficacy signal (#258, M023).
+ *  rawFindingCount = completed reviewer findings before coordinator fusion.
+ *  survivingFindingCount = final findings after fusion/grounding/backfill.
+ *  rawMinusSurvivingCount = current observable net loss, not true drop attribution.
+ *  attributionComplete = false until raw reviewer findings can be mapped to final findings.
+ *  Counts and reviewer-role identifiers only — no finding text, paths, or locations (M008). */
+export interface FusionCounts {
+  rawFindingCount: number;
+  survivingFindingCount: number;
+  rawMinusSurvivingCount: number;
+  attributionComplete: boolean;
+  mergedCount: number;
+  droppedCount: number;
+  rawByReviewer?: Record<string, number>;
+}
+
 export interface ReviewRunMetrics {
   durationsMs: ReviewRunDurations;
   context?: ReviewRunContextMetrics;
@@ -444,6 +460,8 @@ export interface ReviewRunMetrics {
   /** Per-finding outcome counts from re-review disposition derivation (#256, M023 S04).
    *  Absent on first review. Counts-only — no finding bodies/locations/paths (M008). */
   dispositions?: DispositionCounts;
+  /** Counts-only pre-fusion vs post-fusion finding totals (#258, M023). */
+  fusion?: FusionCounts;
 }
 
 export interface ReviewRunRecord {
