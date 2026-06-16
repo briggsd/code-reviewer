@@ -45,7 +45,7 @@ describe("package distribution metadata", () => {
     const releaseReadiness = await readFile("docs/user/release-readiness.md", "utf8");
 
     expect(manifest.name).toBe("ai-code-review-factory");
-    expect(manifest.version).toBe("0.1.1");
+    expect(manifest.version).toBe("0.2.0");
     expect(manifest.private).toBe(true);
     expect(manifest.license).toBe("Apache-2.0");
     expect(manifest.homepage).toBe("https://github.com/briggsd/ai-code-review-factory#readme");
