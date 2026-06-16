@@ -6,7 +6,11 @@
 // threshold numbers — never a finding body, diff, prompt, or secret.
 // The input (RunMetricsAnalysis) already excludes these; we add no new content field.
 
-import type { ReviewerAcceptanceStat, RunMetricsAnalysis } from "./run-metrics-analyze.ts";
+import type {
+  ResidualDefectAnalysis,
+  ReviewerAcceptanceStat,
+  RunMetricsAnalysis,
+} from "./run-metrics-analyze.ts";
 
 // ─── public types ────────────────────────────────────────────────────────────
 
@@ -27,7 +31,10 @@ export type HypothesisMetric =
   | "structuredOutputRate"
   | "reviewerFailureRate"
   | "convergenceFlapRate"
-  | "maxRecurrenceDepth";
+  | "maxRecurrenceDepth"
+  | "unlocatedLeakRate"
+  | "noSuggestionLeakRate"
+  | "offDiffCitationLeakRate";
 
 export type SegmentType = "overall" | "tier" | "reviewer" | "severity";
 
@@ -77,6 +84,12 @@ export interface QualityReportThresholds {
   maxConvergenceFlapRate: number; // default 0.20
   /** Maximum consecutive open-round depth for any finding before surfacing a convergence hypothesis. default 3 */
   maxRecurrenceDepth: number; // default 3
+  /** Per-run unlocated-finding leak rate (unlocatedShipped ÷ total completed runs). default 0.20 */
+  maxUnlocatedLeakRate: number; // default 0.20
+  /** Per-run no-suggestion leak rate (noSuggestionShipped ÷ total completed runs). default 0.10 */
+  maxNoSuggestionLeakRate: number; // default 0.10
+  /** Per-run off-diff-citation leak rate (offDiffCitationShipped ÷ total completed runs). default 0.30 */
+  maxOffDiffCitationLeakRate: number; // default 0.30
   /** Segments below this sample size are surfaced but marked lowConfidence. default 5 */
   minSampleSize: number;
 }
@@ -99,6 +112,9 @@ export const DEFAULT_QUALITY_THRESHOLDS: QualityReportThresholds = {
   maxReviewerFailureRate: 0.1,
   maxConvergenceFlapRate: 0.2,
   maxRecurrenceDepth: 3,
+  maxUnlocatedLeakRate: 0.2,
+  maxNoSuggestionLeakRate: 0.1,
+  maxOffDiffCitationLeakRate: 0.3,
   minSampleSize: 5,
 };
 
@@ -292,6 +308,11 @@ export function buildQualityReport(
       direction: "above",
       sampleSize: analysis.convergence.runCount,
     });
+  }
+
+  // Residual-defect leak rates (#261): optional, present only when runs emitted the block.
+  if (analysis.residualDefects !== undefined) {
+    checkResidualDefectLeakRates(hypotheses, t, analysis.residualDefects);
   }
 
   // overrideRate + completionRate — only if runEvents is present
@@ -496,6 +517,41 @@ function checkBreach(
     direction: candidate.direction,
     sampleSize: candidate.sampleSize,
     lowConfidence: candidate.sampleSize < t.minSampleSize,
+  });
+}
+
+/** Check all three residual-defect leak rates against their thresholds. */
+function checkResidualDefectLeakRates(
+  out: QualityHypothesis[],
+  t: QualityReportThresholds,
+  rd: ResidualDefectAnalysis,
+): void {
+  checkBreach(out, t, {
+    segmentType: "overall",
+    segment: "overall",
+    metric: "unlocatedLeakRate",
+    value: rd.unlocatedLeakRate,
+    threshold: t.maxUnlocatedLeakRate,
+    direction: "above",
+    sampleSize: rd.runCount,
+  });
+  checkBreach(out, t, {
+    segmentType: "overall",
+    segment: "overall",
+    metric: "noSuggestionLeakRate",
+    value: rd.noSuggestionLeakRate,
+    threshold: t.maxNoSuggestionLeakRate,
+    direction: "above",
+    sampleSize: rd.runCount,
+  });
+  checkBreach(out, t, {
+    segmentType: "overall",
+    segment: "overall",
+    metric: "offDiffCitationLeakRate",
+    value: rd.offDiffCitationLeakRate,
+    threshold: t.maxOffDiffCitationLeakRate,
+    direction: "above",
+    sampleSize: rd.runCount,
   });
 }
 

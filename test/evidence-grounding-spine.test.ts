@@ -777,3 +777,113 @@ describe("evidence grounding spine integration", () => {
     expect(summary.body).not.toContain("withheld: the code they cited could not be found");
   });
 });
+
+// ---------------------------------------------------------------------------
+// #261 residual-defect counts regression tests
+// ---------------------------------------------------------------------------
+
+describe("residual-defect counts (#261)", () => {
+  /**
+   * Regression test (acceptance criterion verbatim):
+   * "a finding with no location that ships increments unlocatedShipped."
+   * Also asserts noSuggestionShipped and offDiffCitationShipped.
+   */
+  test("unlocated, no-suggestion, and off-diff findings each increment their respective residualDefects count", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const telemetrySink = new RecordingTelemetrySink();
+
+    // The auth-pr fixture has one changed file: auth/accounts.ts.
+    // Self-guard: verify the fixture diff file is what we expect.
+    const changedPaths = fixture.diff.files.map((f) => f.path);
+    expect(changedPaths).toContain("auth/accounts.ts");
+
+    // (1) unlocated: a finding with no location at all — after backfill, still no location
+    const unlocatedFinding: Finding = {
+      reviewer: "security",
+      severity: "warning",
+      category: "auth",
+      title: "Unlocated shipped finding",
+      body: "body",
+      confidence: "high",
+      evidence: ["evidence"],
+      recommendation: "fix it",
+      // no location field — ships through grounding scope-gate (no locationPath → always kept)
+    };
+
+    // (2) noSuggestion: a finding with an empty recommendation
+    const noSuggestionFinding: Finding = {
+      reviewer: "code_quality",
+      severity: "warning",
+      category: "correctness",
+      title: "No-suggestion shipped finding",
+      body: "body",
+      confidence: "high",
+      evidence: ["evidence"],
+      recommendation: "   ", // whitespace-only → trimmed to "" → noSuggestionShipped
+      location: { path: "auth/accounts.ts" },
+    };
+
+    // (3) offDiffCitation: a finding whose location.path is NOT a changed file
+    const offDiffFinding: Finding = {
+      reviewer: "code_quality",
+      severity: "suggestion",
+      category: "docs",
+      title: "Off-diff citation shipped finding",
+      body: "body",
+      confidence: "medium",
+      evidence: ["evidence"],
+      recommendation: "update the docs",
+      location: { path: "docs/auth.md" }, // not in the changed-file set
+    };
+
+    fixture.fakeFindings = [unlocatedFinding, noSuggestionFinding, offDiffFinding];
+
+    await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-15T12:00:00.000Z"),
+      telemetrySink,
+    });
+
+    const metrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
+    expect(metrics).toBeDefined();
+
+    const rd = metrics?.data?.residualDefects as
+      | { unlocatedShipped: number; noSuggestionShipped: number; offDiffCitationShipped: number }
+      | undefined;
+    expect(rd).toBeDefined();
+    expect(rd?.unlocatedShipped).toBe(1); // the finding with no location
+    expect(rd?.noSuggestionShipped).toBe(1); // the finding with empty recommendation
+    expect(rd?.offDiffCitationShipped).toBe(1); // the finding citing docs/auth.md
+  });
+
+  test("all findings with location on changed file and non-empty recommendation → residualDefects absent", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const telemetrySink = new RecordingTelemetrySink();
+
+    // A clean finding: located on a changed file, has a recommendation
+    const cleanFinding: Finding = {
+      reviewer: "security",
+      severity: "warning",
+      category: "auth",
+      title: "Clean finding",
+      body: "body",
+      confidence: "high",
+      evidence: ["evidence"],
+      recommendation: "fix it properly",
+      location: { path: "auth/accounts.ts" },
+    };
+
+    fixture.fakeFindings = [cleanFinding];
+
+    await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-15T13:00:00.000Z"),
+      telemetrySink,
+    });
+
+    const metrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
+    expect(metrics).toBeDefined();
+    // No residualDefects block when all counts are 0
+    expect(Object.hasOwn(metrics?.data ?? {}, "residualDefects")).toBe(false);
+  });
+});

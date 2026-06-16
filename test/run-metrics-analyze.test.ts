@@ -2592,3 +2592,133 @@ describe("analyzeRunMetrics — disposition precision", () => {
     expect(formatted).not.toContain("Disposition Precision");
   });
 });
+
+// ---------------------------------------------------------------------------
+// #261 residualDefects analysis
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics residualDefects (#261)", () => {
+  function makeResidualEvent(
+    runId: string,
+    residualDefects: {
+      unlocatedShipped: number;
+      noSuggestionShipped: number;
+      offDiffCitationShipped: number;
+    },
+  ): TelemetryEvent {
+    return {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-15T00:00:00.000Z",
+      runId,
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "approved",
+        outcome: "pass",
+        findingCount: 2,
+        residualDefects,
+      },
+    };
+  }
+
+  test("absent residualDefects block → residualDefects undefined in analysis", () => {
+    // events fixture has no residualDefects blocks
+    const analysis = analyzeRunMetrics(events);
+    expect(analysis.residualDefects).toBeUndefined();
+  });
+
+  test("single run with residualDefects block → counts and rates computed correctly", () => {
+    const evts: TelemetryEvent[] = [
+      makeResidualEvent("rd-1", {
+        unlocatedShipped: 2,
+        noSuggestionShipped: 1,
+        offDiffCitationShipped: 3,
+      }),
+    ];
+    const analysis = analyzeRunMetrics(evts);
+    expect(analysis.residualDefects).toBeDefined();
+    expect(analysis.residualDefects?.unlocatedShippedTotal).toBe(2);
+    expect(analysis.residualDefects?.noSuggestionShippedTotal).toBe(1);
+    expect(analysis.residualDefects?.offDiffCitationShippedTotal).toBe(3);
+    // runCount = total completed runs (denominator); defectiveRunCount = runs that emitted a block
+    expect(analysis.residualDefects?.runCount).toBe(1); // 1 total completed run
+    expect(analysis.residualDefects?.defectiveRunCount).toBe(1); // 1 run emitted a block
+    // rates = total / runCount (total completed runs) = 2/1, 1/1, 3/1
+    expect(analysis.residualDefects?.unlocatedLeakRate).toBe(2);
+    expect(analysis.residualDefects?.noSuggestionLeakRate).toBe(1);
+    expect(analysis.residualDefects?.offDiffCitationLeakRate).toBe(3);
+  });
+
+  test("multiple runs pool totals correctly; runs without block divide by total runCount", () => {
+    const evts: TelemetryEvent[] = [
+      makeResidualEvent("rd-a", {
+        unlocatedShipped: 1,
+        noSuggestionShipped: 0,
+        offDiffCitationShipped: 2,
+      }),
+      makeResidualEvent("rd-b", {
+        unlocatedShipped: 3,
+        noSuggestionShipped: 1,
+        offDiffCitationShipped: 0,
+      }),
+      // run-c: no residualDefects block → not counted in defectiveRunCount but IS in total runCount
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T01:00:00.000Z",
+        runId: "rd-c",
+        data: { runtime: "pi", riskTier: "lite", decision: "approved", outcome: "pass" },
+      },
+    ];
+    const analysis = analyzeRunMetrics(evts);
+    expect(analysis.runCount).toBe(3); // all three are real runs
+    // runCount = total completed runs (denominator); defectiveRunCount = runs that emitted a block
+    expect(analysis.residualDefects?.runCount).toBe(3); // total completed runs
+    expect(analysis.residualDefects?.defectiveRunCount).toBe(2); // only the two with the block
+    expect(analysis.residualDefects?.unlocatedShippedTotal).toBe(4);
+    expect(analysis.residualDefects?.noSuggestionShippedTotal).toBe(1);
+    expect(analysis.residualDefects?.offDiffCitationShippedTotal).toBe(2);
+    // rates = total / runCount (3 total runs, NOT 2 defective runs)
+    expect(analysis.residualDefects?.unlocatedLeakRate).toBeCloseTo(4 / 3, 10);
+    expect(analysis.residualDefects?.noSuggestionLeakRate).toBeCloseTo(1 / 3, 10);
+    expect(analysis.residualDefects?.offDiffCitationLeakRate).toBeCloseTo(2 / 3, 10);
+  });
+
+  test("run with all-zero residualDefects block still increments defectiveRunCount", () => {
+    // The block is emitted only when > 0 (run-review.ts), but a defensively crafted
+    // all-zero block in a test or historical event should still be accumulated.
+    const evts: TelemetryEvent[] = [
+      makeResidualEvent("rd-zero", {
+        unlocatedShipped: 0,
+        noSuggestionShipped: 0,
+        offDiffCitationShipped: 0,
+      }),
+    ];
+    const analysis = analyzeRunMetrics(evts);
+    // runCount = 1 total completed run; defectiveRunCount = 1 (block was present)
+    expect(analysis.residualDefects?.runCount).toBe(1); // total completed runs
+    expect(analysis.residualDefects?.defectiveRunCount).toBe(1); // runs with the block
+    expect(analysis.residualDefects?.unlocatedLeakRate).toBe(0); // 0 / 1 = 0
+  });
+
+  test("dummy-runtime runs are excluded from residualDefects analysis", () => {
+    const evts: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T00:00:00.000Z",
+        runId: "dummy-rd",
+        data: {
+          runtime: "dummy",
+          riskTier: "full",
+          residualDefects: {
+            unlocatedShipped: 5,
+            noSuggestionShipped: 5,
+            offDiffCitationShipped: 5,
+          },
+        },
+      },
+    ];
+    const analysis = analyzeRunMetrics(evts);
+    expect(analysis.runCount).toBe(0);
+    expect(analysis.residualDefects).toBeUndefined();
+  });
+});

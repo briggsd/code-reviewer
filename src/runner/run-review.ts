@@ -9,6 +9,7 @@ import type {
   ModelSelection,
   PriorReviewState,
   ProviderHealthRegistry,
+  ResidualDefectCounts,
   ReviewConfig,
   ReviewContext,
   ReviewDecision,
@@ -606,6 +607,53 @@ async function emitFullContentCorpusTrace(input: {
   });
 }
 
+/**
+ * Normalize a file path for changed-file set membership checks.
+ * Local mirror of evidence-grounding.ts `normalizePath` — kept self-contained intentionally
+ * (mirrors the evidence-grounding.ts ↔ stable-finding-id.ts precedent). Do NOT import
+ * across modules; changes must be kept in sync manually.
+ */
+function normalizePathForChangedFileSet(path: string): string {
+  return path.trim().replaceAll("\\", "/").replace(/^\.\//, "");
+}
+
+/**
+ * Compute residual-defect counts over the FINAL published finding set (#261).
+ * Counts-only (M008): returns integer counts only — no finding text, titles, paths, or locations.
+ * Returns undefined when all three counts are 0 (no block to emit).
+ */
+function computeResidualDefects(
+  findings: readonly Finding[],
+  diff: DiffSummary,
+): ResidualDefectCounts | undefined {
+  const changedFilePaths = new Set(diff.files.map((f) => normalizePathForChangedFileSet(f.path)));
+
+  let unlocatedShipped = 0;
+  let noSuggestionShipped = 0;
+  let offDiffCitationShipped = 0;
+
+  for (const finding of findings) {
+    if (finding.location === undefined) {
+      unlocatedShipped += 1;
+    }
+    if (finding.recommendation.trim() === "") {
+      noSuggestionShipped += 1;
+    }
+    const locationPath = finding.location?.path;
+    if (
+      locationPath !== undefined &&
+      !changedFilePaths.has(normalizePathForChangedFileSet(locationPath))
+    ) {
+      offDiffCitationShipped += 1;
+    }
+  }
+
+  if (unlocatedShipped === 0 && noSuggestionShipped === 0 && offDiffCitationShipped === 0) {
+    return undefined;
+  }
+  return { unlocatedShipped, noSuggestionShipped, offDiffCitationShipped };
+}
+
 async function emitCompletedRunMetrics(input: {
   options: RunReviewOptions;
   context: ReviewContext;
@@ -629,6 +677,8 @@ async function emitCompletedRunMetrics(input: {
   clock: () => Date;
   /** Per-finding disposition counts (#256, M023 S04). Counts-only; absent on first review. */
   dispositions?: import("../contracts/review.ts").DispositionCounts;
+  /** Residual-defect counts (#261): shipped findings that quality gates did not catch. Counts-only; absent when all zero. */
+  residualDefects?: ResidualDefectCounts;
 }): Promise<void> {
   const {
     options,
@@ -651,6 +701,7 @@ async function emitCompletedRunMetrics(input: {
     converged,
     clock,
     dispositions,
+    residualDefects,
   } = input;
   const completedAt = clock();
   const completedAtTimestamp = completedAt.toISOString();
@@ -732,6 +783,7 @@ async function emitCompletedRunMetrics(input: {
           }
         : {}),
       ...(dispositions !== undefined ? { dispositions } : {}),
+      ...(residualDefects !== undefined ? { residualDefects } : {}),
     }),
   });
 
@@ -1047,6 +1099,11 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     // Absent on first review (no prior state → no classifications).
     const dispositions = computeDispositions(fusedSummary.reReview?.classifications);
 
+    // Compute residual-defect counts (#261): findings that shipped despite quality gates.
+    // Computed over the FINAL published finding set, after grounding → backfill → acknowledgements.
+    // Counts-only (M008): never carries finding text, titles, paths, or locations.
+    const residualDefects = computeResidualDefects(fusedSummary.findings, context.diff);
+
     await emitCompletedRunMetrics({
       options,
       context,
@@ -1067,6 +1124,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       suppressedCount: fused.suppressedCount,
       ...(converged ? { converged } : {}),
       ...(dispositions !== undefined ? { dispositions } : {}),
+      ...(residualDefects !== undefined ? { residualDefects } : {}),
       clock,
     });
 

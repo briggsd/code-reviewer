@@ -5,6 +5,7 @@ import type {
   FusionCounts,
   JsonValue,
   ReReviewFindingClassification,
+  ResidualDefectCounts,
   ReviewContext,
   ReviewContextArtifacts,
   ReviewErrorClassification,
@@ -182,6 +183,8 @@ export function createRunMetricsTelemetryEvent(input: {
   errorClassification?: ReviewErrorClassification;
   /** Per-finding disposition counts (#256, M023 S04). Counts-only; absent on first review. */
   dispositions?: DispositionCounts;
+  /** Residual-defect counts (#261): shipped findings quality gates did not catch. Counts-only; absent when all zero. */
+  residualDefects?: ResidualDefectCounts;
 }): TelemetryEvent {
   const data: Record<string, JsonValue> = {
     schemaVersion: "ai-review.run_metrics.v1",
@@ -380,6 +383,15 @@ export function createRunMetricsTelemetryEvent(input: {
       dispoData.bySeverity = d.bySeverity as unknown as JsonValue;
     }
     data.dispositions = dispoData;
+  }
+  if (input.residualDefects !== undefined) {
+    // Counts-only (M008): integers only — no finding text, titles, paths, or locations.
+    const rd = input.residualDefects;
+    data.residualDefects = {
+      unlocatedShipped: rd.unlocatedShipped,
+      noSuggestionShipped: rd.noSuggestionShipped,
+      offDiffCitationShipped: rd.offDiffCitationShipped,
+    };
   }
 
   return {

@@ -144,6 +144,30 @@ events that lack the field; `fusionMsPerRun` additionally reads 0 for short-circ
 all-reviewers-failed runs (no synthesis ran). **Segment by date when mixing pre- and post-#196
 data**, or the historical runs deflate the averages.
 
+**Residual-defect counts (#261):** completed `ai_review.run_metrics` events include an optional
+counts-only `residualDefects` block when at least one count is > 0. The block measures findings
+that SHIPPED despite quality gates — the complement to caught-count signals (grounding.droppedFindingCount,
+locationBackfill.backfilledCount, thinReview), so caught + leaked = gate recall observable from telemetry:
+
+- `unlocatedShipped` — findings published with no location at all (after backfill, still unlocated).
+- `noSuggestionShipped` — findings published with an empty `recommendation` (no actionable fix text).
+- `offDiffCitationShipped` — findings published whose `location.path` cites a file outside the
+  changed-file set. These are findings the grounding scope-gate carve-out always keeps (off-diff
+  staleness findings like "you forgot to update docs/X" are legitimately off-diff; a rising rate
+  signals reviewers may be citing non-changed files erroneously).
+
+The block carries only integers (counts-only, M008). It is absent when all three counts are 0.
+`telemetry:analyze` surfaces per-run leak rates for each count
+(`unlocatedLeakRate`, `noSuggestionLeakRate`, `offDiffCitationLeakRate`) in the `residualDefects`
+section. `telemetry:quality` surfaces these as thresholded hypotheses (a rising rate signals
+degradation).
+
+The analysis `residualDefects` block is present only when at least one run leaked (i.e., emitted a
+`residualDefects` block). `residualDefects.runCount` is the **total number of completed runs** in
+the analysis — the leak-rate denominator — so rates trend toward 0 as gates hold.
+`residualDefects.defectiveRunCount` is how many of those runs had ≥1 leak (emitted a block); it is
+always ≤ `runCount`.
+
 **Fusion efficacy (#258):** completed `ai_review.run_metrics` events with coordinator reviewer
 results include a counts-only `fusion` block:
 
@@ -273,6 +297,9 @@ JSON as an artifact.
 | `withholdRate` | computed from `withheldExcluded / total` per reviewer/tier | `maxWithholdRate` | above → bad | 0.30 |
 | `severityDismissRate` | computed from `analysis.dispositions.bySeverity[s].dismissed / (fixed + ignored + dismissed)` | `maxSeverityDismissRate` | above → bad | 0.50 |
 | `completionRate` | `analysis.runEvents?.completionRate` | `minCompletionRate` | below → bad | 0.90 |
+| `unlocatedLeakRate` | `analysis.residualDefects?.unlocatedLeakRate` | `maxUnlocatedLeakRate` | above → bad | 0.20 |
+| `noSuggestionLeakRate` | `analysis.residualDefects?.noSuggestionLeakRate` | `maxNoSuggestionLeakRate` | above → bad | 0.10 |
+| `offDiffCitationLeakRate` | `analysis.residualDefects?.offDiffCitationLeakRate` | `maxOffDiffCitationLeakRate` | above → bad | 0.30 |
 
 The `minSampleSize` threshold (default 5) marks any hypothesis whose denominator is below
 that value as `lowConfidence: true` — it is still surfaced, but flagged for low statistical

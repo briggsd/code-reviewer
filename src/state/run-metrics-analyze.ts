@@ -172,6 +172,27 @@ export interface ConvergenceAnalysis {
   maxRecurrenceDepth: number;
 }
 
+/** Pooled residual-defect leak counts and rates (#261). Counts-only.
+ *  Absent when no run has emitted a residualDefects block. */
+export interface ResidualDefectAnalysis {
+  /** Total unlocated shipped findings across all runs. */
+  unlocatedShippedTotal: number;
+  /** Total no-suggestion shipped findings across all runs. */
+  noSuggestionShippedTotal: number;
+  /** Total off-diff citation shipped findings across all runs. */
+  offDiffCitationShippedTotal: number;
+  /** Total completed runs in the analysis (the leak-rate denominator). */
+  runCount: number;
+  /** Number of completed runs that emitted a residualDefects block (had ≥1 leak). */
+  defectiveRunCount: number;
+  /** unlocatedShippedTotal ÷ runCount (total completed runs); the per-run leak rate for unlocated findings. */
+  unlocatedLeakRate: number;
+  /** noSuggestionShippedTotal ÷ runCount (total completed runs); the per-run leak rate for no-suggestion findings. */
+  noSuggestionLeakRate: number;
+  /** offDiffCitationShippedTotal ÷ runCount (total completed runs); the per-run leak rate for off-diff citations. */
+  offDiffCitationLeakRate: number;
+}
+
 export interface RunMetricsAnalysis {
   runCount: number;
   /** Runs whose run_metrics carried >=1 reviewer-kind failure (#212). */
@@ -275,6 +296,8 @@ export interface RunMetricsAnalysis {
   dispositions?: DispositionAnalysis;
   /** Convergence/flap measurement (#260). Absent when no run has a convergence block. */
   convergence?: ConvergenceAnalysis;
+  /** Residual-defect leak counts and rates (#261). Absent when no run has a residualDefects block. */
+  residualDefects?: ResidualDefectAnalysis;
 }
 
 interface TierAccumulator {
@@ -321,6 +344,8 @@ interface RunMetricsEventData extends Record<string, JsonValue> {
   convergence?: Record<string, JsonValue>;
   /** Per-finding disposition counts (#256, M023 S04). Absent on first review. */
   dispositions?: Record<string, JsonValue>;
+  /** Residual-defect counts (#261). Absent when all zero. */
+  residualDefects?: Record<string, JsonValue>;
 }
 
 type RunMetricsEvent = TelemetryEvent & { data: RunMetricsEventData };
@@ -427,7 +452,7 @@ function extractTokens(data: RunMetricsEventData): TokenAccumulation {
 }
 
 /** Accumulate optional-block presence rates (grounding, locationBackfill, acknowledgements,
- *  structuredOutput) from a single run_metrics event.
+ *  structuredOutput, residualDefects) from a single run_metrics event.
  *  Mutates the provided counters in-place. */
 function accumulateOptionalBlocks(
   data: RunMetricsEventData,
@@ -452,6 +477,10 @@ function accumulateOptionalBlocks(
     convergenceCurrentFindingTotal: number;
     convergenceFlappingFindingTotal: number;
     convergenceMaxRecurrenceDepth: number;
+    residualDefectsRunCount: number;
+    residualUnlocatedTotal: number;
+    residualNoSuggestionTotal: number;
+    residualOffDiffTotal: number;
   },
 ): void {
   const groundingBlock = data.grounding;
@@ -563,6 +592,14 @@ function accumulateOptionalBlocks(
     ) {
       counters.deletionPruningRunCount += 1;
     }
+  }
+
+  const residualDefectsBlock = data.residualDefects;
+  if (residualDefectsBlock !== undefined && isPlainObject(residualDefectsBlock)) {
+    counters.residualDefectsRunCount += 1;
+    counters.residualUnlocatedTotal += asNumber(residualDefectsBlock.unlocatedShipped);
+    counters.residualNoSuggestionTotal += asNumber(residualDefectsBlock.noSuggestionShipped);
+    counters.residualOffDiffTotal += asNumber(residualDefectsBlock.offDiffCitationShipped);
   }
 }
 
@@ -870,6 +907,10 @@ export function analyzeRunMetrics(
     convergenceCurrentFindingTotal: 0,
     convergenceFlappingFindingTotal: 0,
     convergenceMaxRecurrenceDepth: 0,
+    residualDefectsRunCount: 0,
+    residualUnlocatedTotal: 0,
+    residualNoSuggestionTotal: 0,
+    residualOffDiffTotal: 0,
   };
 
   let thinReviewRunCount = 0;
@@ -1028,6 +1069,10 @@ export function analyzeRunMetrics(
     convergenceCurrentFindingTotal,
     convergenceFlappingFindingTotal,
     convergenceMaxRecurrenceDepth,
+    residualDefectsRunCount,
+    residualUnlocatedTotal,
+    residualNoSuggestionTotal,
+    residualOffDiffTotal,
   } = optionalBlockCounters;
 
   return {
@@ -1120,6 +1165,21 @@ export function analyzeRunMetrics(
       );
       return da !== undefined ? { dispositions: da } : {};
     })(),
+    // Residual-defect analysis (#261): absent when no run has a residualDefects block.
+    ...(residualDefectsRunCount > 0
+      ? {
+          residualDefects: {
+            unlocatedShippedTotal: residualUnlocatedTotal,
+            noSuggestionShippedTotal: residualNoSuggestionTotal,
+            offDiffCitationShippedTotal: residualOffDiffTotal,
+            runCount,
+            defectiveRunCount: residualDefectsRunCount,
+            unlocatedLeakRate: residualUnlocatedTotal / runCount,
+            noSuggestionLeakRate: residualNoSuggestionTotal / runCount,
+            offDiffCitationLeakRate: residualOffDiffTotal / runCount,
+          },
+        }
+      : {}),
   };
 }
 

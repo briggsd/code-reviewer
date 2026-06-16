@@ -444,6 +444,21 @@ export interface DispositionCounts {
   >;
 }
 
+/** Residual-defect counts: findings that shipped despite quality gates (#261, M023).
+ *  Counts-only (M008/egress): integers only — no finding text, titles, paths, or locations.
+ *  Emitted only when at least one count is > 0. Complements caught-count signals
+ *  (grounding.droppedFindingCount, locationBackfill.backfilledCount, thinReview) so that
+ *  caught + leaked = gate recall observable from telemetry. */
+export interface ResidualDefectCounts {
+  /** Findings published with no location at all (after backfill, still unlocated). */
+  unlocatedShipped: number;
+  /** Findings published with an empty recommendation (no actionable fix text). */
+  noSuggestionShipped: number;
+  /** Findings published whose location.path cites a file outside the changed-file set —
+   *  the grounding scope-gate carve-out that always keeps these. */
+  offDiffCitationShipped: number;
+}
+
 /** Counts-only coordinator fusion efficacy signal (#258, M023).
  *  rawFindingCount = completed reviewer findings before coordinator fusion.
  *  survivingFindingCount = final findings after fusion/grounding/backfill.

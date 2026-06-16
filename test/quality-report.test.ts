@@ -1705,3 +1705,97 @@ describe("buildQualityReport — reviewerFailureRate (#212)", () => {
     expect(DEFAULT_QUALITY_THRESHOLDS.maxReviewerFailureRate).toBeCloseTo(0.1, 5);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #261 residual-defect leak rate hypotheses
+// ---------------------------------------------------------------------------
+
+describe("buildQualityReport — residualDefects leak rates (#261)", () => {
+  /**
+   * Build an analysis with residualDefects. runCount is total completed runs (the
+   * leak-rate denominator); defectiveRunCount is the subset that emitted a block.
+   */
+  function makeAnalysisWithResidualDefects(
+    unlocatedLeakRate: number,
+    noSuggestionLeakRate: number,
+    offDiffCitationLeakRate: number,
+    runCount = 10,
+    defectiveRunCount = 8,
+  ) {
+    return makeAnalysis({
+      runCount: 20,
+      residualDefects: {
+        runCount,
+        defectiveRunCount,
+        unlocatedShippedTotal: Math.round(unlocatedLeakRate * runCount),
+        noSuggestionShippedTotal: Math.round(noSuggestionLeakRate * runCount),
+        offDiffCitationShippedTotal: Math.round(offDiffCitationLeakRate * runCount),
+        unlocatedLeakRate,
+        noSuggestionLeakRate,
+        offDiffCitationLeakRate,
+      },
+    });
+  }
+
+  test("unlocatedLeakRate above default 0.20 → hypothesis emitted", () => {
+    const analysis = makeAnalysisWithResidualDefects(0.25, 0.05, 0.1);
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "unlocatedLeakRate");
+    expect(h).toBeDefined();
+    expect(h?.direction).toBe("above");
+    expect(h?.value).toBeCloseTo(0.25, 5);
+    expect(h?.threshold).toBeCloseTo(0.2, 5);
+  });
+
+  test("unlocatedLeakRate within threshold → no hypothesis", () => {
+    const analysis = makeAnalysisWithResidualDefects(0.1, 0.05, 0.1);
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "unlocatedLeakRate")).toBeUndefined();
+  });
+
+  test("noSuggestionLeakRate above default 0.10 → hypothesis emitted", () => {
+    const analysis = makeAnalysisWithResidualDefects(0.1, 0.15, 0.1);
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "noSuggestionLeakRate");
+    expect(h).toBeDefined();
+    expect(h?.value).toBeCloseTo(0.15, 5);
+    expect(h?.threshold).toBeCloseTo(0.1, 5);
+  });
+
+  test("offDiffCitationLeakRate above default 0.30 → hypothesis emitted", () => {
+    const analysis = makeAnalysisWithResidualDefects(0.1, 0.05, 0.35);
+    const report = buildQualityReport(analysis);
+    const h = report.hypotheses.find((x) => x.metric === "offDiffCitationLeakRate");
+    expect(h).toBeDefined();
+    expect(h?.value).toBeCloseTo(0.35, 5);
+    expect(h?.threshold).toBeCloseTo(0.3, 5);
+  });
+
+  test("residualDefects absent → no leak-rate hypotheses", () => {
+    // Analysis without residualDefects block
+    const analysis = makeAnalysis({ runCount: 10 });
+    expect(analysis.residualDefects).toBeUndefined();
+    const report = buildQualityReport(analysis);
+    expect(report.hypotheses.find((x) => x.metric === "unlocatedLeakRate")).toBeUndefined();
+    expect(report.hypotheses.find((x) => x.metric === "noSuggestionLeakRate")).toBeUndefined();
+    expect(report.hypotheses.find((x) => x.metric === "offDiffCitationLeakRate")).toBeUndefined();
+  });
+
+  test("custom threshold override works for maxNoSuggestionLeakRate", () => {
+    const analysis = makeAnalysisWithResidualDefects(0.1, 0.12, 0.1);
+    // Default 0.10: 0.12 > 0.10 → breach
+    const defaultReport = buildQualityReport(analysis);
+    expect(defaultReport.hypotheses.find((x) => x.metric === "noSuggestionLeakRate")).toBeDefined();
+    // Override to 0.20: 0.12 < 0.20 → no breach
+    const overrideReport = buildQualityReport(analysis, { maxNoSuggestionLeakRate: 0.2 });
+    expect(
+      overrideReport.hypotheses.find((x) => x.metric === "noSuggestionLeakRate"),
+    ).toBeUndefined();
+  });
+
+  test("DEFAULT_QUALITY_THRESHOLDS includes residual-defect thresholds", () => {
+    expect(DEFAULT_QUALITY_THRESHOLDS.maxUnlocatedLeakRate).toBeCloseTo(0.2, 5);
+    expect(DEFAULT_QUALITY_THRESHOLDS.maxNoSuggestionLeakRate).toBeCloseTo(0.1, 5);
+    expect(DEFAULT_QUALITY_THRESHOLDS.maxOffDiffCitationLeakRate).toBeCloseTo(0.3, 5);
+  });
+});
