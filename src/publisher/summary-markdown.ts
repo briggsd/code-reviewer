@@ -1,7 +1,7 @@
 import type { Finding, ReviewDecision, ReviewSummary, Severity } from "../contracts/index.ts";
 import { assertNever } from "../contracts/index.ts";
 import { deriveDisposition } from "../runner/finding-disposition.ts";
-import { escapeMarkdown } from "./markdown-escape.ts";
+import { codeSpan, type EscapedString, escapeMarkdown } from "./markdown-escape.ts";
 
 export interface SummaryMarkdownOptions {
   includeHiddenMetadata?: boolean;
@@ -259,8 +259,8 @@ function formatFindingDetail(finding: Finding): string {
 
   const lines = [
     `- **${finding.severity.toUpperCase()}: ${escapeMarkdown(finding.title)}**${location}${acknowledgedSuffix}`,
-    `  - Category: \`${finding.category}\``,
-    `  - Confidence: \`${finding.confidence}\``,
+    `  - Category: ${codeSpan(finding.category)}`,
+    `  - Confidence: ${codeSpan(finding.confidence)}`,
     `  - Why it matters: ${escapeMarkdown(finding.body)}`,
     `  - Recommendation: ${escapeMarkdown(finding.recommendation)}`,
   ];
@@ -283,6 +283,22 @@ function formatFindingDetail(finding: Finding): string {
 // escape sequence. (#74 discipline)
 // ---------------------------------------------------------------------------
 
+/**
+ * Low-level bullet assembler. Parameters that carry untrusted LLM text are typed
+ * `EscapedString` so the TypeScript compiler rejects a raw `string` in those slots —
+ * the caller must route untrusted values through `escapeMarkdown` or `codeSpan` first.
+ * `location` and `suffix` are pre-composed safe strings assembled by this module.
+ */
+function buildOneLinerBullet(
+  severity: string,
+  title: EscapedString,
+  location: string,
+  suffix: string,
+  recommendation: EscapedString,
+): string {
+  return `- **${severity}: ${title}**${location}${suffix} — ${recommendation}`;
+}
+
 function formatOneLiner(finding: Finding): string {
   const location = formatLocation(finding);
   const acknowledgedSuffix = formatAcknowledgedSuffix(finding);
@@ -291,7 +307,13 @@ function formatOneLiner(finding: Finding): string {
   const trimmedRec = rawRec.length > 120 ? `${rawRec.slice(0, 120)}…` : rawRec;
   const escapedRec = escapeMarkdown(trimmedRec);
 
-  return `- **${finding.severity.toUpperCase()}: ${escapeMarkdown(finding.title)}**${location}${acknowledgedSuffix} — ${escapedRec}`;
+  return buildOneLinerBullet(
+    finding.severity.toUpperCase(),
+    escapeMarkdown(finding.title),
+    location,
+    acknowledgedSuffix,
+    escapedRec,
+  );
 }
 
 // ---------------------------------------------------------------------------

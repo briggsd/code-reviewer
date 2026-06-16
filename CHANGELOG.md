@@ -10,6 +10,20 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
 
 ## [Unreleased]
 
+### Added
+
+- `EscapedString` branded string type returned by `escapeMarkdown` and `codeSpan`; renderer
+  helpers that accept untrusted text can declare parameters as `EscapedString` so the TypeScript
+  compiler rejects plain `string` values at call sites (#310).
+- `codeSpan(value)` — CommonMark §6.11-safe code-span builder that widens the backtick fence
+  for embedded backtick runs; pads content that starts or ends with a backtick (to separate it
+  from the fence delimiter) and content that both starts and ends with a space (to prevent §6.11
+  space-stripping); and yields an empty string for empty input (no code span emitted). Returns
+  `EscapedString` so the output is accepted in escaped-text slots without a second round of
+  escaping (#310).
+- `escapeMarkdown` return type narrowed to `EscapedString` (backward-compatible at runtime;
+  only the TypeScript type changes) (#310).
+
 ## [0.1.0]
 
 Initial pre-registry baseline of the AI Code Review Factory.

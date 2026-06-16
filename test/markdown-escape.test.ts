@@ -17,6 +17,7 @@ import {
   loadReviewFixture,
   runReview,
 } from "../src/index.ts";
+import { raw } from "./helpers/markdown.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -65,124 +66,124 @@ function makeFinding(overrides: Partial<Finding> = {}): Finding {
 
 describe("escapeMarkdown — character policy", () => {
   test("empty string returns empty string", () => {
-    expect(escapeMarkdown("")).toBe("");
+    expect(escapeMarkdown("")).toBe(raw(""));
   });
 
   test("clean string with no metacharacters is returned unchanged", () => {
-    expect(escapeMarkdown("Hello world 123")).toBe("Hello world 123");
+    expect(escapeMarkdown("Hello world 123")).toBe(raw("Hello world 123"));
   });
 
   test("backtick is escaped", () => {
-    expect(escapeMarkdown("a`b")).toBe("a\\`b");
+    expect(escapeMarkdown("a`b")).toBe(raw("a\\`b"));
   });
 
   test("asterisk is escaped", () => {
-    expect(escapeMarkdown("a*b")).toBe("a\\*b");
+    expect(escapeMarkdown("a*b")).toBe(raw("a\\*b"));
   });
 
   test("underscore is escaped", () => {
-    expect(escapeMarkdown("a_b")).toBe("a\\_b");
+    expect(escapeMarkdown("a_b")).toBe(raw("a\\_b"));
   });
 
   test("open bracket is escaped", () => {
-    expect(escapeMarkdown("a[b")).toBe("a\\[b");
+    expect(escapeMarkdown("a[b")).toBe(raw("a\\[b"));
   });
 
   test("close bracket is escaped", () => {
-    expect(escapeMarkdown("a]b")).toBe("a\\]b");
+    expect(escapeMarkdown("a]b")).toBe(raw("a\\]b"));
   });
 
   test("less-than is escaped (neutralizes raw HTML)", () => {
-    expect(escapeMarkdown("a<b")).toBe("a\\<b");
+    expect(escapeMarkdown("a<b")).toBe(raw("a\\<b"));
   });
 
   test("greater-than is escaped (neutralizes raw HTML)", () => {
-    expect(escapeMarkdown("a>b")).toBe("a\\>b");
+    expect(escapeMarkdown("a>b")).toBe(raw("a\\>b"));
   });
 
   test("backslash is escaped (rule 1 — must come first)", () => {
-    expect(escapeMarkdown("a\\b")).toBe("a\\\\b");
+    expect(escapeMarkdown("a\\b")).toBe(raw("a\\\\b"));
   });
 
   test("backslash-first ordering: input `\\`` produces `\\\\\\`` (backslash doubled, backtick escaped)", () => {
     // Input contains a literal backslash followed by a backtick: \`
     // Rule 1 doubles the backslash: \\`
     // Rule 2 escapes the backtick: \\\`
-    expect(escapeMarkdown("\\`")).toBe("\\\\\\`");
+    expect(escapeMarkdown("\\`")).toBe(raw("\\\\\\`"));
   });
 
   test("leading # is escaped (heading marker)", () => {
-    expect(escapeMarkdown("# heading")).toBe("\\# heading");
+    expect(escapeMarkdown("# heading")).toBe(raw("\\# heading"));
   });
 
   test("leading > is escaped (blockquote marker)", () => {
-    expect(escapeMarkdown("> quote")).toBe("\\> quote");
+    expect(escapeMarkdown("> quote")).toBe(raw("\\> quote"));
   });
 
   test("leading - is escaped (list marker)", () => {
-    expect(escapeMarkdown("- item")).toBe("\\- item");
+    expect(escapeMarkdown("- item")).toBe(raw("\\- item"));
   });
 
   test("leading + is escaped (list marker)", () => {
-    expect(escapeMarkdown("+ item")).toBe("\\+ item");
+    expect(escapeMarkdown("+ item")).toBe(raw("\\+ item"));
   });
 
   test("# after a newline is escaped (multi-line body heading injection)", () => {
     const input = "first line\n# second heading";
     const result = escapeMarkdown(input);
-    expect(result).toBe("first line\n\\# second heading");
+    expect(result).toBe(raw("first line\n\\# second heading"));
   });
 
   test("- after a newline is escaped (embedded list injection)", () => {
     const input = "first line\n- list item";
     const result = escapeMarkdown(input);
-    expect(result).toBe("first line\n\\- list item");
+    expect(result).toBe(raw("first line\n\\- list item"));
   });
 
   test("> after a newline is escaped (embedded blockquote injection)", () => {
     const input = "first line\n> blockquote";
     const result = escapeMarkdown(input);
-    expect(result).toBe("first line\n\\> blockquote");
+    expect(result).toBe(raw("first line\n\\> blockquote"));
   });
 
   test("+ after a newline is escaped (embedded list item)", () => {
     const input = "first line\n+ list";
     const result = escapeMarkdown(input);
-    expect(result).toBe("first line\n\\+ list");
+    expect(result).toBe(raw("first line\n\\+ list"));
   });
 
   test("non-leading block markers are NOT escaped (only at start of line)", () => {
     // Rule 3a only fires when # / - / + appear at the start of a line.
     // Mid-line occurrences are not block starters and are left alone.
     // (Note: `#` is not in rule 2's inline set either. `>` is escaped everywhere by rule 2.)
-    expect(escapeMarkdown("foo # bar")).toBe("foo # bar");
-    expect(escapeMarkdown("foo - bar")).toBe("foo - bar");
-    expect(escapeMarkdown("foo > bar")).toBe("foo \\> bar"); // > IS in rule 2 (inline set)
+    expect(escapeMarkdown("foo # bar")).toBe(raw("foo # bar"));
+    expect(escapeMarkdown("foo - bar")).toBe(raw("foo - bar"));
+    expect(escapeMarkdown("foo > bar")).toBe(raw("foo \\> bar")); // > IS in rule 2 (inline set)
   });
 
   test("digits alone are not escaped (no list delimiter)", () => {
-    expect(escapeMarkdown("123")).toBe("123");
-    expect(escapeMarkdown("1 apple")).toBe("1 apple");
+    expect(escapeMarkdown("123")).toBe(raw("123"));
+    expect(escapeMarkdown("1 apple")).toBe(raw("1 apple"));
   });
 
   test("leading ordered-list marker `1.` escapes the delimiter (1\\.)", () => {
-    expect(escapeMarkdown("1. first")).toBe("1\\. first");
+    expect(escapeMarkdown("1. first")).toBe(raw("1\\. first"));
   });
 
   test("leading ordered-list marker `1)` escapes the delimiter (1\\))", () => {
-    expect(escapeMarkdown("1) first")).toBe("1\\) first");
+    expect(escapeMarkdown("1) first")).toBe(raw("1\\) first"));
   });
 
   test("multi-digit ordered-list marker is escaped (42.)", () => {
-    expect(escapeMarkdown("42. item")).toBe("42\\. item");
+    expect(escapeMarkdown("42. item")).toBe(raw("42\\. item"));
   });
 
   test("ordered-list marker after a newline is escaped (embedded list injection)", () => {
-    expect(escapeMarkdown("intro\n1. step one")).toBe("intro\n1\\. step one");
+    expect(escapeMarkdown("intro\n1. step one")).toBe(raw("intro\n1\\. step one"));
   });
 
   test("non-leading ordered-list marker is NOT escaped (only at start of line)", () => {
-    expect(escapeMarkdown("see 1. above")).toBe("see 1. above");
+    expect(escapeMarkdown("see 1. above")).toBe(raw("see 1. above"));
   });
 
   test("combined metacharacters in a realistic title", () => {

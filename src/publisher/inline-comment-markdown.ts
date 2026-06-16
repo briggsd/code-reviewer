@@ -8,7 +8,7 @@
 
 import type { ChangeMetadata, Finding } from "../contracts/index.ts";
 import { assertNever } from "../contracts/index.ts";
-import { escapeMarkdown } from "./markdown-escape.ts";
+import { type EscapedString, escapeMarkdown } from "./markdown-escape.ts";
 
 /**
  * Render a finding as a Markdown inline-comment body.
@@ -46,7 +46,7 @@ export function formatInlineFindingComment(
 
   return [
     // category appears outside a code span here (unlike summary-markdown) — escape it (#74).
-    `### AI review: ${formatSeverity(finding.severity)} · ${escapeMarkdown(finding.category)}`,
+    buildInlineHeading(formatSeverity(finding.severity), escapeMarkdown(finding.category)),
     "",
     // title/body/recommendation are LLM-produced free text — escape before embedding (#74).
     `**${escapeMarkdown(finding.title)}**`,
@@ -116,6 +116,15 @@ export function inlineCommentKey(findingId: string, headSha: string): string {
 }
 
 // Module-private helpers — not exported; only used by formatInlineFindingComment above.
+
+/**
+ * Assemble the inline-comment heading line. `category` is typed `EscapedString` because
+ * it comes from LLM output — the caller must pass `escapeMarkdown(finding.category)`.
+ * `severityLabel` is produced by `formatSeverity`, which is module-controlled code.
+ */
+function buildInlineHeading(severityLabel: string, category: EscapedString): string {
+  return `### AI review: ${severityLabel} · ${category}`;
+}
 
 function formatSeverity(severity: Finding["severity"]): string {
   // Exhaustiveness guard: each Severity member mapped; new members require a matching

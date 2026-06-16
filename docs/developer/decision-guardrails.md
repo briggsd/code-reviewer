@@ -67,8 +67,11 @@
   (`createSummaryBody` + grounding/ack notes). Their untrusted LEAVES (`finding.title`, location
   `path`) are escaped at the SOURCE in `createSummaryBody` via `escapeMarkdown`. Untrusted finding
   text is escaped at each sink (`formatFinding`, `formatInlineFindingComment`, `createSummaryBody`)
-  with `src/publisher/markdown-escape.ts`. Leave the backtick code-span enums
-  (`category`/`reviewer`/`confidence`/decision/outcome/tier) unescaped. `escapeMarkdown`: backslash
+  with `src/publisher/markdown-escape.ts`. Use `codeSpan()` for model-produced values embedded in
+  code spans (`category`, `confidence`) — it widens the backtick fence for embedded backticks and
+  does NOT run `escapeMarkdown` on inner content (values inside a code span are literal; escaping
+  would render literal backslashes). Controlled enums (decision/outcome/tier/reviewer) may also use
+  `codeSpan()` for consistency. `escapeMarkdown`: backslash
   first, then inline `` ` * _ [ ] < > ``, then leading `# - +` and ordered-list `1.`/`1)` (escape the
   delimiter). `>` is NOT in rule 3 (rule 2 already escaped it — don't re-add).
 - Do not drop `thinking` preservation in `PiAgentRuntime.modelArgs` / move `thinking` out of
@@ -89,9 +92,10 @@
   break-glass footer link MUST stay an ABSOLUTE factory-repo URL (relative hrefs resolve against
   the comment page URL → 404; verified via rendered bodyHTML on PR #110 — the AI reviewer's
   earlier repo-root-resolution claim was WRONG). Keep the blank line before `<details>`
-  (GitLab/CommonMark) and after `</summary>`. tier/outcome/decision/category/confidence stay
-  UNESCAPED in code spans (closed deterministic enums — escaping inside code spans renders
-  literal backslashes; the reviewer pushed this and it's technically wrong). The visible comment
+  (GitLab/CommonMark) and after `</summary>`. tier/outcome/decision/category/confidence are
+  passed through `codeSpan()` — NOT through `escapeMarkdown` — because values inside a code span
+  are literal and escaping them would render literal backslashes (the reviewer pushed
+  escapeMarkdown-inside-code-span and it is technically wrong). The visible comment
   markdown is NOT a stable interface (documented in ../user/adoption.md) — consumers parse
   run.json/summary.json/hidden metadata. Hidden metadata block + `### Re-review status` formats
   are load-bearing (dedup PATCH + prior-state reads) — change only with the parser.
