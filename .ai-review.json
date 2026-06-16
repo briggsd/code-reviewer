@@ -8,7 +8,9 @@
     "src/runner/**",
     "src/runtime/prompt-boundary.ts",
     "src/ci/**",
-    "src/publisher/**"
+    "src/publisher/**",
+    "package.json",
+    ".ai-review.schema.json"
   ],
   "conventions": [
     "No silent contract/default/roster/serialized-shape change: a change to a persisted type, telemetry-event shape, hidden-metadata schema, or .ai-review.json-facing contract should ship a migration note and an optional-field / backward-compatible path.",

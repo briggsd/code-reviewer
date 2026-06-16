@@ -38,6 +38,9 @@ describe("repo .ai-review.json self-review sensitive paths (#77)", () => {
     expect(config.sensitivePaths).toContain("src/runtime/prompt-boundary.ts");
     expect(config.sensitivePaths).toContain("src/ci/**");
     expect(config.sensitivePaths).toContain("src/publisher/**");
+    // …plus publish-boundary files (package.json / config schema define the adopter contract).
+    expect(config.sensitivePaths).toContain("package.json");
+    expect(config.sensitivePaths).toContain(".ai-review.schema.json");
   });
 
   test("a change to the gate filter (src/runner/evidence-grounding.ts) classifies as full tier", async () => {
