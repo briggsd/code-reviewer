@@ -6,8 +6,10 @@
  * diff text, file paths, reasons, prompts, branch names, PR titles, or author names.
  */
 import type {
+  CiOutcome,
   JsonValue,
   ReReviewSummary,
+  ReviewDecision,
   ReviewSummary,
   TelemetryEvent,
   TokenUsage,
@@ -273,6 +275,61 @@ export function createRunOverrideEvent(input: RunOverrideInput): TelemetryEvent 
     overrideCommentId: input.overrideCommentId,
     authorAssociation: input.authorAssociation,
   };
+
+  return {
+    type: "ai_review.run_event",
+    runId: input.runId,
+    timestamp: input.timestamp,
+    data,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// run.prior_decision_respected (M023 S01 / #257)
+// ---------------------------------------------------------------------------
+
+export interface PriorDecisionRespectedInput {
+  runId: string;
+  timestamp: string;
+  repository: string;
+  changeId: string;
+  riskTier: string;
+  priorDecision: ReviewDecision | "review_required" | string;
+  priorOutcome?: CiOutcome;
+  /** Coarse gate signal from the prior run; true means the prior review should have blocked. */
+  priorBlocked: boolean;
+  merged: boolean;
+  overrideRecorded: boolean;
+}
+
+/**
+ * Build a run.prior_decision_respected telemetry event — a counts-only
+ * observation of whether a prior blocking review was later merged with a
+ * recorded break-glass override.
+ *
+ * The event belongs to the prior review runId so telemetry:analyze can join it
+ * to that run's real-runtime run_metrics event. M008: identifiers, enums, and
+ * booleans only; never PR titles, comments, author names, branch names, finding
+ * text, or override reasons.
+ */
+export function createPriorDecisionRespectedEvent(
+  input: PriorDecisionRespectedInput,
+): TelemetryEvent {
+  const data: Record<string, JsonValue> = {
+    schemaVersion: RUN_EVENT_SCHEMA_VERSION,
+    event: "run.prior_decision_respected",
+    repository: input.repository,
+    changeId: input.changeId,
+    riskTier: input.riskTier,
+    priorDecision: input.priorDecision,
+    priorBlocked: input.priorBlocked,
+    merged: input.merged,
+    overrideRecorded: input.overrideRecorded,
+  };
+
+  if (input.priorOutcome !== undefined) {
+    data.priorOutcome = input.priorOutcome;
+  }
 
   return {
     type: "ai_review.run_event",

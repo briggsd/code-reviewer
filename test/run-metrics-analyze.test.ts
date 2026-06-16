@@ -1102,6 +1102,484 @@ describe("analyzeRunMetrics override rate (#22)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// M023 S01 (#257): merge-despite-fail rate
+// ---------------------------------------------------------------------------
+
+describe("analyzeRunMetrics merge-despite-fail rate (#257)", () => {
+  const mergeDespiteFailStream: TelemetryEvent[] = [
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-15T10:00:00.000Z",
+      runId: "prior-ignored",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "significant_concerns",
+        outcome: "fail",
+        findingCount: 2,
+        findingsByReviewer: { security: 2 },
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-15T10:05:00.000Z",
+      runId: "prior-ignored",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.prior_decision_respected",
+        repository: "acme/api",
+        changeId: "42",
+        riskTier: "full",
+        priorDecision: "review_required",
+        priorOutcome: "fail",
+        priorBlocked: true,
+        merged: true,
+        overrideRecorded: false,
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-15T11:00:00.000Z",
+      runId: "prior-overridden",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "significant_concerns",
+        outcome: "fail",
+        findingCount: 1,
+        findingsByReviewer: { correctness: 1 },
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-15T11:05:00.000Z",
+      runId: "prior-overridden",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.prior_decision_respected",
+        repository: "acme/api",
+        changeId: "43",
+        riskTier: "full",
+        priorDecision: "significant_concerns",
+        priorOutcome: "fail",
+        priorBlocked: true,
+        merged: true,
+        overrideRecorded: true,
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-15T12:00:00.000Z",
+      runId: "prior-not-merged",
+      data: {
+        runtime: "pi",
+        riskTier: "lite",
+        decision: "review_failed",
+        outcome: "fail",
+        findingCount: 0,
+        findingsByReviewer: {},
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-15T12:05:00.000Z",
+      runId: "prior-not-merged",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.prior_decision_respected",
+        repository: "beta/web",
+        changeId: "44",
+        riskTier: "lite",
+        priorDecision: "review_failed",
+        priorOutcome: "fail",
+        priorBlocked: true,
+        merged: false,
+        overrideRecorded: false,
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-15T13:00:00.000Z",
+      runId: "prior-pass",
+      data: {
+        runtime: "pi",
+        riskTier: "lite",
+        decision: "approved",
+        outcome: "pass",
+        findingCount: 0,
+        findingsByReviewer: {},
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-15T13:05:00.000Z",
+      runId: "prior-pass",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.prior_decision_respected",
+        repository: "beta/web",
+        changeId: "45",
+        riskTier: "lite",
+        priorDecision: "approved",
+        priorOutcome: "pass",
+        priorBlocked: false,
+        merged: true,
+        overrideRecorded: false,
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-15T13:30:00.000Z",
+      runId: "prior-explicit-not-blocking",
+      data: {
+        runtime: "pi",
+        riskTier: "full",
+        decision: "significant_concerns",
+        outcome: "fail",
+        findingCount: 1,
+        findingsByReviewer: { security: 1 },
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-15T13:35:00.000Z",
+      runId: "prior-explicit-not-blocking",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.prior_decision_respected",
+        repository: "acme/api",
+        changeId: "48",
+        riskTier: "full",
+        priorDecision: "review_required",
+        priorOutcome: "fail",
+        priorBlocked: false,
+        merged: true,
+        overrideRecorded: false,
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-15T14:05:00.000Z",
+      runId: "orphan-prior",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.prior_decision_respected",
+        repository: "orphan/repo",
+        changeId: "46",
+        riskTier: "full",
+        priorDecision: "review_required",
+        priorOutcome: "fail",
+        priorBlocked: true,
+        merged: true,
+        overrideRecorded: false,
+      },
+    },
+    {
+      type: "ai_review.run_metrics",
+      timestamp: "2026-06-15T15:00:00.000Z",
+      runId: "dummy-prior",
+      data: {
+        runtime: "dummy",
+        riskTier: "full",
+        decision: "review_failed",
+        outcome: "fail",
+        findingCount: 0,
+      },
+    },
+    {
+      type: "ai_review.run_event",
+      timestamp: "2026-06-15T15:05:00.000Z",
+      runId: "dummy-prior",
+      data: {
+        schemaVersion: "ai-review.run_event.v1",
+        event: "run.prior_decision_respected",
+        repository: "dummy/repo",
+        changeId: "47",
+        riskTier: "full",
+        priorDecision: "review_required",
+        priorOutcome: "fail",
+        priorBlocked: true,
+        merged: true,
+        overrideRecorded: false,
+      },
+    },
+  ];
+
+  test("pooled rate counts blocking prior runs merged without override", () => {
+    const analysis = analyzeRunMetrics(mergeDespiteFailStream);
+    const pooled = analysis.runEvents?.mergeDespiteFail?.pooled;
+    expect(pooled).toBeDefined();
+    expect(pooled?.priorBlockedObservationCount).toBe(3);
+    expect(pooled?.priorBlockedMergedCount).toBe(2);
+    expect(pooled?.mergeDespiteFailCount).toBe(1);
+    expect(pooled?.mergeDespiteFailRate).toBeCloseTo(1 / 3, 5);
+  });
+
+  test("overrideRecorded true is excluded from the numerator", () => {
+    const analysis = analyzeRunMetrics(mergeDespiteFailStream);
+    const acme = analysis.runEvents?.mergeDespiteFail?.byRepository["acme/api"];
+    expect(acme?.priorBlockedObservationCount).toBe(2);
+    expect(acme?.priorBlockedMergedCount).toBe(2);
+    expect(acme?.mergeDespiteFailCount).toBe(1);
+    expect(acme?.mergeDespiteFailRate).toBeCloseTo(1 / 2, 5);
+  });
+
+  test("non-blocking prior decisions are excluded", () => {
+    const analysis = analyzeRunMetrics(mergeDespiteFailStream);
+    const beta = analysis.runEvents?.mergeDespiteFail?.byRepository["beta/web"];
+    expect(beta?.priorBlockedObservationCount).toBe(1);
+    expect(beta?.priorBlockedMergedCount).toBe(0);
+    expect(beta?.mergeDespiteFailCount).toBe(0);
+    expect(beta?.mergeDespiteFailRate).toBe(0);
+  });
+
+  test("explicit priorBlocked false overrides fail-looking fallback fields", () => {
+    const analysis = analyzeRunMetrics(mergeDespiteFailStream);
+    const pooled = analysis.runEvents?.mergeDespiteFail?.pooled;
+    const acme = analysis.runEvents?.mergeDespiteFail?.byRepository["acme/api"];
+
+    expect(pooled?.priorBlockedObservationCount).toBe(3);
+    expect(pooled?.mergeDespiteFailCount).toBe(1);
+    expect(acme?.priorBlockedObservationCount).toBe(2);
+    expect(acme?.mergeDespiteFailCount).toBe(1);
+  });
+
+  test("missing overrideRecorded counts as no recorded override", () => {
+    const analysis = analyzeRunMetrics([
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T16:00:00.000Z",
+        runId: "prior-missing-override",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "significant_concerns",
+          outcome: "fail",
+          findingCount: 1,
+          findingsByReviewer: { security: 1 },
+        },
+      },
+      {
+        type: "ai_review.run_event",
+        timestamp: "2026-06-15T16:05:00.000Z",
+        runId: "prior-missing-override",
+        data: {
+          schemaVersion: "ai-review.run_event.v1",
+          event: "run.prior_decision_respected",
+          repository: "gamma/api",
+          changeId: "49",
+          riskTier: "full",
+          priorDecision: "review_required",
+          priorOutcome: "fail",
+          priorBlocked: true,
+          merged: true,
+        },
+      },
+    ]);
+
+    const pooled = analysis.runEvents?.mergeDespiteFail?.pooled;
+    expect(pooled?.priorBlockedObservationCount).toBe(1);
+    expect(pooled?.priorBlockedMergedCount).toBe(1);
+    expect(pooled?.mergeDespiteFailCount).toBe(1);
+    expect(pooled?.mergeDespiteFailRate).toBe(1);
+  });
+
+  test("omitted priorBlocked falls back to blocking priorOutcome or priorDecision", () => {
+    const analysis = analyzeRunMetrics([
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T16:30:00.000Z",
+        runId: "prior-fallback-blocking",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "significant_concerns",
+          outcome: "fail",
+          findingCount: 1,
+          findingsByReviewer: { security: 1 },
+        },
+      },
+      {
+        type: "ai_review.run_event",
+        timestamp: "2026-06-15T16:35:00.000Z",
+        runId: "prior-fallback-blocking",
+        data: {
+          schemaVersion: "ai-review.run_event.v1",
+          event: "run.prior_decision_respected",
+          repository: "fallback/api",
+          changeId: "51",
+          riskTier: "full",
+          priorDecision: "approved",
+          priorOutcome: "fail",
+          merged: true,
+          overrideRecorded: false,
+        },
+      },
+    ]);
+
+    const pooled = analysis.runEvents?.mergeDespiteFail?.pooled;
+    expect(pooled?.priorBlockedObservationCount).toBe(1);
+    expect(pooled?.mergeDespiteFailCount).toBe(1);
+  });
+
+  test("omitted priorBlocked with non-blocking fallback fields is excluded", () => {
+    const analysis = analyzeRunMetrics([
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T16:40:00.000Z",
+        runId: "prior-fallback-nonblocking",
+        data: {
+          runtime: "pi",
+          riskTier: "lite",
+          decision: "approved",
+          outcome: "pass",
+          findingCount: 0,
+          findingsByReviewer: {},
+        },
+      },
+      {
+        type: "ai_review.run_event",
+        timestamp: "2026-06-15T16:45:00.000Z",
+        runId: "prior-fallback-nonblocking",
+        data: {
+          schemaVersion: "ai-review.run_event.v1",
+          event: "run.prior_decision_respected",
+          repository: "fallback/web",
+          changeId: "52",
+          riskTier: "lite",
+          priorDecision: "approved",
+          priorOutcome: "pass",
+          merged: true,
+          overrideRecorded: false,
+        },
+      },
+    ]);
+
+    expect(analysis.runEvents?.mergeDespiteFail).toBeUndefined();
+  });
+
+  test("repository and tier segment keys normalize controls and bidi markers for formatted output", () => {
+    const analysis = analyzeRunMetrics([
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T17:00:00.000Z",
+        runId: "prior-control-key",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "significant_concerns",
+          outcome: "fail",
+          findingCount: 1,
+          findingsByReviewer: { security: 1 },
+        },
+      },
+      {
+        type: "ai_review.run_event",
+        timestamp: "2026-06-15T17:05:00.000Z",
+        runId: "prior-control-key",
+        data: {
+          schemaVersion: "ai-review.run_event.v1",
+          event: "run.prior_decision_respected",
+          repository: "acme/\u0000api\t\u200e",
+          changeId: "50",
+          riskTier: "full\u0085tier\u202e",
+          priorDecision: "review_required",
+          priorOutcome: "fail",
+          priorBlocked: true,
+          merged: true,
+          overrideRecorded: false,
+        },
+      },
+    ]);
+
+    const byRepository = analysis.runEvents?.mergeDespiteFail?.byRepository ?? {};
+    const byTier = analysis.runEvents?.mergeDespiteFail?.byTier ?? {};
+    expect(Object.keys(byRepository)).toEqual(["acme/ api  "]);
+    expect(Object.keys(byTier)).toEqual(["full tier "]);
+
+    const output = formatRunMetricsAnalysis(analysis);
+    expect(output).not.toContain("\u0000");
+    expect(output).not.toContain("\t");
+    expect(output).not.toContain("\u0085");
+    expect(output).not.toContain("\u200e");
+    expect(output).not.toContain("\u202e");
+  });
+
+  test("repository segment truncation is code-point safe for supplementary characters", () => {
+    const repository = `${"a".repeat(159)}😀b`;
+    const analysis = analyzeRunMetrics([
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T17:30:00.000Z",
+        runId: "prior-supplementary-key",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "significant_concerns",
+          outcome: "fail",
+          findingCount: 1,
+          findingsByReviewer: { security: 1 },
+        },
+      },
+      {
+        type: "ai_review.run_event",
+        timestamp: "2026-06-15T17:35:00.000Z",
+        runId: "prior-supplementary-key",
+        data: {
+          schemaVersion: "ai-review.run_event.v1",
+          event: "run.prior_decision_respected",
+          repository,
+          changeId: "53",
+          riskTier: "full",
+          priorDecision: "review_required",
+          priorOutcome: "fail",
+          priorBlocked: true,
+          merged: true,
+          overrideRecorded: false,
+        },
+      },
+    ]);
+
+    const key = Object.keys(analysis.runEvents?.mergeDespiteFail?.byRepository ?? {})[0];
+    expect(key).toBe(`${"a".repeat(159)}😀`);
+    expect(Array.from(key ?? "")).toHaveLength(160);
+    expect(Array.from(key ?? "").at(-1)).toBe("😀");
+  });
+
+  test("segments by repository and tier with stable-sorted keys", () => {
+    const analysis = analyzeRunMetrics(mergeDespiteFailStream);
+    const byRepository = analysis.runEvents?.mergeDespiteFail?.byRepository ?? {};
+    const byTier = analysis.runEvents?.mergeDespiteFail?.byTier ?? {};
+
+    expect(Object.keys(byRepository)).toEqual(["acme/api", "beta/web"]);
+    expect(byTier.full?.priorBlockedObservationCount).toBe(2);
+    expect(byTier.full?.mergeDespiteFailCount).toBe(1);
+    expect(byTier.lite?.priorBlockedObservationCount).toBe(1);
+    expect(byTier.lite?.mergeDespiteFailCount).toBe(0);
+  });
+
+  test("orphan and dummy-runtime observations are ignored", () => {
+    const analysis = analyzeRunMetrics(mergeDespiteFailStream);
+    const byRepository = analysis.runEvents?.mergeDespiteFail?.byRepository ?? {};
+    expect(byRepository["orphan/repo"]).toBeUndefined();
+    expect(byRepository["dummy/repo"]).toBeUndefined();
+  });
+
+  test("formatted output includes headline, repository, and tier breakdowns", () => {
+    const output = formatRunMetricsAnalysis(analyzeRunMetrics(mergeDespiteFailStream));
+    expect(output).toContain("mergeDespiteFailRate");
+    expect(output).toContain("ignored=1");
+    expect(output).toContain("n=3");
+    expect(output).toContain("Merge-Despite-Fail by Repository");
+    expect(output).toContain("acme/api");
+    expect(output).toContain("beta/web");
+    expect(output).toContain("Merge-Despite-Fail by Tier");
+    expect(output).toContain("full");
+    expect(output).toContain("lite");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // #100b cacheWriteTokensPerRun in TierSegment
 // ---------------------------------------------------------------------------
 
@@ -2067,9 +2545,9 @@ describe("analyzeRunMetrics — disposition precision", () => {
     expect(Object.keys(byRev ?? {})).toEqual(["code_quality", "security"]);
 
     // security: precision = 2/(2+0+0) = 1.0
-    expect(byRev?.["security"]?.precision).toBeCloseTo(1.0, 5);
+    expect(byRev?.security?.precision).toBeCloseTo(1.0, 5);
     // code_quality: precision = 0/(0+1+0) = 0.0
-    expect(byRev?.["code_quality"]?.precision).toBeCloseTo(0.0, 5);
+    expect(byRev?.code_quality?.precision).toBeCloseTo(0.0, 5);
   });
 
   test("bySeverity segment with precision populated", () => {
@@ -2093,9 +2571,9 @@ describe("analyzeRunMetrics — disposition precision", () => {
     expect(Object.keys(bySev ?? {})).toEqual(["critical", "warning"]);
 
     // critical: precision = 2/(2+1+0) = 2/3
-    expect(bySev?.["critical"]?.precision).toBeCloseTo(2 / 3, 5);
+    expect(bySev?.critical?.precision).toBeCloseTo(2 / 3, 5);
     // warning: precision = 0/(0+0+1) = 0
-    expect(bySev?.["warning"]?.precision).toBeCloseTo(0.0, 5);
+    expect(bySev?.warning?.precision).toBeCloseTo(0.0, 5);
   });
 
   test("formatRunMetricsAnalysis includes disposition section when present", () => {

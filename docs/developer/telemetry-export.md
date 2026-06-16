@@ -116,6 +116,7 @@ as of issue #20 (S04–S06). Each run_event carries `type: "ai_review.run_event"
 | `run.completed` | Completed runs only (not failed) | `event`, `schemaVersion`, `repository`, `riskTier`, `decision`, `outcome`, `durationMs`, `findingCount`, `findingsBySeverity` (counts), `findingsByReviewer` (counts), `tokens?` (`inputTokens`/`outputTokens`/`cacheReadTokens`/`cacheWriteTokens`/`estimatedCostUsd` numbers — present only when the run has token metrics) |
 | `run.correction` | Completed runs with a prior-state comparison or acknowledged findings | `event`, `schemaVersion`, `repository`, `riskTier`, `newFindingCount`, `recurringFindingCount`, `fixedFindingCount`, `withheldFindingCount`, `acceptanceByReviewer` (per-reviewer counts: accepted/notAccepted/rejected/withheldExcluded) |
 | `run.override` | A run for which a trusted commenter posted a `break glass <head-sha>` PR/MR comment (#22 phase 2) | `event`, `schemaVersion`, `repository`, `changeId`, `riskTier`, `overrideCommentId` (stable identifier of the triggering comment — the audit pointer; never an author name), `authorAssociation` (coarse role category that authorized it — one of `OWNER`/`MEMBER`/`COLLABORATOR`, the same three values for both GitHub and GitLab: GitLab Developer/Maintainer/Owner access maps to COLLABORATOR/MEMBER/OWNER. Like `riskTier`, not an author name) |
+| `run.prior_decision_respected` | A merge-state observation for a prior review run (#257) | `event`, `schemaVersion`, `repository`, `changeId`, `riskTier`, `priorDecision`, `priorOutcome?`, `priorBlocked?`, `merged`, `overrideRecorded`. The event uses the prior run's `runId` and carries no PR title/body, comments, author names, branch names, finding text, or override reasons. When `priorBlocked` is absent, `telemetry:analyze` falls back to `priorOutcome: "fail"` or a `priorDecision` of `review_required`, `significant_concerns`, or `review_failed`; explicit `priorBlocked: false` is authoritative. |
 
 The `run.override` event records that a human break-glass override occurred and points at the
 triggering comment by stable id. The **override rate** (override events / started runs, and per
@@ -208,6 +209,19 @@ appear in any analyzed run_metrics event) are ignored. The `runEvents` section o
 
 - `startCount`, `completedCount`, `correctionCount` — matched event counts per subtype.
 - `completionRate` — `completedCount / startCount` (`null` when `startCount` is 0).
+- `overrideCount` / `overrideRate` — matched `run.override` events and
+  `overrideCount / startCount` (`null` when `startCount` is 0).
+- `mergeDespiteFail` — pooled plus per-repository/per-tier counts for prior blocking
+  runs: blocking observations, merged blocking observations, and merged-without-override
+  observations. `mergeDespiteFailRate = mergeDespiteFailCount / priorBlockedObservationCount`
+  (`null` when there are no blocking observations). The formatted `telemetry:analyze` output
+  labels `mergeDespiteFailCount` as `Ignored`.
+  `run.prior_decision_respected` uses the prior review run's `runId`, so it is counted only
+  when that prior run's real-runtime `run_metrics` event is also present in the analyzed export.
+  Non-real runtimes such as `dummy` are excluded from analysis, so their observations are treated
+  as orphans even when present. Rolling or time-bounded exports that include the observation but
+  omit the prior run treat it as an orphan, so this rate can silently undercount near export-window
+  boundaries.
 - `acceptanceByReviewer` / `acceptanceByTier` — accumulated acceptance counts
   (`accepted` / `notAccepted` / `rejected` / `withheldExcluded`), each entry with an
   optional pre-computed `acceptanceRate = accepted / (accepted + notAccepted + rejected)`

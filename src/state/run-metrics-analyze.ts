@@ -86,6 +86,23 @@ export interface ReviewerAcceptanceStat {
   acceptanceRate?: number;
 }
 
+export interface MergeDespiteFailSegment {
+  /** Matched observations whose prior review run should have blocked. */
+  priorBlockedObservationCount: number;
+  /** Blocking prior runs that were later observed as merged, with or without override. */
+  priorBlockedMergedCount: number;
+  /** Blocking prior runs merged without a recorded break-glass override. */
+  mergeDespiteFailCount: number;
+  /** mergeDespiteFailCount / priorBlockedObservationCount; null when there are no blocking observations. */
+  mergeDespiteFailRate: number | null;
+}
+
+export interface MergeDespiteFailAnalysis {
+  pooled: MergeDespiteFailSegment;
+  byRepository: Record<string, MergeDespiteFailSegment>;
+  byTier: Record<string, MergeDespiteFailSegment>;
+}
+
 export interface RunEventsAnalysis {
   startCount: number;
   completedCount: number;
@@ -104,6 +121,8 @@ export interface RunEventsAnalysis {
   acceptanceByTier: Record<string, ReviewerAcceptanceStat>;
   /** Number of correction runs contributing acceptance data. */
   correctionRunCount: number;
+  /** Merge-despite-fail observations (#257). Present only when matched observations exist. */
+  mergeDespiteFail?: MergeDespiteFailAnalysis;
   /**
    * Always true: this is a directional, longitudinal signal accumulated
    * across many runs — not a per-PR score.
@@ -308,7 +327,13 @@ type RunMetricsEvent = TelemetryEvent & { data: RunMetricsEventData };
 
 interface RunEventData extends Record<string, JsonValue> {
   event?: string;
+  repository?: string;
   riskTier?: string;
+  priorDecision?: string;
+  priorOutcome?: string;
+  priorBlocked?: boolean;
+  merged?: boolean;
+  overrideRecorded?: boolean;
   acceptanceByReviewer?: Record<string, JsonValue>;
 }
 
@@ -327,6 +352,12 @@ interface AccumulatedAcceptance {
   notAccepted: number;
   rejected: number;
   withheldExcluded: number;
+}
+
+interface MergeDespiteFailAccumulator {
+  priorBlockedObservationCount: number;
+  priorBlockedMergedCount: number;
+  mergeDespiteFailCount: number;
 }
 
 // ─── per-event accumulation helpers ─────────────────────────────────────────
@@ -1108,6 +1139,9 @@ function buildSupplementalEventsAnalysis(
   const acceptanceByReviewer = new Map<string, AccumulatedAcceptance>();
   const acceptanceByTier = new Map<string, AccumulatedAcceptance>();
   const overrideCountByTierMap = new Map<string, number>();
+  const mergeDespiteFailPooled = mergeDespiteFailAccZero();
+  const mergeDespiteFailByRepository = new Map<string, MergeDespiteFailAccumulator>();
+  const mergeDespiteFailByTier = new Map<string, MergeDespiteFailAccumulator>();
   let correctionRunCount = 0;
 
   for (const event of events) {
@@ -1148,6 +1182,13 @@ function buildSupplementalEventsAnalysis(
           ? event.data.riskTier
           : "unknown";
       incrementMap(overrideCountByTierMap, tier, 1);
+    } else if (eventSubtype === "run.prior_decision_respected") {
+      accumulateMergeDespiteFailObservation(
+        event.data,
+        mergeDespiteFailPooled,
+        mergeDespiteFailByRepository,
+        mergeDespiteFailByTier,
+      );
     } else if (eventSubtype === "run.correction") {
       correctionCount += 1;
 
@@ -1196,6 +1237,14 @@ function buildSupplementalEventsAnalysis(
 
   const completionRate = startCount === 0 ? null : completedCount / startCount;
   const overrideRate = startCount === 0 ? null : overrideCount / startCount;
+  const mergeDespiteFail =
+    mergeDespiteFailPooled.priorBlockedObservationCount === 0
+      ? undefined
+      : {
+          pooled: buildMergeDespiteFailSegment(mergeDespiteFailPooled),
+          byRepository: buildMergeDespiteFailRecord(mergeDespiteFailByRepository),
+          byTier: buildMergeDespiteFailRecord(mergeDespiteFailByTier),
+        };
 
   // Build stable-key-sorted overrideCountByTier record
   const overrideCountByTier: Record<string, number> = {};
@@ -1217,6 +1266,7 @@ function buildSupplementalEventsAnalysis(
             acceptanceByReviewer: buildAcceptanceRecord(acceptanceByReviewer),
             acceptanceByTier: buildAcceptanceRecord(acceptanceByTier),
             correctionRunCount,
+            ...(mergeDespiteFail !== undefined ? { mergeDespiteFail } : {}),
             directional: true,
           },
         }
@@ -1226,6 +1276,139 @@ function buildSupplementalEventsAnalysis(
       producedFindingCount: proseProducedFindingCount,
     },
   };
+}
+
+function mergeDespiteFailAccZero(): MergeDespiteFailAccumulator {
+  return {
+    priorBlockedObservationCount: 0,
+    priorBlockedMergedCount: 0,
+    mergeDespiteFailCount: 0,
+  };
+}
+
+function accumulateMergeDespiteFailObservation(
+  data: RunEventData,
+  pooled: MergeDespiteFailAccumulator,
+  byRepository: Map<string, MergeDespiteFailAccumulator>,
+  byTier: Map<string, MergeDespiteFailAccumulator>,
+): void {
+  if (!isPriorBlockingObservation(data)) {
+    return;
+  }
+
+  const repository =
+    typeof data.repository === "string" && data.repository.length > 0
+      ? sanitizeSegmentKey(data.repository, 160)
+      : "unknown";
+  const tier =
+    typeof data.riskTier === "string" && data.riskTier.length > 0
+      ? sanitizeSegmentKey(data.riskTier, 64)
+      : "unknown";
+
+  const merged = data.merged === true;
+  const mergeDespiteFail = merged && data.overrideRecorded !== true;
+
+  accumulateMergeDespiteFailDelta(pooled, merged, mergeDespiteFail);
+  accumulateMergeDespiteFailDelta(
+    getOrCreateMergeDespiteFailAccumulator(byRepository, repository),
+    merged,
+    mergeDespiteFail,
+  );
+  accumulateMergeDespiteFailDelta(
+    getOrCreateMergeDespiteFailAccumulator(byTier, tier),
+    merged,
+    mergeDespiteFail,
+  );
+}
+
+function isPriorBlockingObservation(data: RunEventData): boolean {
+  if (data.priorBlocked === false) {
+    return false;
+  }
+  if (data.priorBlocked === true) {
+    return true;
+  }
+  if (data.priorOutcome === "fail") {
+    return true;
+  }
+  return (
+    data.priorDecision === "review_required" ||
+    data.priorDecision === "significant_concerns" ||
+    data.priorDecision === "review_failed"
+  );
+}
+
+function accumulateMergeDespiteFailDelta(
+  acc: MergeDespiteFailAccumulator,
+  merged: boolean,
+  mergeDespiteFail: boolean,
+): void {
+  acc.priorBlockedObservationCount += 1;
+  if (merged) {
+    acc.priorBlockedMergedCount += 1;
+  }
+  if (mergeDespiteFail) {
+    acc.mergeDespiteFailCount += 1;
+  }
+}
+
+function getOrCreateMergeDespiteFailAccumulator(
+  map: Map<string, MergeDespiteFailAccumulator>,
+  key: string,
+): MergeDespiteFailAccumulator {
+  let acc = map.get(key);
+  if (acc === undefined) {
+    acc = mergeDespiteFailAccZero();
+    map.set(key, acc);
+  }
+  return acc;
+}
+
+function buildMergeDespiteFailSegment(acc: MergeDespiteFailAccumulator): MergeDespiteFailSegment {
+  return {
+    priorBlockedObservationCount: acc.priorBlockedObservationCount,
+    priorBlockedMergedCount: acc.priorBlockedMergedCount,
+    mergeDespiteFailCount: acc.mergeDespiteFailCount,
+    mergeDespiteFailRate:
+      acc.priorBlockedObservationCount === 0
+        ? null
+        : acc.mergeDespiteFailCount / acc.priorBlockedObservationCount,
+  };
+}
+
+function buildMergeDespiteFailRecord(
+  map: Map<string, MergeDespiteFailAccumulator>,
+): Record<string, MergeDespiteFailSegment> {
+  const out: Record<string, MergeDespiteFailSegment> = {};
+  for (const key of Array.from(map.keys()).sort()) {
+    const acc = map.get(key);
+    if (acc !== undefined) {
+      out[key] = buildMergeDespiteFailSegment(acc);
+    }
+  }
+  return out;
+}
+
+function sanitizeSegmentKey(value: string, maxLength: number): string {
+  const normalized: string[] = [];
+  for (const char of value) {
+    if (normalized.length >= maxLength) {
+      break;
+    }
+    const code = char.codePointAt(0) ?? 0;
+    normalized.push(isUnsafeFormattedSegmentCodePoint(code) ? " " : char);
+  }
+  return normalized.join("");
+}
+
+function isUnsafeFormattedSegmentCodePoint(code: number): boolean {
+  return (
+    code <= 0x1f ||
+    (code >= 0x7f && code <= 0x9f) ||
+    (code >= 0x200b && code <= 0x200f) ||
+    (code >= 0x202a && code <= 0x202e) ||
+    (code >= 0x2066 && code <= 0x2069)
+  );
 }
 
 function accumulateAcceptance(
@@ -1448,6 +1631,55 @@ function formatRunEventsSection(analysis: RunMetricsAnalysis): string[] {
   lines.push(`  correctionCount           ${re.correctionCount}`);
   const rateStr = re.completionRate === null ? "n/a" : `${(re.completionRate * 100).toFixed(1)}%`;
   lines.push(`  completionRate            ${rateStr}`);
+  const overrideRateStr =
+    re.overrideRate === null ? "n/a" : `${(re.overrideRate * 100).toFixed(1)}%`;
+  lines.push(`  overrideCount             ${re.overrideCount}`);
+  lines.push(`  overrideRate              ${overrideRateStr}`);
+
+  if (re.mergeDespiteFail !== undefined) {
+    const pooled = re.mergeDespiteFail.pooled;
+    const pooledRate =
+      pooled.mergeDespiteFailRate === null
+        ? "n/a"
+        : `${(pooled.mergeDespiteFailRate * 100).toFixed(1)}%`;
+    lines.push(
+      `  mergeDespiteFailRate      ${pooledRate} (ignored=${pooled.mergeDespiteFailCount}, merged=${pooled.priorBlockedMergedCount}, n=${pooled.priorBlockedObservationCount})`,
+    );
+
+    lines.push("");
+    lines.push("--- Merge-Despite-Fail by Repository ---");
+    lines.push(
+      padRight("Repository", 28) +
+        padLeft("Blocked", 9) +
+        padLeft("Merged", 8) +
+        padLeft("Ignored", 9) +
+        padLeft("Rate", 9),
+    );
+    for (const repository of Object.keys(re.mergeDespiteFail.byRepository).sort()) {
+      const stat = re.mergeDespiteFail.byRepository[repository];
+      if (stat === undefined) {
+        continue;
+      }
+      lines.push(formatMergeDespiteFailSegment(repository, 28, stat));
+    }
+
+    lines.push("");
+    lines.push("--- Merge-Despite-Fail by Tier ---");
+    lines.push(
+      padRight("Tier", 12) +
+        padLeft("Blocked", 9) +
+        padLeft("Merged", 8) +
+        padLeft("Ignored", 9) +
+        padLeft("Rate", 9),
+    );
+    for (const tier of Object.keys(re.mergeDespiteFail.byTier).sort()) {
+      const stat = re.mergeDespiteFail.byTier[tier];
+      if (stat === undefined) {
+        continue;
+      }
+      lines.push(formatMergeDespiteFailSegment(tier, 12, stat));
+    }
+  }
 
   lines.push("");
   lines.push(
@@ -1518,6 +1750,22 @@ function formatRunEventsSection(analysis: RunMetricsAnalysis): string[] {
   }
 
   return lines;
+}
+
+function formatMergeDespiteFailSegment(
+  label: string,
+  labelWidth: number,
+  stat: MergeDespiteFailSegment,
+): string {
+  const rateDisplay =
+    stat.mergeDespiteFailRate === null ? "n/a" : `${(stat.mergeDespiteFailRate * 100).toFixed(1)}%`;
+  return (
+    padRight(label, labelWidth) +
+    padLeft(String(stat.priorBlockedObservationCount), 9) +
+    padLeft(String(stat.priorBlockedMergedCount), 8) +
+    padLeft(String(stat.mergeDespiteFailCount), 9) +
+    padLeft(rateDisplay, 9)
+  );
 }
 
 /** Render the dispositions precision section (#256, M023 S04).

@@ -92,8 +92,8 @@ const REPO_SLUG_PATTERN = /^[A-Za-z0-9][\w.-]{0,99}\/[A-Za-z0-9][\w.-]{0,99}$/;
  * `ai_review.run_metrics` — primary aggregate event; fully aggregated into
  * `rollup` by `rollupRunMetrics`.
  *
- * `ai_review.run_event` — emitted as of issue #20 (S04–S06). Reserved for
- * #22 (phase 2) ongoing.
+ * `ai_review.run_event` — emitted as of issue #20 (S04–S06), #22 (phase 2),
+ * and M023 S01 (#257).
  *
  * Emitted subtypes and their counts-only payloads:
  *
@@ -119,11 +119,18 @@ const REPO_SLUG_PATTERN = /^[A-Za-z0-9][\w.-]{0,99}\/[A-Za-z0-9][\w.-]{0,99}$/;
  * - `run.override`: break-glass override marker (#22 phase 2). Contains only
  *   stable identifiers and timestamps. No free text.
  *
+ * - `run.prior_decision_respected`: merge-state observation for a prior
+ *   blocking run (#257). Contains repository, changeId, riskTier,
+ *   priorDecision/priorOutcome/priorBlocked, merged, and overrideRecorded.
+ *   No PR title/body, comments, author names, branch names, finding text, or
+ *   override reasons.
+ *
  * NOTE: `ai_review.run_event` events contribute to `sourceEventTypes` and
  * `repositories` when present but are NOT aggregated into `rollup` — rollup
- * remains run_metrics-only. Acceptance analysis is at the telemetry:analyze
- * level (src/state/run-metrics-analyze.ts). Future work must stay inside
- * this boundary: counts, stable identifiers, shape-bounded keys only (M008).
+ * remains run_metrics-only. Acceptance and merge-despite-fail analysis are at
+ * the telemetry:analyze level (src/state/run-metrics-analyze.ts). Future work
+ * must stay inside this boundary: counts, stable identifiers, shape-bounded
+ * keys only (M008).
  *
  * Adding a new exportable type here is sufficient to allow it through the
  * egress filter; no other change is required.

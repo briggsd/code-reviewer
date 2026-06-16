@@ -12,6 +12,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Finding, ReReviewFindingClassification, ReviewSummary } from "../src/index.ts";
 import {
+  createPriorDecisionRespectedEvent,
   createRunCompletedEvent,
   createRunCorrectionEvent,
   createRunOverrideEvent,
@@ -489,6 +490,57 @@ describe("createRunCorrectionEvent", () => {
 });
 
 // ---------------------------------------------------------------------------
+// M023 S01 (#257): run.prior_decision_respected
+// ---------------------------------------------------------------------------
+
+describe("createPriorDecisionRespectedEvent", () => {
+  test("emits counts-only prior decision observation on the prior runId", () => {
+    const event = createPriorDecisionRespectedEvent({
+      runId: "prior-run-1",
+      timestamp: "2026-06-15T00:00:00.000Z",
+      repository: "acme/api",
+      changeId: "42",
+      riskTier: "full",
+      priorDecision: "significant_concerns",
+      priorOutcome: "fail",
+      priorBlocked: true,
+      merged: true,
+      overrideRecorded: false,
+    });
+
+    expect(event.type).toBe("ai_review.run_event");
+    expect(event.runId).toBe("prior-run-1");
+    expect(event.timestamp).toBe("2026-06-15T00:00:00.000Z");
+    expect(event.data?.schemaVersion).toBe(RUN_EVENT_SCHEMA_VERSION);
+    expect(event.data?.event).toBe("run.prior_decision_respected");
+    expect(event.data?.repository).toBe("acme/api");
+    expect(event.data?.changeId).toBe("42");
+    expect(event.data?.riskTier).toBe("full");
+    expect(event.data?.priorDecision).toBe("significant_concerns");
+    expect(event.data?.priorOutcome).toBe("fail");
+    expect(event.data?.priorBlocked).toBe(true);
+    expect(event.data?.merged).toBe(true);
+    expect(event.data?.overrideRecorded).toBe(false);
+  });
+
+  test("omits priorOutcome when unavailable", () => {
+    const event = createPriorDecisionRespectedEvent({
+      runId: "prior-run-2",
+      timestamp: "2026-06-15T00:00:00.000Z",
+      repository: "acme/api",
+      changeId: "43",
+      riskTier: "lite",
+      priorDecision: "review_required",
+      priorBlocked: true,
+      merged: false,
+      overrideRecorded: false,
+    });
+
+    expect(event.data?.priorOutcome).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 5. Negative/boundary: no free-text fields in event data
 // ---------------------------------------------------------------------------
 
@@ -497,6 +549,7 @@ describe("no free-text fields in emitted events", () => {
   const SENTINEL_BODY = "SENTINEL_FINDING_BODY_MUST_NOT_APPEAR";
   const SENTINEL_REASON = "SENTINEL_ACKNOWLEDGED_REASON_MUST_NOT_APPEAR";
   const SENTINEL_BRANCH = "SENTINEL_BRANCH_NAME_MUST_NOT_APPEAR";
+  const SENTINEL_AUTHOR = "SENTINEL_AUTHOR_NAME_MUST_NOT_APPEAR";
 
   const findingWithSentinel = makeFinding({
     title: SENTINEL_TITLE,
@@ -596,5 +649,28 @@ describe("no free-text fields in emitted events", () => {
     // No author NAME / identity field leaks into telemetry (M008).
     const serialized = JSON.stringify(event);
     expect(serialized).not.toMatch(/login|username|displayName/i);
+  });
+
+  test("run.prior_decision_respected contains no author, branch, comment, or finding text", () => {
+    const event = createPriorDecisionRespectedEvent({
+      runId: "run-prior",
+      timestamp: "2026-06-15T00:00:00.000Z",
+      repository: "acme/api",
+      changeId: "42",
+      riskTier: "full",
+      priorDecision: "significant_concerns",
+      priorOutcome: "fail",
+      priorBlocked: true,
+      merged: true,
+      overrideRecorded: false,
+    });
+
+    const serialized = JSON.stringify(event);
+    expect(serialized).not.toContain(SENTINEL_TITLE);
+    expect(serialized).not.toContain(SENTINEL_BODY);
+    expect(serialized).not.toContain(SENTINEL_REASON);
+    expect(serialized).not.toContain(SENTINEL_BRANCH);
+    expect(serialized).not.toContain(SENTINEL_AUTHOR);
+    expect(serialized).not.toMatch(/title|body|author|branch|comment|reason/i);
   });
 });
