@@ -29,7 +29,7 @@ Expected results:
 - Confirm the package `files` allowlist ships adopter-facing docs under `docs/user/` and still excludes `docs/developer/`, `docs/milestones/`, `.github/`, `test/`, local run artifacts, and handoff notes.
 - Run `npm pack --dry-run --json` if you need to inspect the full file list manually.
 - Run `bun run smoke:external-package` with live provider env vars before handing a package source to another repository.
-- Keep `AI_REVIEW_PACKAGE` in CI templates pinned to an immutable internal tarball URL, exact package version, or full Git commit SHA for internal smoke only. For the Fortis/self-managed GitLab beta, prefer a versioned internal tarball URL and do not require public npm.
+- Keep `AI_REVIEW_PACKAGE` in CI templates pinned to an immutable internal tarball URL, exact package version, or full Git commit SHA for internal smoke only. For the internal/self-managed GitLab beta, prefer a versioned internal tarball URL and do not require public npm.
 - Do not use mutable install sources such as `main`, floating tags, or `latest` in adopter CI.
 
 ## Cutting a tagged GitHub Release
@@ -102,11 +102,11 @@ branch, floating tag, or `latest`.
 
 Current supported channel:
 
-- **Bun-backed npm tarball/package** — install with `bun add --global "$AI_REVIEW_PACKAGE"`, run `ai-code-review`. For the Fortis/self-managed GitLab beta, use an immutable internal tarball URL produced from `npm pack` and hosted as an internal release asset or generic package file. Before registry publish in any environment, use an immutable tarball URL produced by the manual release artifact workflow, or a full Git commit SHA for internal smoke.
+- **Bun-backed npm tarball/package** — install with `bun add --global "$AI_REVIEW_PACKAGE"`, run `ai-code-review`. For the internal/self-managed GitLab beta, use an immutable internal tarball URL produced from `npm pack` and hosted as an internal release asset or generic package file. Before registry publish in any environment, use an immutable tarball URL produced by the manual release artifact workflow, or a full Git commit SHA for internal smoke.
 
 Install-source priority:
 
-1. Immutable internal tarball URL for the Fortis/self-managed GitLab beta.
+1. Immutable internal tarball URL for the internal/self-managed GitLab beta.
 2. Immutable tarball URL before public registry publish in other environments.
 3. Exact registry package version after publish.
 4. Full Git commit SHA for internal smoke only.

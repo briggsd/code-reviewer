@@ -97,9 +97,9 @@ describe("package distribution metadata", () => {
     }
 
     expect(packaging).toContain("Do not use mutable install sources");
-    expect(packaging).toContain("Fortis/self-managed GitLab beta");
+    expect(packaging).toContain("internal/self-managed GitLab beta");
     expect(packaging).toContain(
-      "https://gitlab.example.com/fortis/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz",
+      "https://gitlab.example.com/<your-org>/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz",
     );
     expect(ciTemplates).toContain("Do not pin adopter CI to mutable branches");
     expect(ciTemplates).toContain(
@@ -107,7 +107,7 @@ describe("package distribution metadata", () => {
     );
     expect(releaseReadiness).toContain("Install-source priority");
     expect(releaseReadiness).toContain(
-      "Immutable internal tarball URL for the Fortis/self-managed GitLab beta",
+      "Immutable internal tarball URL for the internal/self-managed GitLab beta",
     );
   });
 

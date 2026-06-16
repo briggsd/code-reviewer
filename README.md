@@ -22,7 +22,7 @@ Configure and operate:
 - [Packaging](docs/user/packaging.md) — package artifact contents and smoke test.
 - [Release artifacts](docs/user/release-artifacts.md) — manual immutable tarball artifact workflow.
 - [Release readiness](docs/user/release-readiness.md) — checklist for verification, packaging, CI adoption, and release blockers.
-- [Fortis GitLab beta onboarding](docs/user/fortis-gitlab-beta.md) — self-managed GitLab beta setup, variables, debugging, and token rotation.
+- [Internal/self-managed GitLab beta onboarding](docs/user/internal-gitlab-beta.md) — self-managed GitLab beta setup, variables, debugging, and token rotation.
 - [Workflow smoke test](docs/user/workflow-smoke-test.md) — notes for the first same-repo GitHub Actions smoke PR.
 - [Pi live smoke test](docs/user/pi-live-smoke.md) — opt-in local and GitHub Actions Pi/model smoke instructions.
 - [GitLab live smoke](docs/user/gitlab-live-smoke.md) — opt-in real GitLab MR smoke for metadata/diff and summary publishing.

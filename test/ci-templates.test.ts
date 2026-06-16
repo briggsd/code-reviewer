@@ -48,13 +48,13 @@ describe("CI starter templates", () => {
   test("GitLab CI template separates MR dry run from same-project write-back", async () => {
     const pipeline = await readFile("examples/ci/gitlab-ai-review.yml", "utf8");
 
-    expect(pipeline).toContain("Fortis/self-managed GitLab beta template");
+    expect(pipeline).toContain("Internal/self-managed GitLab beta template");
     expect(pipeline).toContain('$CI_PIPELINE_SOURCE == "merge_request_event"');
     expect(pipeline).toContain("$CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID");
     expect(pipeline).toContain("GITLAB_TOKEN_READ");
     expect(pipeline).toContain("GITLAB_TOKEN_WRITE");
     expect(pipeline).toContain(
-      "AI_REVIEW_PACKAGE: https://gitlab.example.com/fortis/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz",
+      "AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz",
     );
     expect(pipeline).not.toContain("AI_REVIEW_PACKAGE: ai-code-review-factory@0.1.0");
     expect(pipeline).toContain('AI_REVIEW_GITLAB_API_BASE_URL: "$CI_API_V4_URL"');

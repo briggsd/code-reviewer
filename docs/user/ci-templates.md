@@ -11,7 +11,7 @@ ai-code-review run ...
 
 `AI_REVIEW_PACKAGE` is the packaged CLI source passed to `bun add --global`. GitHub templates may show the eventual exact registry shape, while the GitLab beta template defaults to an internal immutable tarball URL placeholder. Until the package is published under the final name, use an immutable npm tarball URL, exact registry version, or full Git commit SHA for internal smoke. Do not pin adopter CI to mutable branches, floating tags, `latest`, or the runner repository checkout.
 
-For self-managed GitLab, keep `AI_REVIEW_GITLAB_API_BASE_URL` pointed at the instance API v4 endpoint. The GitLab template defaults it to `$CI_API_V4_URL`, which GitLab sets to the current instance's API URL, and passes it to the CLI with `--api-base-url` so the runner does not assume GitLab.com. Replace the sample `https://gitlab.example.com/.../ai-code-review-factory-0.1.0.tgz` package URL with the Fortis/internal tarball URL for the tested beta build.
+For self-managed GitLab, keep `AI_REVIEW_GITLAB_API_BASE_URL` pointed at the instance API v4 endpoint. The GitLab template defaults it to `$CI_API_V4_URL`, which GitLab sets to the current instance's API URL, and passes it to the CLI with `--api-base-url` so the runner does not assume GitLab.com. Replace the sample `https://gitlab.example.com/.../ai-code-review-factory-0.1.0.tgz` package URL with the internal tarball URL for the tested beta build.
 
 The templates check out repository contents only so project-local config such as `.ai-review.json` can be read. They do **not** run `bun install` or any project dependency install from the pull/merge request checkout.
 
@@ -48,7 +48,7 @@ For a real model-backed review, replace `--runtime dummy` with `--runtime pi` an
 
 Template: `examples/ci/gitlab-ai-review.yml`
 
-This is the copy-paste starting point for the Fortis/self-managed GitLab beta. Replace the sample `AI_REVIEW_PACKAGE` value with the immutable internal tarball URL for the beta build. The template keeps runtime selection explicit with `AI_REVIEW_DRY_RUN_RUNTIME` and `AI_REVIEW_PUBLISH_RUNTIME`, both defaulting to `dummy` until a trusted Pi/model-backed job is intentionally enabled.
+This is the copy-paste starting point for the internal/self-managed GitLab beta. Replace the sample `AI_REVIEW_PACKAGE` value with the immutable internal tarball URL for the beta build. The template keeps runtime selection explicit with `AI_REVIEW_DRY_RUN_RUNTIME` and `AI_REVIEW_PUBLISH_RUNTIME`, both defaulting to `dummy` until a trusted Pi/model-backed job is intentionally enabled.
 
 It defines two jobs:
 

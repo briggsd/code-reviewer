@@ -1,6 +1,6 @@
-# Fortis self-managed GitLab beta onboarding
+# Internal/self-managed GitLab beta onboarding
 
-Use this guide to onboard the first Fortis/self-managed GitLab beta repositories. The beta channel is intentionally internal-only: install the packaged CLI from an immutable internal tarball URL, keep the package `private: true` and `UNLICENSED`, and do not depend on public npm.
+Use this guide to onboard the first internal/self-managed GitLab beta repositories. The beta channel is intentionally internal-only: install the packaged CLI from an immutable internal tarball URL, keep the package `private: true` and `UNLICENSED`, and do not depend on public npm.
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ Do not rely on `CI_JOB_TOKEN` for summary publishing unless the target GitLab in
 ## Onboard one beta repository
 
 1. Copy `examples/ci/gitlab-ai-review.yml` into the target repository's `.gitlab-ci.yml`, or include the same jobs in an existing pipeline.
-2. Replace the sample `AI_REVIEW_PACKAGE` with the immutable Fortis/internal tarball URL for the tested beta build.
+2. Replace the sample `AI_REVIEW_PACKAGE` with the immutable internal tarball URL for the tested beta build.
 3. Keep `AI_REVIEW_GITLAB_API_BASE_URL: "$CI_API_V4_URL"` unless the self-managed instance requires an explicit `https://gitlab.example.com/api/v4` endpoint.
 4. Keep both runtime variables at `dummy` for the first rollout:
 
@@ -44,7 +44,7 @@ Do not rely on `CI_JOB_TOKEN` for summary publishing unless the target GitLab in
    ```
 
 7. Rerun the same MR pipeline and confirm the bot updates one existing AI review summary note instead of creating duplicates.
-8. Run the [GitLab live smoke](gitlab-live-smoke.md) self-managed readiness profile against a Fortis-like MR and record the stable summary note ID.
+8. Run the [GitLab live smoke](gitlab-live-smoke.md) self-managed readiness profile against a representative self-managed-GitLab MR and record the stable summary note ID.
 9. After dummy summary publishing is stable, consider switching only trusted jobs to `AI_REVIEW_PUBLISH_RUNTIME: pi` and adding Pi/model credentials.
 
 ## Inspect artifacts

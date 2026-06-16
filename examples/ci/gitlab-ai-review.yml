@@ -1,4 +1,4 @@
-# Fortis/self-managed GitLab beta template.
+# Internal/self-managed GitLab beta template.
 # Copy this into a beta repository's .gitlab-ci.yml and replace AI_REVIEW_PACKAGE
 # with the immutable internal tarball URL for the tested beta build.
 
@@ -6,7 +6,7 @@ stages:
   - review
 
 variables:
-  AI_REVIEW_PACKAGE: https://gitlab.example.com/fortis/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz
+  AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz
   AI_REVIEW_GITLAB_API_BASE_URL: "$CI_API_V4_URL"
   AI_REVIEW_DRY_RUN_RUNTIME: dummy
   AI_REVIEW_PUBLISH_RUNTIME: dummy

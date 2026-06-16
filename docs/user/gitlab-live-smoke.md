@@ -48,7 +48,7 @@ Token guidance:
 
 ## Self-managed GitLab readiness profile
 
-For a Fortis-like beta smoke, create or reuse a low-risk same-project MR on the self-managed instance and run the smoke twice: first dry-run, then summary publish twice to prove idempotent updates.
+For a representative self-managed-GitLab beta smoke, create or reuse a low-risk same-project MR on the self-managed instance and run the smoke twice: first dry-run, then summary publish twice to prove idempotent updates.
 
 ```bash
 export AI_REVIEW_LIVE_GITLAB=1
