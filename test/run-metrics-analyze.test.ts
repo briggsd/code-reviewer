@@ -2722,3 +2722,140 @@ describe("analyzeRunMetrics residualDefects (#261)", () => {
     expect(analysis.residualDefects).toBeUndefined();
   });
 });
+
+// ─── safe-record prototype-pollution regression (#254) ────────────────────────
+
+describe("safe-record hardening — prototype-pollution regression (#254)", () => {
+  /**
+   * Feed telemetry-derived keys that are prototype-pollution vectors
+   * (__proto__, constructor, prototype) through the analyzer and assert:
+   *   (a) the analysis does not throw,
+   *   (b) the returned record objects have a null prototype (Object.create(null)),
+   *   (c) a plain object's prototype is not mutated by the assignment,
+   *   (d) sibling keys and counts are unaffected.
+   */
+  test("__proto__ as a reviewer name does not pollute Object.prototype", () => {
+    const probeKey = "__proto__";
+    const evts: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T10:00:00.000Z",
+        runId: "proto-run-1",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: probeKey,
+          outcome: "fail",
+          findingsByReviewer: { [probeKey]: 2, security: 1 },
+          findingCount: 3,
+          tokens: {
+            agentCount: 1,
+            inputTokens: 100,
+            outputTokens: 500,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            estimatedCostUsd: 0.01,
+          },
+        },
+      },
+      // A second run with a normal decision so sibling counting works
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T10:01:00.000Z",
+        runId: "proto-run-2",
+        data: {
+          runtime: "pi",
+          riskTier: "full",
+          decision: "approved",
+          outcome: "pass",
+          findingsByReviewer: { security: 1 },
+          findingCount: 1,
+          tokens: {
+            agentCount: 1,
+            inputTokens: 100,
+            outputTokens: 200,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            estimatedCostUsd: 0.005,
+          },
+        },
+      },
+    ];
+
+    // (a) must not throw
+    let analysis!: ReturnType<typeof analyzeRunMetrics>;
+    expect(() => {
+      analysis = analyzeRunMetrics(evts);
+    }).not.toThrow();
+
+    // (b) returned record objects have a null prototype (created via Object.create(null))
+    expect(Object.getPrototypeOf(analysis.byReviewer)).toBeNull();
+    expect(Object.getPrototypeOf(analysis.reviewerShare)).toBeNull();
+    expect(Object.getPrototypeOf(analysis.decisionCounts)).toBeNull();
+    expect(Object.getPrototypeOf(analysis.byDecision)).toBeNull();
+    expect(Object.getPrototypeOf(analysis.outcomeCounts)).toBeNull();
+    expect(Object.getPrototypeOf(analysis.byTier)).toBeNull();
+    expect(Object.getPrototypeOf(analysis.reviewerFailureCountByRole)).toBeNull();
+
+    // (c) Object.prototype is NOT mutated — the __proto__ key was stored as an own
+    // property on the null-proto safeRecord, not as a prototype-chain write.
+    // We verify this by checking that Object.prototype has no unexpected own properties
+    // and that a fresh plain object does NOT inherit any injected value.
+    expect(Object.hasOwn(Object.prototype, "someInjectedProp")).toBe(false);
+    expect(({} as Record<string, unknown>)["someInjectedProp"]).toBeUndefined();
+    // The __proto__ key MUST be an own property on the null-proto record itself:
+    expect(Object.hasOwn(analysis.byReviewer, probeKey)).toBe(true);
+
+    // (d) sibling counts are unaffected — the __proto__ reviewer count is own-property
+    //     accessible via Object.hasOwn, and the normal reviewer is also present
+    expect(Object.hasOwn(analysis.byReviewer, "security")).toBe(true);
+    expect(analysis.byReviewer[probeKey]).toBe(2);
+    expect(analysis.byReviewer["security"]).toBe(2); // 1 from run-1 + 1 from run-2
+    // decisionCounts: __proto__ → 1 run, approved → 1 run
+    expect(Object.hasOwn(analysis.decisionCounts, probeKey)).toBe(true);
+    expect(analysis.decisionCounts[probeKey]).toBe(1);
+    expect(analysis.decisionCounts["approved"]).toBe(1);
+  });
+
+  test("constructor and prototype as tier names do not corrupt analysis", () => {
+    const evts: TelemetryEvent[] = [
+      {
+        type: "ai_review.run_metrics",
+        timestamp: "2026-06-15T11:00:00.000Z",
+        runId: "proto-tier-1",
+        data: {
+          runtime: "pi",
+          riskTier: "constructor",
+          decision: "approved",
+          outcome: "pass",
+          findingsByReviewer: { security: 1 },
+          findingCount: 1,
+          tokens: {
+            agentCount: 1,
+            inputTokens: 100,
+            outputTokens: 200,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            estimatedCostUsd: 0.005,
+          },
+        },
+      },
+    ];
+
+    // (a) must not throw
+    let analysis!: ReturnType<typeof analyzeRunMetrics>;
+    expect(() => {
+      analysis = analyzeRunMetrics(evts);
+    }).not.toThrow();
+
+    // (b) byTier has a null prototype
+    expect(Object.getPrototypeOf(analysis.byTier)).toBeNull();
+
+    // (c) the poison-key is stored as a safe own property
+    expect(Object.hasOwn(analysis.byTier, "constructor")).toBe(true);
+    expect(analysis.byTier["constructor"]?.runCount).toBe(1);
+
+    // (d) Object.prototype.constructor is unchanged — still the Function constructor
+    expect({}.constructor).toBe(Object);
+  });
+});

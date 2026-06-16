@@ -9,6 +9,24 @@ import { NON_REAL_RUNTIME_KINDS } from "../runtime/runtime-kind.ts";
 
 const NON_REAL_RUNTIME_KIND_SET: ReadonlySet<string> = new Set(NON_REAL_RUNTIME_KINDS);
 
+/**
+ * Create a prototype-less record safe against prototype-pollution.
+ *
+ * Using `Object.create(null)` means that assigning a telemetry-derived key
+ * such as `"__proto__"`, `"constructor"`, or `"prototype"` writes a plain own
+ * property on the object without touching any prototype chain.  The returned
+ * object is typed as `Record<string, V>` so callers need no changes at
+ * use-sites.  JSON.stringify, Object.keys/entries, spread, and for-in all
+ * work identically on null-proto objects.
+ *
+ * Only use this for records whose keys come from telemetry-derived strings
+ * (reviewer names, tier names, severity values, decision strings, etc.).
+ * Records with exclusively literal-string keys are fine as plain `{}`.
+ */
+function safeRecord<V>(): Record<string, V> {
+  return Object.create(null) as Record<string, V>;
+}
+
 // Thin-review classification is now contextual (implemented in #91), delegated to
 // assessThinReview() in src/runner/thin-review.ts. The contextual floor depends on
 // riskTier and reviewedFileCount: trivial is never flagged, lite uses 60*fileCount,
@@ -739,7 +757,7 @@ function buildDispositionAnalysis(
     return undefined;
   }
 
-  const byReviewerRecord: Record<string, DispositionPrecisionSegment> = {};
+  const byReviewerRecord = safeRecord<DispositionPrecisionSegment>();
   for (const key of [...byReviewer.keys()].sort()) {
     const acc = byReviewer.get(key);
     if (acc !== undefined) {
@@ -747,7 +765,7 @@ function buildDispositionAnalysis(
     }
   }
 
-  const bySeverityRecord: Record<string, DispositionPrecisionSegment> = {};
+  const bySeverityRecord = safeRecord<DispositionPrecisionSegment>();
   for (const key of [...bySeverity.keys()].sort()) {
     const acc = bySeverity.get(key);
     if (acc !== undefined) {
@@ -768,7 +786,7 @@ function buildDispositionAnalysis(
 function buildByTierRecord(
   tierAccumulators: Map<string, TierAccumulator>,
 ): Record<string, TierSegment> {
-  const byTier: Record<string, TierSegment> = {};
+  const byTier = safeRecord<TierSegment>();
   for (const key of Array.from(tierAccumulators.keys()).sort()) {
     const acc = tierAccumulators.get(key);
     if (acc === undefined) {
@@ -804,8 +822,8 @@ function buildByReviewerRecords(
   findingsByReviewer: Map<string, number>,
   totalFindings: number,
 ): { byReviewer: Record<string, number>; reviewerShare: Record<string, number> } {
-  const byReviewer: Record<string, number> = {};
-  const reviewerShare: Record<string, number> = {};
+  const byReviewer = safeRecord<number>();
+  const reviewerShare = safeRecord<number>();
   for (const key of Array.from(findingsByReviewer.keys()).sort()) {
     const count = findingsByReviewer.get(key) ?? 0;
     byReviewer[key] = count;
@@ -819,12 +837,12 @@ function buildDecisionAndOutcomeRecords(
   decisionCounts: Map<string, number>,
   outcomeCounts: Map<string, number>,
 ): { decisionCountsRecord: Record<string, number>; outcomeCountsRecord: Record<string, number> } {
-  const decisionCountsRecord: Record<string, number> = {};
+  const decisionCountsRecord = safeRecord<number>();
   for (const key of Array.from(decisionCounts.keys()).sort()) {
     decisionCountsRecord[key] = decisionCounts.get(key) ?? 0;
   }
 
-  const outcomeCountsRecord: Record<string, number> = {};
+  const outcomeCountsRecord = safeRecord<number>();
   for (const key of Array.from(outcomeCounts.keys()).sort()) {
     outcomeCountsRecord[key] = outcomeCounts.get(key) ?? 0;
   }
@@ -835,7 +853,7 @@ function buildDecisionAndOutcomeRecords(
 function buildByDecisionRecord(
   decisionAccumulators: Map<string, DecisionAccumulator>,
 ): Record<string, DecisionSegment> {
-  const byDecision: Record<string, DecisionSegment> = {};
+  const byDecision = safeRecord<DecisionSegment>();
   for (const key of Array.from(decisionAccumulators.keys()).sort()) {
     const acc = decisionAccumulators.get(key);
     if (acc === undefined) {
@@ -1043,7 +1061,7 @@ export function analyzeRunMetrics(
   const supplementalEventsAnalysis = buildSupplementalEventsAnalysis(events, realRunIds);
 
   // Build stable-key-sorted reviewerFailureCountByRole record (#212), mirroring overrideCountByTier
-  const reviewerFailureCountByRole: Record<string, number> = {};
+  const reviewerFailureCountByRole = safeRecord<number>();
   for (const key of Array.from(reviewerFailureCountByRoleMap.keys()).sort()) {
     reviewerFailureCountByRole[key] = reviewerFailureCountByRoleMap.get(key) ?? 0;
   }
@@ -1307,7 +1325,7 @@ function buildSupplementalEventsAnalysis(
         };
 
   // Build stable-key-sorted overrideCountByTier record
-  const overrideCountByTier: Record<string, number> = {};
+  const overrideCountByTier = safeRecord<number>();
   for (const key of Array.from(overrideCountByTierMap.keys()).sort()) {
     overrideCountByTier[key] = overrideCountByTierMap.get(key) ?? 0;
   }
@@ -1439,7 +1457,7 @@ function buildMergeDespiteFailSegment(acc: MergeDespiteFailAccumulator): MergeDe
 function buildMergeDespiteFailRecord(
   map: Map<string, MergeDespiteFailAccumulator>,
 ): Record<string, MergeDespiteFailSegment> {
-  const out: Record<string, MergeDespiteFailSegment> = {};
+  const out = safeRecord<MergeDespiteFailSegment>();
   for (const key of Array.from(map.keys()).sort()) {
     const acc = map.get(key);
     if (acc !== undefined) {
@@ -1490,7 +1508,7 @@ function accumulateAcceptance(
 function buildAcceptanceRecord(
   map: Map<string, AccumulatedAcceptance>,
 ): Record<string, ReviewerAcceptanceStat> {
-  const out: Record<string, ReviewerAcceptanceStat> = {};
+  const out = safeRecord<ReviewerAcceptanceStat>();
   for (const key of Array.from(map.keys()).sort()) {
     const acc = map.get(key);
     if (acc === undefined) {
