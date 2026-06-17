@@ -71,6 +71,27 @@ It defines two jobs:
    - Runs `--runtime "$AI_REVIEW_PUBLISH_RUNTIME"`, defaulting to `dummy`.
    - Calls `--publish-summary`.
 
+### Why two jobs? (fork-safety design)
+
+The two-job split is intentional, not a misconfiguration. The dry-run job runs on every merge request pipeline — including pipelines triggered by fork contributors — with a read-only token and no model secrets. The publish job runs only for same-project pipelines and holds the write token and any provider credentials. That split keeps privileged secrets out of any job that processes untrusted fork content.
+
+An AI reviewer may flag this as a redundant or duplicate pipeline. It is not. If you want to suppress the finding permanently, add an acknowledgement in `.ai-review.json` — it persists across finding-ID drift (tolerant ack matching, #346):
+
+```json
+{
+  "acknowledgements": [
+    {
+      "finding": "two-job gitlab pipeline is intentional fork-safety design",
+      "reason": "dry-run/publish split keeps write tokens out of fork pipelines"
+    }
+  ]
+}
+```
+
+### Internal/same-project only: single-job variant
+
+For projects that never accept fork MRs, the dry-run is a redundant second pass. The alternative template `examples/ci/gitlab-ai-review-single-job.yml` collapses both jobs into one. It still keeps the same-project guard so the job fails safe — a fork MR just doesn't run, rather than running with a leaked write token. Use this template only for closed internal projects where fork pipelines genuinely never occur. The two-job default remains the hardened choice for any project that could receive fork MRs.
+
 For a real model-backed review, replace `--runtime dummy` with `--runtime pi` and provide Pi/model credentials through protected or appropriately scoped CI variables — see [Enabling the Pi runtime](#enabling-the-pi-runtime).
 
 ## Enabling the Pi runtime

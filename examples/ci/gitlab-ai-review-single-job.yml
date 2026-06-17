@@ -1,6 +1,31 @@
-# Internal/self-managed GitLab beta template.
-# Copy this into a beta repository's .gitlab-ci.yml and replace AI_REVIEW_PACKAGE
-# with the immutable internal tarball URL for the tested beta build.
+# Internal/same-project GitLab CI template — single-job variant.
+#
+# Use this ONLY for repos where fork MRs never occur (internal projects,
+# closed groups). It collapses the two-job dry-run/publish split into one job.
+#
+# WHY TWO JOBS EXIST IN THE DEFAULT TEMPLATE
+# -------------------------------------------
+# The default `gitlab-ai-review.yml` uses two jobs deliberately:
+#   - ai_review_dry_run runs on ALL merge request pipelines, including forks,
+#     with a read-only token and no model secrets.
+#   - ai_review_publish_summary runs only for same-project pipelines and holds
+#     the write token and provider credentials.
+# That split keeps privileged secrets out of any job that processes untrusted
+# fork content. It is not a misconfiguration; it is the fork-safety design.
+#
+# WHEN TO USE THIS TEMPLATE INSTEAD
+# ----------------------------------
+# If your project never accepts fork MRs, the dry-run pass is a redundant
+# second run. This single-job variant removes it.
+#
+# SAME-PROJECT GUARD KEPT — FAILS SAFE
+# --------------------------------------
+# The same-project rule is non-negotiable:
+#   $CI_PIPELINE_SOURCE == "merge_request_event" &&
+#   $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID
+# If a fork MR ever appears, the job simply does not run — no review is
+# published, but no write token or model secret leaks to untrusted content.
+# Do not remove the guard.
 #
 # Package hosting for self-managed installs
 # -----------------------------------------
@@ -38,66 +63,41 @@ stages:
 variables:
   AI_REVIEW_PACKAGE: https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/ai-code-review-factory/0.2.0/ai-code-review-factory.tgz
   AI_REVIEW_GITLAB_API_BASE_URL: "$CI_API_V4_URL"
-  AI_REVIEW_DRY_RUN_RUNTIME: dummy
-  AI_REVIEW_PUBLISH_RUNTIME: dummy
+  AI_REVIEW_RUNTIME: dummy
 
-.ai_review_base:
+ai_review:
   image: oven/bun:1.3
   stage: review
   interruptible: true
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID'
+  variables:
+    AI_REVIEW_GITLAB_TOKEN: $GITLAB_TOKEN_WRITE
   before_script:
     - bun add --global "$AI_REVIEW_PACKAGE"
+  script:
+    - >
+      ai-code-review run
+      --provider gitlab
+      --api-base-url "${AI_REVIEW_GITLAB_API_BASE_URL:-$CI_API_V4_URL}"
+      --repo "$CI_PROJECT_PATH"
+      --change-id "$CI_MERGE_REQUEST_IID"
+      --head-sha "$CI_COMMIT_SHA"
+      --runtime "$AI_REVIEW_RUNTIME"
+      --publish-summary
+      --output-dir .ai-review
+      --ci-exit
   artifacts:
     when: always
     expire_in: 14 days
     paths:
       - .ai-review/
 
-ai_review_dry_run:
-  extends: .ai_review_base
-  variables:
-    AI_REVIEW_GITLAB_TOKEN: $GITLAB_TOKEN_READ
-  script:
-    - >
-      ai-code-review run
-      --provider gitlab
-      --api-base-url "${AI_REVIEW_GITLAB_API_BASE_URL:-$CI_API_V4_URL}"
-      --repo "$CI_PROJECT_PATH"
-      --change-id "$CI_MERGE_REQUEST_IID"
-      --head-sha "$CI_COMMIT_SHA"
-      --runtime "$AI_REVIEW_DRY_RUN_RUNTIME"
-      --output-dir .ai-review
-      --ci-exit
-
-ai_review_publish_summary:
-  extends: .ai_review_base
-  needs:
-    - job: ai_review_dry_run
-      artifacts: false
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID'
-  variables:
-    AI_REVIEW_GITLAB_TOKEN: $GITLAB_TOKEN_WRITE
-  script:
-    - >
-      ai-code-review run
-      --provider gitlab
-      --api-base-url "${AI_REVIEW_GITLAB_API_BASE_URL:-$CI_API_V4_URL}"
-      --repo "$CI_PROJECT_PATH"
-      --change-id "$CI_MERGE_REQUEST_IID"
-      --head-sha "$CI_COMMIT_SHA"
-      --runtime "$AI_REVIEW_PUBLISH_RUNTIME"
-      --publish-summary
-      --output-dir .ai-review
-      --ci-exit
-
 # ---------------------------------------------------------------------------
 # Enabling real model-backed review (--runtime pi)
 # ---------------------------------------------------------------------------
-# The jobs above run the `dummy` runtime, which needs no model access. To run a
-# REAL review, set AI_REVIEW_PUBLISH_RUNTIME: pi in a TRUSTED same-project job
+# The job above runs the `dummy` runtime, which needs no model access. To run a
+# REAL review, set AI_REVIEW_RUNTIME: pi in a TRUSTED same-project job
 # ONLY (never a fork-triggered pipeline), and adjust the job as below. Two gotchas:
 #
 #   1. The `pi` CLI (@earendil-works/pi-coding-agent) requires Node >= 22.19, and
@@ -108,7 +108,7 @@ ai_review_publish_summary:
 #
 # A validated Pi-path base looks like:
 #
-# .ai_review_pi_base:
+# ai_review:
 #   image: node:22-bookworm-slim
 #   stage: review
 #   interruptible: true
@@ -116,6 +116,11 @@ ai_review_publish_summary:
 #     # Same-project guard: never run the Pi path (secrets + model access) on a
 #     # fork-triggered pipeline.
 #     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID'
+#   variables:
+#     AI_REVIEW_GITLAB_TOKEN: $GITLAB_TOKEN_WRITE
+#     # Provider credential matching your .ai-review.json modelRouting provider
+#     # (Anthropic by default). Set as a PROTECTED/masked CI variable, trusted jobs only.
+#     ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
 #   before_script:
 #     - npm install -g bun
 #     - npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.79.4
@@ -128,10 +133,21 @@ ai_review_publish_summary:
 #     - >
 #       bun -e 'const u = new URL(process.env.AI_REVIEW_PACKAGE); if (u.origin !== new URL(process.env.CI_SERVER_URL).origin) throw new Error("untrusted package origin: " + u.origin); const r = await fetch(u, { headers: { "JOB-TOKEN": process.env.CI_JOB_TOKEN }, redirect: "error" }); if (!r.ok) throw new Error("download " + r.status); await Bun.write("/tmp/runner.tgz", await r.arrayBuffer());'
 #     - bun add --global /tmp/runner.tgz
-#   variables:
-#     # Provider credential matching your .ai-review.json modelRouting provider
-#     # (Anthropic by default). Set as a PROTECTED/masked CI variable, trusted jobs only.
-#     ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
-#   # Then set AI_REVIEW_PUBLISH_RUNTIME: pi and have the publish job extend
-#   # .ai_review_pi_base instead of .ai_review_base.
+#   script:
+#     - >
+#       ai-code-review run
+#       --provider gitlab
+#       --api-base-url "${AI_REVIEW_GITLAB_API_BASE_URL:-$CI_API_V4_URL}"
+#       --repo "$CI_PROJECT_PATH"
+#       --change-id "$CI_MERGE_REQUEST_IID"
+#       --head-sha "$CI_COMMIT_SHA"
+#       --runtime pi
+#       --publish-summary
+#       --output-dir .ai-review
+#       --ci-exit
+#   artifacts:
+#     when: always
+#     expire_in: 14 days
+#     paths:
+#       - .ai-review/
 # ---------------------------------------------------------------------------

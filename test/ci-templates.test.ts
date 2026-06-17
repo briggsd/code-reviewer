@@ -46,6 +46,30 @@ describe("CI starter templates", () => {
     expect(workflow).not.toContain('publish-inline: "true"');
   });
 
+  test("GitLab CI single-job template is internal-only and fails safe on fork MRs", async () => {
+    const pipeline = await readFile("examples/ci/gitlab-ai-review-single-job.yml", "utf8");
+
+    // Same-project guard is non-negotiable — job must not run on fork pipelines
+    expect(pipeline).toContain("$CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID");
+    // Uses write token (single combined job)
+    expect(pipeline).toContain("$GITLAB_TOKEN_WRITE");
+    // Runs review and publishes in one pass
+    expect(pipeline).toContain("--publish-summary");
+    expect(pipeline).toContain("--ci-exit");
+    // Is a single review job — no separate dry-run job key
+    expect(pipeline).not.toContain("ai_review_dry_run:");
+    // Mutable image tags (not SHA-pinned) per examples/ci/ convention
+    expect(pipeline).not.toContain("@sha256:");
+    expect(pipeline).toContain("oven/bun:1.3");
+    expect(pipeline).toContain("--provider gitlab");
+    expect(pipeline).toContain('--api-base-url "${AI_REVIEW_GITLAB_API_BASE_URL:-$CI_API_V4_URL}"');
+    expect(pipeline).toContain("--output-dir .ai-review");
+    expect(pipeline).toContain('bun add --global "$AI_REVIEW_PACKAGE"');
+    expect(pipeline).toContain("@earendil-works/pi-coding-agent");
+    expect(pipeline).toContain("node:22-bookworm-slim");
+    expect(pipeline).toContain("JOB-TOKEN");
+  });
+
   test("GitLab CI template separates MR dry run from same-project write-back", async () => {
     const pipeline = await readFile("examples/ci/gitlab-ai-review.yml", "utf8");
 
@@ -55,7 +79,7 @@ describe("CI starter templates", () => {
     expect(pipeline).toContain("GITLAB_TOKEN_READ");
     expect(pipeline).toContain("GITLAB_TOKEN_WRITE");
     expect(pipeline).toContain(
-      "AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz",
+      "AI_REVIEW_PACKAGE: https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/ai-code-review-factory/0.2.0/ai-code-review-factory.tgz",
     );
     expect(pipeline).not.toContain("AI_REVIEW_PACKAGE: ai-code-review-factory@0.1.0");
     expect(pipeline).toContain('AI_REVIEW_GITLAB_API_BASE_URL: "$CI_API_V4_URL"');

@@ -57,9 +57,30 @@ For internal projects where token proliferation is a concern, a single project a
 
 The READ/WRITE split remains the hardened recommendation: a narrower dry-run token limits blast radius if a read token is compromised.
 
+## Two-job split: intentional fork-safety design
+
+The default template defines two jobs (`ai_review_dry_run` and `ai_review_publish_summary`). This is a deliberate fork-safety design — not a redundant pipeline. The dry-run job runs on all merge request pipelines (including fork-contributed MRs) with a read-only token and no model secrets. The publish job runs only for same-project pipelines and holds the write token and any provider credentials. Keeping them separate means a forked contributor's pipeline never touches privileged secrets.
+
+An AI reviewer may flag the split as a redundant or duplicate pipeline. It is not. To suppress the finding permanently, add an acknowledgement in `.ai-review.json` — it survives finding-ID drift (tolerant ack matching, #346):
+
+```json
+{
+  "acknowledgements": [
+    {
+      "finding": "two-job gitlab pipeline is intentional fork-safety design",
+      "reason": "dry-run/publish split keeps write tokens out of fork pipelines"
+    }
+  ]
+}
+```
+
+### Single-job variant for internal projects
+
+For projects that never accept fork MRs, the dry-run pass is a redundant second run. `examples/ci/gitlab-ai-review-single-job.yml` collapses both jobs into a single `ai_review` job that reviews and publishes in one pass. The same-project guard is kept so the job fails safe — if a fork MR appears, the job simply does not run rather than executing with a leaked write token. Use this template only for closed internal projects; the two-job default stays the hardened choice for anything that could receive fork MRs.
+
 ## Onboard one beta repository
 
-1. Copy `examples/ci/gitlab-ai-review.yml` into the target repository's `.gitlab-ci.yml`, or include the same jobs in an existing pipeline.
+1. Copy `examples/ci/gitlab-ai-review.yml` into the target repository's `.gitlab-ci.yml`, or include the same jobs in an existing pipeline. (Internal projects with no fork MRs can use `examples/ci/gitlab-ai-review-single-job.yml` instead — see [Single-job variant](#single-job-variant-for-internal-projects) above.)
 2. Replace the sample `AI_REVIEW_PACKAGE` with the immutable internal tarball URL for the tested beta build.
 3. Keep `AI_REVIEW_GITLAB_API_BASE_URL: "$CI_API_V4_URL"` unless the self-managed instance requires an explicit `https://gitlab.example.com/api/v4` endpoint.
 4. Keep both runtime variables at `dummy` for the first rollout:
