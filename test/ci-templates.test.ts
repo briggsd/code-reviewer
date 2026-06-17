@@ -22,6 +22,7 @@ describe("CI starter templates", () => {
     expect(workflow).toContain("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true");
     expect(workflow).not.toContain("bun run src/cli.ts");
     expect(workflow).not.toContain("bun install --frozen-lockfile");
+    expect(workflow).toContain("@earendil-works/pi-coding-agent");
   });
 
   test("GitHub Actions wrapper template keeps dry-run and guarded write-back explicit", async () => {
@@ -74,5 +75,8 @@ describe("CI starter templates", () => {
     expect(pipeline).toContain(".ai-review/");
     expect(pipeline).not.toContain("bun run src/cli.ts");
     expect(pipeline).not.toContain("bun install --frozen-lockfile");
+    expect(pipeline).toContain("@earendil-works/pi-coding-agent");
+    expect(pipeline).toContain("node:22-bookworm-slim");
+    expect(pipeline).toContain("JOB-TOKEN");
   });
 });

@@ -34,6 +34,10 @@ jobs:
       - name: Install AI review CLI
         run: bun add --global "$AI_REVIEW_PACKAGE"
 
+      # Keep this dry-run job on `--runtime dummy`: it fires on every PR, INCLUDING
+      # forks, so it must never carry a provider secret or run `--runtime pi`. Enable
+      # the real model-backed review in the trusted-publish job below instead — it is
+      # gated to same-repo PRs by its job-level `if:`.
       - name: Run metadata/diff review without write-back
         env:
           AI_REVIEW_GITHUB_TOKEN: ${{ github.token }}
@@ -77,6 +81,17 @@ jobs:
       - name: Install AI review CLI
         run: bun add --global "$AI_REVIEW_PACKAGE"
 
+      # This job is already gated to same-repo PRs (the job-level `if:` above), so it
+      # is the safe place to enable a REAL model-backed review — never the dry-run job,
+      # which fires on forks. To enable it: change `--runtime dummy` to `--runtime pi`
+      # in the run step below and add a provider credential to its env (matching your
+      # .ai-review.json modelRouting provider; Anthropic by default) from a repo secret:
+      #     env:
+      #       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # plus a Pi install step (the pi CLI needs Node >= 22.19; add
+      # `actions/setup-node@v4` with `node-version: 22` if the runner's Node is older):
+      #   - name: Install Pi CLI
+      #     run: npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.79.4
       - name: Publish AI review summary for same-repo PR
         env:
           AI_REVIEW_GITHUB_TOKEN: ${{ github.token }}

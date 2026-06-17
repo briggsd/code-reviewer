@@ -75,7 +75,7 @@ The recommended CI shape is two jobs:
 
 Keep the runtime as `dummy` until the install, metadata fetch, diff fetch, and
 artifact upload all work. Then enable `pi` only in trusted jobs that have the Pi
-CLI and model credentials available. The templates are explained in
+CLI and model credentials available. Installing Pi means the `@earendil-works/pi-coding-agent` CLI plus a provider API key — see [Enabling the Pi runtime](ci-templates.md#enabling-the-pi-runtime). The templates are explained in
 [CI templates](ci-templates.md), and the `uses:` wrapper is documented in
 [GitHub Action wrapper](github-action-wrapper.md).
 

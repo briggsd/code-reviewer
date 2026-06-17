@@ -62,3 +62,46 @@ ai_review_publish_summary:
       --publish-summary
       --output-dir .ai-review
       --ci-exit
+
+# ---------------------------------------------------------------------------
+# Enabling real model-backed review (--runtime pi)
+# ---------------------------------------------------------------------------
+# The jobs above run the `dummy` runtime, which needs no model access. To run a
+# REAL review, set AI_REVIEW_PUBLISH_RUNTIME: pi in a TRUSTED same-project job
+# ONLY (never a fork-triggered pipeline), and adjust the job as below. Two gotchas:
+#
+#   1. The `pi` CLI (@earendil-works/pi-coding-agent) requires Node >= 22.19, and
+#      the `oven/bun` image above ships no Node — so the Pi path must use a Node
+#      image and install bun on top. Pin the pi version you have tested.
+#   2. A tarball in a PRIVATE GitLab package registry needs an authenticated
+#      fetch (JOB-TOKEN); `bun add --global <url>` does not send it.
+#
+# A validated Pi-path base looks like:
+#
+# .ai_review_pi_base:
+#   image: node:22-bookworm-slim
+#   stage: review
+#   interruptible: true
+#   rules:
+#     # Same-project guard: never run the Pi path (secrets + model access) on a
+#     # fork-triggered pipeline.
+#     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID'
+#   before_script:
+#     - npm install -g bun
+#     - npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.79.4
+#     # Public tarball URL: a plain global install is enough —
+#     #   bun add --global "$AI_REVIEW_PACKAGE"
+#     # Private GitLab registry: fetch with JOB-TOKEN auth first, then install the file.
+#     # The snippet asserts AI_REVIEW_PACKAGE's origin matches your instance
+#     # (CI_SERVER_URL) and uses redirect: "error" so the JOB-TOKEN header only ever
+#     # travels to your own host and can't follow a cross-origin redirect:
+#     - >
+#       bun -e 'const u = new URL(process.env.AI_REVIEW_PACKAGE); if (u.origin !== new URL(process.env.CI_SERVER_URL).origin) throw new Error("untrusted package origin: " + u.origin); const r = await fetch(u, { headers: { "JOB-TOKEN": process.env.CI_JOB_TOKEN }, redirect: "error" }); if (!r.ok) throw new Error("download " + r.status); await Bun.write("/tmp/runner.tgz", await r.arrayBuffer());'
+#     - bun add --global /tmp/runner.tgz
+#   variables:
+#     # Provider credential matching your .ai-review.json modelRouting provider
+#     # (Anthropic by default). Set as a PROTECTED/masked CI variable, trusted jobs only.
+#     ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
+#   # Then set AI_REVIEW_PUBLISH_RUNTIME: pi and have the publish job extend
+#   # .ai_review_pi_base instead of .ai_review_base.
+# ---------------------------------------------------------------------------

@@ -42,7 +42,7 @@ It defines two jobs:
    - Installs the same packaged CLI.
    - Calls `--publish-summary`.
 
-For a real model-backed review, replace `--runtime dummy` with `--runtime pi` and ensure the CI environment can run the `pi` CLI plus whatever provider credentials Pi needs.
+For a real model-backed review, replace `--runtime dummy` with `--runtime pi` and ensure the CI environment can run the `pi` CLI plus whatever provider credentials Pi needs — see [Enabling the Pi runtime](#enabling-the-pi-runtime).
 
 ## GitLab CI
 
@@ -71,7 +71,34 @@ It defines two jobs:
    - Runs `--runtime "$AI_REVIEW_PUBLISH_RUNTIME"`, defaulting to `dummy`.
    - Calls `--publish-summary`.
 
-For a real model-backed review, replace `--runtime dummy` with `--runtime pi` and provide Pi/model credentials through protected or appropriately scoped CI variables.
+For a real model-backed review, replace `--runtime dummy` with `--runtime pi` and provide Pi/model credentials through protected or appropriately scoped CI variables — see [Enabling the Pi runtime](#enabling-the-pi-runtime).
+
+## Enabling the Pi runtime
+
+The `dummy` runtime (default) needs no model access. To run a real model-backed review, switch to `--runtime pi`. This requires:
+
+1. **Install the Pi CLI.** The Pi CLI is the `@earendil-works/pi-coding-agent` npm package. Pin the version you have tested, for example `@earendil-works/pi-coding-agent@0.79.4`:
+
+   ```bash
+   npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.79.4
+   ```
+
+   `--ignore-scripts` stops the package's (and its dependencies') `postinstall` scripts from running arbitrary code in a privileged CI runner — keep it whenever you install a third-party CLI in CI. If you adapt the command (e.g. to `bun add --global`, which does not run lifecycle scripts by default), preserve that no-scripts behavior.
+
+2. **Node >= 22.19.** The Pi package declares `engines.node >= 22.19.0`. **The `oven/bun` image ships no Node**, so the GitLab Pi path must swap the base image to a Node image (e.g. `node:22-bookworm-slim`) and install bun on top (`npm install -g bun`). GitHub Actions runners generally ship a recent Node — add `actions/setup-node@v4` with `node-version: 22` if the runner's Node is older than 22.19.
+
+3. **Provider API key.** Pi authenticates via the provider API key matching your `.ai-review.json` `modelRouting` provider — `ANTHROPIC_API_KEY` by default; also `OPENAI_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY` for those providers. Pass this as a protected/masked CI variable in trusted jobs only.
+
+4. **Trusted jobs only — never forks.** Provider credentials and `--runtime pi` must only appear in same-repo/same-project jobs, never in fork-triggered pipelines. A fork-triggered job with secrets is a security risk.
+
+**Private GitLab package registry.** If the runner tarball lives in a private GitLab package registry, `bun add --global <url>` does not send the required authentication. Fetch with `JOB-TOKEN` first, then install the local file. `CI_JOB_TOKEN` is a scoped GitLab credential, so the snippet below enforces two guards inline before sending it: it asserts `AI_REVIEW_PACKAGE`'s origin matches your GitLab instance (`CI_SERVER_URL`) so the token only ever travels to your own host, and uses `redirect: "error"` so it can't follow a cross-origin redirect:
+
+```bash
+bun -e 'const u = new URL(process.env.AI_REVIEW_PACKAGE); if (u.origin !== new URL(process.env.CI_SERVER_URL).origin) throw new Error("untrusted package origin: " + u.origin); const r = await fetch(u, { headers: { "JOB-TOKEN": process.env.CI_JOB_TOKEN }, redirect: "error" }); if (!r.ok) throw new Error("download " + r.status); await Bun.write("/tmp/runner.tgz", await r.arrayBuffer());'
+bun add --global /tmp/runner.tgz
+```
+
+For a public tarball URL, the plain `bun add --global "$AI_REVIEW_PACKAGE"` is sufficient.
 
 ## Safety stance
 
