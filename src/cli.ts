@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { finalizeCiExit } from "./cli/ci-exit.ts";
 import { ReviewProgressReporter } from "./cli/review-progress-reporter.ts";
 import {
+  applyGitDiffDefault,
   parseDisabledProviders,
   parseReviewersOption,
   parseRunPublishOptions,
@@ -169,8 +170,8 @@ type ReviewSource =
 
 async function runCommand(args: string[]): Promise<void> {
   const source = await loadReviewSource(args);
-  const outputDirectory = readFlag(args, "--output-dir");
-  const runtimeName = readFlag(args, "--runtime");
+  const outputDirectory = applyGitDiffDefault(readFlag(args, "--output-dir"), args, ".ai-review");
+  const runtimeName = applyGitDiffDefault(readFlag(args, "--runtime"), args, "dummy");
   const jobKind = readFlag(args, "--job-kind");
   const outputFormat = readFlag(args, "--format") ?? "json";
   const piProvider = readFlag(args, "--pi-provider");

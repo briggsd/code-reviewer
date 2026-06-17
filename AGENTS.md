@@ -46,7 +46,8 @@ bun run gate           # check + boundaries + lint + docs:check + complexity:che
 bun run check          # bunx tsc --noEmit && bun test (the tsc+test core; CI blocks on gate, not just check)
 bun test               # bun:test suite (tests live in test/)
 bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --runtime dummy
-bun run src/cli.ts run --git-diff --runtime dummy --output-dir .ai-review   # review local changes, no PR. default base HEAD = uncommitted only; --base main for committed branch work. captures telemetry/traces
+bun run review:local                                                         # review local changes (shortcut: --git-diff + defaults --runtime dummy, --output-dir .ai-review). add --base main for committed branch work
+bun run src/cli.ts run --git-diff --runtime dummy --output-dir .ai-review   # same with explicit flags; any explicit --runtime / --output-dir overrides the defaults
 bun run src/cli.ts schemas        # emit config + structured-output JSON schemas
 bun run schema:config             # regenerate .ai-review.schema.json
 bun run telemetry:rollup --runs 20 --output telemetry-rollup.json   # aggregate run_metrics from recent CI artifacts (needs authed `gh`; targets the hardcoded .github/workflows/ai-review.yml)

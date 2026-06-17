@@ -1,3 +1,19 @@
+/**
+ * Apply the --git-diff smart default for a flag that has a conventional fallback.
+ * When the flag was explicitly set, its value wins. When --git-diff is present and
+ * no explicit value was provided, the given fallback is returned. Otherwise undefined.
+ *
+ * Used in runCommand for --output-dir (defaults to ".ai-review") and --runtime
+ * (defaults to "dummy") so the defaulting logic has a single, tested, non-test consumer.
+ */
+export function applyGitDiffDefault(
+  value: string | undefined,
+  args: string[],
+  fallback: string,
+): string | undefined {
+  return value ?? (args.includes("--git-diff") ? fallback : undefined);
+}
+
 export interface RunPublishOptions {
   publishSummary: boolean;
   publishInline: boolean;
