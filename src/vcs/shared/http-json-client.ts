@@ -87,6 +87,61 @@ export class HttpJsonClient {
 
     return results;
   }
+
+  // Complements requestAllPages (Link-header paging, used by GitHub and GitLab).
+  // Bitbucket Cloud carries the next-page cursor as a `next` URL in the JSON body
+  // rather than an RFC-5988 `Link` header. Each response is `{ values: T[]; next?: string }`;
+  // the `next` field, when present, is an absolute URL that already encodes its own
+  // cursor query parameters. Pagination stops when `next` is absent.
+  //
+  // Security: `next` is untrusted response-body data, and every request attaches the
+  // injected Authorization header. A response that points `next` at a foreign host would
+  // otherwise leak the bearer credential there, so each cursor URL is required to share an
+  // origin with the configured `baseUrl` before it is followed — a cross-origin (or malformed)
+  // cursor throws loudly rather than silently truncating the result set.
+  async requestAllPagesCursor<T>(path: string): Promise<T[]> {
+    const expectedOrigin = new URL(this.baseUrl).origin;
+    let nextUrl: string | undefined = `${this.baseUrl}${path}`;
+    const results: T[] = [];
+
+    while (nextUrl !== undefined) {
+      const response = await this.fetchImpl(nextUrl, {
+        headers: this.headersFn(),
+      });
+
+      if (!response.ok) {
+        throw new HttpRequestError(
+          `${this.providerNoun} API request failed: ${response.status} ${response.statusText} for ${nextUrl}`,
+          response.status,
+        );
+      }
+
+      const page = (await response.json()) as { values: T[]; next?: string };
+      results.push(...page.values);
+      nextUrl = page.next;
+
+      if (nextUrl !== undefined && originOf(nextUrl) !== expectedOrigin) {
+        throw new HttpRequestError(
+          `${this.providerNoun} API returned a cross-origin pagination cursor (${nextUrl}); refusing to send credentials to a host the response chose`,
+          0,
+        );
+      }
+    }
+
+    return results;
+  }
+}
+
+// Module-private helper — returns the origin (scheme + host + port) of an absolute URL,
+// or undefined when the value is not a parseable absolute URL. Used to reject body-supplied
+// pagination cursors that do not match the configured API origin before the credentialed
+// request is sent (see requestAllPagesCursor).
+function originOf(rawUrl: string): string | undefined {
+  try {
+    return new URL(rawUrl).origin;
+  } catch {
+    return undefined;
+  }
 }
 
 // Module-private helper — parses an RFC 5988 `Link` response header to extract the URL for
