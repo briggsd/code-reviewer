@@ -259,8 +259,8 @@ release holdout gate (M016 S02, `release-package.yml`).
   baselines shift as scenarios are added/removed). Only a harness crash (nonzero exit) is the
   negative signal. `--gate` is never used here because it would always "fail" under dummy.
 
-For the full improvement loop — hypothesis → dev scenario → reviewer-definition tuning → holdout
-release gate — see `review-quality-loop.md`. For scenario vocabulary and the authoring
+The full improvement loop runs hypothesis → dev scenario → reviewer-definition tuning → holdout
+release gate. For scenario vocabulary and the authoring
 rules, see [Scenario reliability taxonomy](#scenario-reliability-taxonomy).
 
 ## How scoring works
@@ -366,9 +366,8 @@ satisfaction is high enough.
 
 ## Adding a new scenario
 
-See **`review-quality-loop.md`** for the end-to-end improvement loop: how a quality-report
-hypothesis becomes an investigation, then a distilled dev scenario, then a tuning change, then a
-holdout-gated release.
+The end-to-end improvement loop runs: a quality-report hypothesis becomes an investigation, then
+a distilled dev scenario, then a tuning change, then a holdout-gated release.
 
 Use the [Scenario reliability taxonomy](#scenario-reliability-taxonomy) before writing criteria:
 pick one primary dimension, then encode the smallest observable behavior that proves or falsifies it.

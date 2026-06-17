@@ -5,7 +5,7 @@
 > lifecycle; adopt the minimal explicit-load seam) and the two semantic questions the
 > "great defaults, swappable" shape raises — **(a) the merge/override rule** and **(b) the
 > role-union question**. It is design-on-paper: S02 (#175) commits the public API surface and
-> S03 (#143) wires the loader. Framing lives in `docs/milestones/M017-ROADMAP.md` (slice S01).
+> S03 (#143) wires the loader. Framing lives in the M017 planning notes (slice S01).
 
 ## What this seam is
 

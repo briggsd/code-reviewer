@@ -150,7 +150,6 @@ describe("package distribution metadata", () => {
       "docs/user",
       "examples/ci",
       "examples/fixtures",
-      "research",
       "scripts",
       "src",
       "tsconfig.json",

@@ -259,7 +259,7 @@ export function buildQualityReport(
   // structuredOutputRate ← rates.structuredOutputRate; sampleSize = total Pi agent-runs measured.
   // Only checked when at least one run carried structured-output counts (else 0% is "no data",
   // not a breach). Surfaces when the structured path underperforms — the signal that gates the
-  // eventual repair retirement (see docs/milestones/M015-ROADMAP.md S05). Direction "below".
+  // eventual repair retirement (tracked in the M015 planning archive, slice S05). Direction "below".
   if (analysis.structuredOutput !== undefined && analysis.structuredOutput.totalCount > 0) {
     checkBreach(hypotheses, t, {
       segmentType: "overall",

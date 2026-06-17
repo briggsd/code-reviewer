@@ -81,7 +81,7 @@
   identifiers only (M008; #50; #57).
 - Do not trust an implementer (Codex or subagent) summary's "tests added"/gate claims — verify
   vs `git diff` and re-run `bun run check`. Do not `git add -A` when committing delegated work
-  (it swept `M009-SUMMARY.md` in once).
+  (it swept a milestone summary doc in once).
 - Do not reopen closed issues #10–#14/#17/#18/#19/#25/#31/#32/#37/#39/#40/#48/#49/#58/#73/#74/#77/#80/#82/#28
   #84/#87/#69/#90/#91/#101/#27/#96/#50/#20/#33/#57/#22/#92/#29/#46/#23/#26/#115/#120/#41/#42 or merged PRs #9/#47/#53/#55/#56/#59/#61/#62/#63/#64/#66/#68/#70/#71/#72/#76/#78/#79/#81/#83/#85/#86/#88/#89/#93/#94/#95/#97/#98/#103/#104/#106/#107/#108/#109/#110/#111/#112/#113/#114/#116/#117/#118/#119/#121/#122
   /#24/#124/#125/#129/#126/#127/#128 or merged PRs … /#123/#150/#153/#163/#164/#166/#170

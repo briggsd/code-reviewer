@@ -157,17 +157,9 @@ vulnerabilities privately).
 - [Decision guardrails](docs/developer/decision-guardrails.md) — load-bearing invariants.
 - [Reviewer conventions](docs/developer/reviewer-conventions.md) ·
   [Operator-extension seam](docs/developer/operator-extension-seam.md) ·
-  [Re-review state](docs/developer/re-review-state.md) ·
-  [Suppression observability](docs/developer/suppression-observability.md)
+  [Re-review state](docs/developer/re-review-state.md)
 - [Telemetry export](docs/developer/telemetry-export.md) · [Evals](docs/developer/evals.md) ·
-  [Review-quality loop](docs/developer/review-quality-loop.md) ·
-  [Runtime comparison](docs/developer/runtime-comparison.md) ·
-  [Doc gardening](docs/developer/doc-gardening.md)
-
-**History & research**
-- [Milestone records](docs/milestones/) — M0xx roadmaps and summaries (status lives in GitHub).
-- [Cloudflare source and gap analysis](docs/developer/cloudflare-source-and-gap-analysis.md) ·
-  [Research findings](research/ci-vcs-runtime-findings.md)
+  [Runtime comparison](docs/developer/runtime-comparison.md)
 
 ## Development
 

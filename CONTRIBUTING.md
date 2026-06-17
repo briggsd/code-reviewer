@@ -77,8 +77,9 @@ Please do **not** open a public issue for security vulnerabilities. See
 ## How maintainers coordinate
 
 This is context, **not a requirement for external PRs.** Maintainers plan work
-spec-first: the plan and reasoning live in milestone roadmaps under
-`docs/milestones/`, and status lives in GitHub issues/milestones. Onboarding for
+spec-first: the plan and reasoning live in milestone roadmaps kept in a
+private planning archive outside this repo, and status lives in GitHub
+issues/milestones. Onboarding for
 maintainers and the agent-assisted workflow is documented in `CLAUDE.md`. As an
 outside contributor you only need the fork → gate → PR path above; the
 coordinator board, worktree tooling, and session handoff notes are internal

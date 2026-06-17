@@ -141,15 +141,15 @@ Details + diagram: **docs/developer/architecture.md**.
 ## How work is planned here (spec-driven)
 
 - **Plan and status are kept in separate systems — do not duplicate.**
-  `docs/milestones/M0xx-ROADMAP.md` holds the *plan and reasoning*: vision, success
+  Milestone roadmaps (`M0xx-ROADMAP.md`) hold the *plan and reasoning*: vision, success
   criteria, sequencing, cross-milestone boundaries, and named slices `S01..` (each with
-  `risk:`/`depends:` plan metadata and a `→ #NN` link to its GitHub issue). **Status lives
+  `risk:`/`depends:` plan metadata and a `→ #NN` link to its GitHub issue). They live in a
+  **private planning archive outside this repo**, not committed here. **Status lives
   in GitHub** — the milestone progress bar and each issue's open/closed state. Roadmaps
   carry **no `[x]`/`[ ]` checkboxes** and are never hand-updated when an issue closes;
   that mirroring is what drifts. Each actionable slice = one GitHub issue in the matching
   milestone. Completed milestones get an `M0xx-SUMMARY.md` design/decision record (history
-  GitHub doesn't capture well). `docs/milestones/M013-ROADMAP.md` is the reference example
-  of this format.
+  GitHub doesn't capture well), kept in the same archive.
 - **`continue.md`** (repo root, **local/untracked — gitignored on purpose**) is the *thin*
   session-to-session handoff: last action, next action, open threads, active lanes. Read it
   first; update it before you stop. It is machine-local working state — never commit it. Keep
