@@ -94,6 +94,46 @@ For projects that never accept fork MRs, the dry-run is a redundant second pass.
 
 For a real model-backed review, replace `--runtime dummy` with `--runtime pi` and provide Pi/model credentials through protected or appropriately scoped CI variables — see [Enabling the Pi runtime](#enabling-the-pi-runtime).
 
+## Bitbucket Pipelines
+
+Template: `examples/ci/bitbucket-pipelines.yml`
+
+Copy this into your repository's `bitbucket-pipelines.yml`. Replace the `AI_REVIEW_PACKAGE` value with an immutable tarball URL or exact-version pinned package source for the build you have tested.
+
+It defines two steps under `pipelines: pull-requests:`:
+
+1. **AI review dry run**
+   - Uses `AI_REVIEW_BITBUCKET_TOKEN` for read access only.
+   - Installs the packaged CLI with `bun add --global "$AI_REVIEW_PACKAGE"`.
+   - Passes `--repo "$BITBUCKET_REPO_FULL_NAME"`, `--change-id "$BITBUCKET_PR_ID"`, and `--head-sha "$BITBUCKET_COMMIT"`.
+   - Runs `--runtime dummy` — no model secrets, no write-back.
+   - Writes `.ai-review/` artifacts.
+
+2. **AI review publish summary**
+   - Calls `--publish-summary` to write the review comment back to the PR using `AI_REVIEW_BITBUCKET_TOKEN`, which must be configured as a **secured** repository variable.
+
+Both steps need `AI_REVIEW_BITBUCKET_TOKEN`, and because it must be secured (see below), both run on same-repository PRs and fail closed on fork PRs.
+
+### Required variables
+
+`AI_REVIEW_BITBUCKET_TOKEN` — a Bitbucket repository or workspace access token with pull request read access for the dry-run step and comment/write access for the publish step. Configure it under **Repository settings > Repository variables** and mark it **Secured**. App Passwords and HTTP Basic auth are not supported; use a Bearer repository/workspace access token.
+
+Set `AI_REVIEW_PACKAGE` to an immutable tarball URL or exact registry version. Configure it as a plain (non-secured) repository variable or inline in the template.
+
+### Why two steps? (fork-safety design)
+
+Bitbucket withholds secured repository variables from pipelines triggered by pull requests from forked repositories, so `AI_REVIEW_BITBUCKET_TOKEN` is absent in fork-PR builds.
+
+Unlike GitHub (which injects a read-only `GITHUB_TOKEN`) and GitLab (which can supply a separate read token), Bitbucket provides no built-in pipeline token — so both steps need `AI_REVIEW_BITBUCKET_TOKEN`: the dry-run to read the PR, the publish step to write back. Because that token must be secured (it grants write access), a fork PR has it for neither step, and the review does not run — both steps fail closed rather than reading or writing with an exposed credential. This is stricter than the GitHub same-repo `if:` guard and the GitLab `$CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID` rule, both of which still allow a read-only dry run on fork PRs. On Bitbucket, fork PRs get no automated review unless you deliberately expose a credential to forks, which is not recommended. Same-repo PRs run both steps normally.
+
+Note that cross-repository (fork) pull request pipelines must also be explicitly enabled under **Repository settings > Pull requests**. If that setting is off, fork-PR pipelines do not run at all, which is also safe.
+
+An adopter who never accepts fork PRs can collapse both steps into one by adding `--publish-summary` to the dry-run step and removing the separate publish step. The two-step default is the correct choice for any repository that could receive fork PRs.
+
+### Enabling the Pi runtime on Bitbucket
+
+The Pi CLI requires Node >= 22.19. The `oven/bun:1.3` image ships no Node, so switching to `--runtime pi` on the publish step requires using a Node base image and installing bun on top — the same constraint as the [GitLab Pi path](#enabling-the-pi-runtime). Switch the publish step's `image` to `node:22-bookworm-slim`, add `npm install -g bun` before the bun install, and add `npm install -g --ignore-scripts @earendil-works/pi-coding-agent@<version>`. Set your provider API key (e.g. `ANTHROPIC_API_KEY`) as a secured repository variable and expose it only in the publish step.
+
 ## Enabling the Pi runtime
 
 The `dummy` runtime (default) needs no model access. To run a real model-backed review, switch to `--runtime pi`. This requires:

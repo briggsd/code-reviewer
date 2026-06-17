@@ -70,6 +70,36 @@ describe("CI starter templates", () => {
     expect(pipeline).toContain("JOB-TOKEN");
   });
 
+  test("Bitbucket Pipelines template separates dry run from secured-variable publish step", async () => {
+    const pipeline = await readFile("examples/ci/bitbucket-pipelines.yml", "utf8");
+
+    // Must target the pull-requests trigger
+    expect(pipeline).toContain("pull-requests:");
+    // Provider flag
+    expect(pipeline).toContain("--provider bitbucket");
+    // Bitbucket env vars wired to CLI flags
+    expect(pipeline).toContain("BITBUCKET_REPO_FULL_NAME");
+    expect(pipeline).toContain("BITBUCKET_PR_ID");
+    // Both steps
+    expect(pipeline).toContain("--runtime dummy");
+    expect(pipeline).toContain("--publish-summary");
+    expect(pipeline).toContain("--ci-exit");
+    // Token variable
+    expect(pipeline).toContain("AI_REVIEW_BITBUCKET_TOKEN");
+    // Mutable image tag preserved (adoption-template convention, NOT SHA-pinned)
+    expect(pipeline).toContain("image: oven/bun:1.3");
+    expect(pipeline).not.toContain("@sha256:");
+    // Uses installed CLI, not the dev source tree
+    expect(pipeline).not.toContain("bun run src/cli.ts");
+    expect(pipeline).not.toContain("bun install --frozen-lockfile");
+    // Fork-safety: comment must document the secured-variable / fork boundary
+    expect(pipeline).toContain("secured");
+    expect(pipeline).toContain("fork");
+    // Pi runtime note present
+    expect(pipeline).toContain("@earendil-works/pi-coding-agent");
+    expect(pipeline).toContain("node:22-bookworm-slim");
+  });
+
   test("GitLab CI template separates MR dry run from same-project write-back", async () => {
     const pipeline = await readFile("examples/ci/gitlab-ai-review.yml", "utf8");
 

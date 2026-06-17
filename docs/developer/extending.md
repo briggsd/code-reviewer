@@ -151,6 +151,40 @@ Test landmarks: `loadOperatorReviewerDefinitions` / `mergeReviewerDefinitions`
 (`src/runner/operator-reviewers.ts`, `src/runner/reviewer-definitions.ts`), covered in
 `test/operator-reviewers.test.ts`; the public surface is locked by `test/public-api.test.ts`.
 
+## Adding a VCS adapter
+
+The Bitbucket Cloud adapter (M033, `src/vcs/bitbucket/bitbucket-vcs-adapter.ts`) is the worked reference for this recipe.
+
+**1. Implement `VcsAdapter`** (`src/contracts/adapters.ts`). The interface has four required methods and five optional ones:
+
+- Required: `getChange`, `getDiff`, `getPriorReviewState`, `publishSummary`
+- Optional: `publishInlineFindings`, `readBaseBranchFile`, `readChangeFileAtHead`, `detectBreakGlassOverride`, `getChangedPathsSince`
+
+Start with the required four (metadata fetch, diff fetch, prior-state read, summary publish), then add optional methods as needed. The M033 slices grouped these as read/publish/trust to keep PRs reviewable.
+
+**2. Reuse shared building blocks** — do not reinvent:
+
+- **Unified diff parsing:** `parseUnifiedDiff` from `src/shared/unified-diff.ts`. It lives in `src/shared/` (not `src/vcs/shared/`) because `src/runner` also calls it via `context-artifacts.ts`; any diff parser shared with the runner must live there, not in `src/vcs/shared/`.
+- **HTTP client:** `HttpJsonClient` (and `HttpRequestError`) from `src/vcs/shared/http-json-client.ts`. Use `requestAllPagesCursor` for cursor-based pagination (Bitbucket uses `next` links) and `requestAllPages` for offset/Link-header pagination (GitHub/GitLab).
+- **Summary metadata:** `parseSummaryHiddenMetadata` and `createPriorReviewStateFromMetadata` from `src/publisher/summary-metadata.ts`. Parse the hidden `<!-- ai-code-review-factory -->` block from the existing PR/MR comment to reconstruct prior review state.
+- **Summary and inline formatters:** `formatReviewSummaryMarkdown` from `src/publisher/summary-markdown.ts` and `formatInlineFindingComment` / `inlineCommentKey` / `parseInlineCommentMetadata` from `src/publisher/inline-comment-markdown.ts`.
+- **Break-glass detection:** `src/vcs/break-glass-marker.ts` — `breakGlassMatchesHead`, `mapBitbucketPermission` (or the GitHub/GitLab equivalents), and the provider-specific `TRUSTED_PERMISSIONS` set.
+
+**3. Widen `ProviderKind`** in `src/contracts/common.ts`. Add the new literal to the union. That type is the single source of truth for valid provider values across the CLI, adapters, telemetry, and CI output.
+
+**4. Wire the CLI** in `src/cli.ts`:
+
+- Add the new provider string to the `--provider` validation block.
+- Instantiate the adapter in the provider switch (alongside the GitHub/GitLab cases).
+- Add `readProviderToken` handling for the new `AI_REVIEW_<PROVIDER>_TOKEN` env var.
+- Add the publish guard if the provider requires one (e.g. the Bitbucket token doubles as read+write; the guard logic lives near the `--publish-summary` check).
+
+**5. Add a CI template** at `examples/ci/<provider>-pipelines.yml` (or equivalent filename). Mirror the two-step dry-run/publish fork-safety design. Document the provider's fork isolation mechanism — Bitbucket uses secured variables withheld from fork-PR pipelines; GitHub uses a job-level `if:` guard; GitLab uses `$CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID`. Use a mutable image tag (e.g. `oven/bun:1.3`) per the adoption-template convention; `test/ci-templates.test.ts` locks this.
+
+**6. Add `test/ci-templates.test.ts` coverage** for the new template. Assert at minimum: the PR/MR trigger, `--provider <name>`, `--publish-summary`, `--runtime dummy`, `--ci-exit`, the provider token variable, the provider env vars wired to CLI flags, the mutable image tag, and the absence of `bun run src/cli.ts`. Assert a stable fork-safety substring from the comment block.
+
+**7. Architecture boundary constraint.** A VCS adapter (`src/vcs/<provider>/`) must not import another VCS adapter or anything from `src/runner/`. Shared helpers that both an adapter and the runner need belong in `src/shared/` (not `src/vcs/shared/`), because `src/runner` cannot import `src/vcs/**` (enforced by `bun run boundaries`). Parser/helper code that only adapters share can live in `src/vcs/shared/`. Run `bun run boundaries` after wiring and fix any violation before opening a PR.
+
 ## Trust quick-reference
 
 - Trusted: factory-owned reviewer-definitions. Untrusted: everything from the reviewed repo

@@ -5,7 +5,7 @@ Use this guide when wiring AI Code Review Factory into another repository. For t
 ## Recommended adoption path
 
 1. **Pin the package source.** Set `AI_REVIEW_PACKAGE` to an immutable npm tarball URL, an exact registry package version, or a full Git commit SHA for internal smoke only. For the internal/self-managed GitLab beta, prefer a versioned internal tarball URL and keep the package private/`UNLICENSED`; public npm is not required. Do not use `main`, floating tags, `latest`, or a checkout of the runner repository as the adopter install source.
-2. **Start with dry-run only.** Copy `examples/ci/github-actions-ai-review.yml`, `examples/ci/github-actions-ai-review-action.yml`, or the internal/self-managed GitLab beta template at `examples/ci/gitlab-ai-review.yml`, keep the runtime variables at `dummy`, and verify `.ai-review/` artifacts upload successfully. For self-managed GitLab, keep `AI_REVIEW_GITLAB_API_BASE_URL` set to `$CI_API_V4_URL` or your explicit `https://gitlab.example.com/api/v4` endpoint.
+2. **Start with dry-run only.** Copy the template for your CI platform — `examples/ci/github-actions-ai-review.yml`, `examples/ci/github-actions-ai-review-action.yml`, `examples/ci/gitlab-ai-review.yml`, or `examples/ci/bitbucket-pipelines.yml` — keep the runtime variables at `dummy`, and verify `.ai-review/` artifacts upload successfully. For self-managed GitLab, keep `AI_REVIEW_GITLAB_API_BASE_URL` set to `$CI_API_V4_URL` or your explicit `https://gitlab.example.com/api/v4` endpoint.
 3. **Enable same-repo/same-project summary publishing.** Keep dry-run and publish jobs separate. Only the guarded publish job should use write permissions and `--publish-summary`.
 4. **Optionally enable GitHub inline publishing in the guarded write-back job.** Only after summary publishing is stable, add `--publish-inline` for same-repository GitHub PRs. Keep the default dry-run job inline-free.
 5. **Switch to Pi only in trusted jobs.** After summary-only dummy runs are stable, replace `--runtime dummy` with `--runtime pi` in a trusted job that can install Pi and access model credentials (install the `@earendil-works/pi-coding-agent` CLI — needs Node ≥ 22.19 — and set the provider API key; see [Enabling the Pi runtime](ci-templates.md#enabling-the-pi-runtime)).
@@ -42,6 +42,8 @@ jobs:
 ```
 
 Use the full raw CLI template in `examples/ci/github-actions-ai-review.yml` or the wrapper template in `examples/ci/github-actions-ai-review-action.yml` for the separate guarded publish job. The wrapper is documented in [GitHub Action wrapper](github-action-wrapper.md).
+
+For Bitbucket Pipelines, use `--provider bitbucket` with `AI_REVIEW_BITBUCKET_TOKEN` (a Bearer repository or workspace access token; App Passwords and Basic auth are not supported). The Bitbucket template at `examples/ci/bitbucket-pipelines.yml` wires `BITBUCKET_REPO_FULL_NAME` to `--repo`, `BITBUCKET_PR_ID` to `--change-id`, and `BITBUCKET_COMMIT` to `--head-sha`.
 
 > **The summary comment's visible Markdown is not a stable interface.** Its layout changed
 > in #33 (grouped by reviewer, collapsed details) and may change again. Tooling that needs
