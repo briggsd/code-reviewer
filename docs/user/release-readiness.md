@@ -18,7 +18,7 @@ Expected results:
 
 - `bun run check` passes TypeScript and the unit test suite.
 - `bun run pack:smoke` validates tarball contents and packaged CLI schema execution.
-- `bun run smoke:external-package` validates isolated Bun global install and installed `ai-code-review` execution; provider-backed dry-run runs only when `AI_REVIEW_EXTERNAL_SMOKE_PROVIDER`, repo/change env vars, and a provider token are set.
+- `bun run smoke:external-package` validates isolated Bun global install and installed `code-reviewer` execution; provider-backed dry-run runs only when `AI_REVIEW_EXTERNAL_SMOKE_PROVIDER`, repo/change env vars, and a provider token are set.
 - `bun run smoke:action-wrapper` validates the package install/run boundary used by the composite GitHub Action wrapper.
 - `bun run smoke:pi` exits 0 without model/network access unless `AI_REVIEW_LIVE_PI=1` is explicitly set.
 
@@ -102,7 +102,7 @@ branch, floating tag, or `latest`.
 
 Current supported channel:
 
-- **Bun-backed npm tarball/package** — install with `bun add --global "$AI_REVIEW_PACKAGE"`, run `ai-code-review`. For the internal/self-managed GitLab beta, use an immutable internal tarball URL produced from `npm pack` and hosted as an internal release asset or generic package file. Before registry publish in any environment, use an immutable tarball URL produced by the manual release artifact workflow, or a full Git commit SHA for internal smoke.
+- **Bun-backed npm tarball/package** — install with `bun add --global "$AI_REVIEW_PACKAGE"`, run `code-reviewer`. For the internal/self-managed GitLab beta, use an immutable internal tarball URL produced from `npm pack` and hosted as an internal release asset or generic package file. Before registry publish in any environment, use an immutable tarball URL produced by the manual release artifact workflow, or a full Git commit SHA for internal smoke.
 
 Install-source priority:
 

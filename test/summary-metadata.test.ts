@@ -16,12 +16,12 @@ const ref: ChangeRef = {
 };
 
 describe("summary hidden metadata parsing", () => {
-  test("parses ai-code-review-factory hidden metadata", () => {
+  test("parses code-reviewer hidden metadata", () => {
     const metadata = parseSummaryHiddenMetadata(
       [
         "## AI Review",
         "",
-        "<!-- ai-code-review-factory",
+        "<!-- code-reviewer",
         JSON.stringify(
           {
             schemaVersion: 1,
@@ -52,15 +52,13 @@ describe("summary hidden metadata parsing", () => {
 
   test("returns undefined for missing or malformed metadata", () => {
     expect(parseSummaryHiddenMetadata("plain comment")).toBeUndefined();
-    expect(
-      parseSummaryHiddenMetadata("<!-- ai-code-review-factory\nnot json\n-->"),
-    ).toBeUndefined();
+    expect(parseSummaryHiddenMetadata("<!-- code-reviewer\nnot json\n-->")).toBeUndefined();
   });
 
   test("creates prior review state from parsed metadata", () => {
     const metadata = parseSummaryHiddenMetadata(
       [
-        "<!-- ai-code-review-factory",
+        "<!-- code-reviewer",
         JSON.stringify({
           schemaVersion: 1,
           runId: "run-1",
@@ -94,7 +92,7 @@ describe("summary hidden metadata parsing", () => {
   test("findingPaths: a safe path is restored onto the placeholder; unsafe paths are dropped (#46)", () => {
     const metadata = parseSummaryHiddenMetadata(
       [
-        "<!-- ai-code-review-factory",
+        "<!-- code-reviewer",
         JSON.stringify({
           schemaVersion: 2,
           runId: "run-2",
@@ -128,7 +126,7 @@ describe("summary hidden metadata parsing", () => {
     // v3 metadata WITH findingReviewers → placeholder gets the recovered role
     const v3metadata = parseSummaryHiddenMetadata(
       [
-        "<!-- ai-code-review-factory",
+        "<!-- code-reviewer",
         JSON.stringify({
           schemaVersion: 3,
           runId: "run-3",
@@ -155,7 +153,7 @@ describe("summary hidden metadata parsing", () => {
     // v2-style metadata (no findingReviewers) → placeholder reviewer falls back to "unknown"
     const v2metadata = parseSummaryHiddenMetadata(
       [
-        "<!-- ai-code-review-factory",
+        "<!-- code-reviewer",
         JSON.stringify({
           schemaVersion: 2,
           runId: "run-2b",
@@ -181,7 +179,7 @@ describe("summary hidden metadata parsing", () => {
     const withControlChar = "secu\x01rity";
     const metadata = parseSummaryHiddenMetadata(
       [
-        "<!-- ai-code-review-factory",
+        "<!-- code-reviewer",
         JSON.stringify({
           schemaVersion: 3,
           runId: "run-def",
@@ -292,7 +290,7 @@ describe("schemaVersion 8 hidden metadata (#333)", () => {
     // Simulate what an old parser sees: parse a v4 comment and check it doesn't throw.
     // parseSummaryHiddenMetadata is the real parser — it must succeed and return known fields.
     const v4body = [
-      "<!-- ai-code-review-factory",
+      "<!-- code-reviewer",
       JSON.stringify({
         schemaVersion: 4,
         runId: "run-v4",
@@ -366,7 +364,7 @@ describe("schemaVersion 8 hidden metadata (#333)", () => {
     expect(meta.recurrenceDepths).toEqual({ fnd_aaa: 1, fnd_bbb: 1 });
 
     // Parse it back out — round-trip.
-    const body = ["<!-- ai-code-review-factory", JSON.stringify(meta), "-->"].join("\n");
+    const body = ["<!-- code-reviewer", JSON.stringify(meta), "-->"].join("\n");
     const parsed = parseSummaryHiddenMetadata(body);
     expect(parsed?.findingsHash).toBe(meta.findingsHash as string);
   });
@@ -427,7 +425,7 @@ describe("schemaVersion 8 hidden metadata (#333)", () => {
 
   test("findingsHash: parser rejects non-hex and wrong-length values (backward compat, safe direction)", () => {
     const bodyWithBadHash = [
-      "<!-- ai-code-review-factory",
+      "<!-- code-reviewer",
       JSON.stringify({
         schemaVersion: 5,
         runId: "run-5",
@@ -496,7 +494,7 @@ describe("schemaVersion 6 — resolvedLog (#279)", () => {
     const commentBody = [
       "## AI Review",
       "",
-      "<!-- ai-code-review-factory",
+      "<!-- code-reviewer",
       JSON.stringify(meta, null, 2),
       "-->",
     ].join("\n");
@@ -508,7 +506,7 @@ describe("schemaVersion 6 — resolvedLog (#279)", () => {
 
   test("a v5 comment (no resolvedLog) still parses cleanly (back-compat)", () => {
     const bodyV5 = [
-      "<!-- ai-code-review-factory",
+      "<!-- code-reviewer",
       JSON.stringify({
         schemaVersion: 5,
         runId: "run-old",
@@ -534,7 +532,7 @@ describe("schemaVersion 6 — resolvedLog (#279)", () => {
 describe("schemaVersion 7 — recurrenceDepths (#260)", () => {
   test("recurrenceDepths round-trip through parse and prior state", () => {
     const body = [
-      "<!-- ai-code-review-factory",
+      "<!-- code-reviewer",
       JSON.stringify({
         schemaVersion: 7,
         runId: "run-7",
@@ -561,7 +559,7 @@ describe("schemaVersion 7 — recurrenceDepths (#260)", () => {
 
   test("recurrenceDepths parser rejects unsafe values and legacy comments remain valid", () => {
     const body = [
-      "<!-- ai-code-review-factory",
+      "<!-- code-reviewer",
       JSON.stringify({
         schemaVersion: 7,
         runId: "run-7",
@@ -582,7 +580,7 @@ describe("schemaVersion 7 — recurrenceDepths (#260)", () => {
 
     const legacy = parseSummaryHiddenMetadata(
       [
-        "<!-- ai-code-review-factory",
+        "<!-- code-reviewer",
         JSON.stringify({
           schemaVersion: 6,
           runId: "run-6",
@@ -724,7 +722,7 @@ describe("#333 — findingTitles metadata", () => {
   test("parse: valid findingTitles entries are accepted", () => {
     const parsed = parseSummaryHiddenMetadata(
       [
-        "<!-- ai-code-review-factory",
+        "<!-- code-reviewer",
         JSON.stringify({
           schemaVersion: 8,
           runId: "run-8",
@@ -749,7 +747,7 @@ describe("#333 — findingTitles metadata", () => {
     const emptyAfterTrim = "   ";
     const parsed = parseSummaryHiddenMetadata(
       [
-        "<!-- ai-code-review-factory",
+        "<!-- code-reviewer",
         JSON.stringify({
           schemaVersion: 8,
           runId: "run-bad",
@@ -772,7 +770,7 @@ describe("#333 — findingTitles metadata", () => {
   test("parse: findingTitles absent → undefined (back-compat with older comments)", () => {
     const parsed = parseSummaryHiddenMetadata(
       [
-        "<!-- ai-code-review-factory",
+        "<!-- code-reviewer",
         JSON.stringify({
           schemaVersion: 7,
           runId: "run-7",
@@ -788,7 +786,7 @@ describe("#333 — findingTitles metadata", () => {
   test("placeholder: findingTitles recovered → createPriorReviewStateFromMetadata uses real title", () => {
     const parsed = parseSummaryHiddenMetadata(
       [
-        "<!-- ai-code-review-factory",
+        "<!-- code-reviewer",
         JSON.stringify({
           schemaVersion: 8,
           runId: "run-8",
@@ -814,7 +812,7 @@ describe("#333 — findingTitles metadata", () => {
   test("placeholder: no findingTitles → fallback 'Prior finding fnd_…' for all (no regression)", () => {
     const parsed = parseSummaryHiddenMetadata(
       [
-        "<!-- ai-code-review-factory",
+        "<!-- code-reviewer",
         JSON.stringify({
           schemaVersion: 7,
           runId: "run-7",

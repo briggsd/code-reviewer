@@ -16,7 +16,7 @@ import {
  * **never discovered from the reviewed repo**, so a reviewed repo cannot smuggle a reviewer in.
  *
  * The module is authored against the S02 public `defineReviewer`/`createReviewerDefinition`
- * (`ai-code-review-factory`). It may export either:
+ * (`@briggsd/code-reviewer`). It may export either:
  *
  *   - an array of `ReviewerDefinition` (default export or a named `reviewers` export), or
  *   - an `{ definitions, replace? }` object (default export or named `reviewers`),

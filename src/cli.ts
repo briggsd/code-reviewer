@@ -701,7 +701,7 @@ function hasFlag(args: string[], name: string): boolean {
 }
 
 function printHelp(): void {
-  console.log("ai-code-review-factory");
+  console.log("code-reviewer");
   console.log("");
   console.log("Commands:");
   console.log("  schemas                              Print reviewer/coordinator output schemas");

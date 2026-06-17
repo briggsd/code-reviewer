@@ -152,7 +152,7 @@ function githubFixtureFetch(): FetchLike {
           // Comment must be authored by the bot (id 77) to be loaded as prior state (#263).
           user: { id: 77, login: "ai-review-bot" },
           body: [
-            "<!-- ai-code-review-factory",
+            "<!-- code-reviewer",
             JSON.stringify({
               schemaVersion: 1,
               runId: "prior-github-run",
@@ -197,7 +197,7 @@ function gitlabFixtureFetch(): GitLabFetchLike {
           // Note must be authored by the bot (id 88) to be loaded as prior state (#263).
           author: { id: 88, username: "ai-review-bot" },
           body: [
-            "<!-- ai-code-review-factory",
+            "<!-- code-reviewer",
             JSON.stringify({
               schemaVersion: 1,
               runId: "prior-gitlab-run",

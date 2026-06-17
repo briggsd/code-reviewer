@@ -148,7 +148,7 @@ export class BitbucketVcsAdapter implements VcsAdapter {
   constructor(options: BitbucketVcsAdapterOptions = {}) {
     this.token = options.token;
     this.apiBaseUrl = (options.apiBaseUrl ?? "https://api.bitbucket.org/2.0").replace(/\/$/, "");
-    this.userAgent = options.userAgent ?? "ai-code-review-factory";
+    this.userAgent = options.userAgent ?? "code-reviewer";
     this.fetchImpl = options.fetch ?? fetch;
     this.http = new HttpJsonClient({
       baseUrl: this.apiBaseUrl,
@@ -260,7 +260,7 @@ export class BitbucketVcsAdapter implements VcsAdapter {
 
   async getPriorReviewState(ref: ChangeRef): Promise<PriorReviewState | undefined> {
     // Mirror the #84 bot-author guard: only load prior state from a comment authored by the
-    // bot itself. Any PR participant can post a comment with a crafted <!-- ai-code-review-factory -->
+    // bot itself. Any PR participant can post a comment with a crafted <!-- code-reviewer -->
     // block — without an author check, a forged comment would be loaded as prior state.
     // Safe-on-failure: if botUuid is unresolved, return undefined (first review) rather than
     // falling back to author-blind metadata selection (the unsafe direction).
@@ -337,7 +337,7 @@ export class BitbucketVcsAdapter implements VcsAdapter {
       const candidates = comments
         .filter(
           (comment) =>
-            comment.content?.raw?.includes("<!-- ai-code-review-factory") !== true &&
+            comment.content?.raw?.includes("<!-- code-reviewer") !== true &&
             breakGlassMatchesHead(comment.content?.raw, ref.headSha),
         )
         .reverse();
@@ -593,9 +593,9 @@ export class BitbucketVcsAdapter implements VcsAdapter {
   //
   // Bitbucket exposes ONE comments endpoint for both summary and inline comments (unlike GitHub's
   // separate issue/pull-review endpoints), so the summary scan must distinguish the two: the inline
-  // marker `<!-- ai-code-review-factory-inline` would match a bare `includes("<!-- ai-code-review-factory")`
+  // marker `<!-- code-reviewer-inline` would match a bare `includes("<!-- code-reviewer")`
   // substring. We therefore require the comment to parse as a real summary hidden-metadata block —
-  // `parseSummaryHiddenMetadata`'s regex requires `ai-code-review-factory\n` and so rejects the
+  // `parseSummaryHiddenMetadata`'s regex requires `code-reviewer\n` and so rejects the
   // `-inline` marker. Without this, an inline comment could be selected as the "existing summary",
   // losing prior review state (getPriorReviewState) or overwriting an inline comment (publishSummary).
   private isOwnSummaryComment(comment: BitbucketCommentResponse, botUuid: string): boolean {

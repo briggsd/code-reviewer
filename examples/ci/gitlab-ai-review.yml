@@ -6,7 +6,7 @@
 # -----------------------------------------
 # The recommended default is the GitLab generic package registry. The API
 # download endpoint (not the web-UI path) is what works as AI_REVIEW_PACKAGE:
-#   https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/<pkg>/<ver>/ai-code-review-factory.tgz
+#   https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/<pkg>/<ver>/code-reviewer.tgz
 # Publishing there uses JOB-TOKEN auth, so no GitHub personal access token is
 # needed in each pipeline run. A GitLab releases asset URL works too but
 # requires the same JOB-TOKEN fetch workaround for private projects.
@@ -36,7 +36,7 @@ stages:
   - review
 
 variables:
-  AI_REVIEW_PACKAGE: https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/ai-code-review-factory/0.2.0/ai-code-review-factory.tgz
+  AI_REVIEW_PACKAGE: https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/code-reviewer/0.2.0/code-reviewer.tgz
   AI_REVIEW_GITLAB_API_BASE_URL: "$CI_API_V4_URL"
   AI_REVIEW_DRY_RUN_RUNTIME: dummy
   AI_REVIEW_PUBLISH_RUNTIME: dummy
@@ -61,7 +61,7 @@ ai_review_dry_run:
     AI_REVIEW_GITLAB_TOKEN: $GITLAB_TOKEN_READ
   script:
     - >
-      ai-code-review run
+      code-reviewer run
       --provider gitlab
       --api-base-url "${AI_REVIEW_GITLAB_API_BASE_URL:-$CI_API_V4_URL}"
       --repo "$CI_PROJECT_PATH"
@@ -82,7 +82,7 @@ ai_review_publish_summary:
     AI_REVIEW_GITLAB_TOKEN: $GITLAB_TOKEN_WRITE
   script:
     - >
-      ai-code-review run
+      code-reviewer run
       --provider gitlab
       --api-base-url "${AI_REVIEW_GITLAB_API_BASE_URL:-$CI_API_V4_URL}"
       --repo "$CI_PROJECT_PATH"

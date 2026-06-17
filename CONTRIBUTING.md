@@ -1,4 +1,4 @@
-# Contributing to the AI Code Review Factory
+# Contributing to Code Reviewer
 
 Thanks for your interest in contributing! This project is a reusable, CI-native
 AI code review system for GitHub and GitLab. Contributions of all kinds are
@@ -19,8 +19,8 @@ Install Bun from <https://bun.sh> if you don't already have it.
 1. **Fork** this repository to your own account.
 2. **Clone** your fork and create a branch off `main`:
    ```bash
-   git clone https://github.com/<you>/ai-code-review-factory.git
-   cd ai-code-review-factory
+   git clone https://github.com/<you>/code-reviewer.git
+   cd code-reviewer
    git checkout -b my-change
    ```
 3. **Set up blame to skip the bulk-format commit.** A one-time mechanical Biome

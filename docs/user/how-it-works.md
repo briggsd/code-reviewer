@@ -1,12 +1,12 @@
 # How it works for adopters
 
-AI Code Review Factory is a CI-native review runner. Adopting projects install
+Code Reviewer is a CI-native review runner. Adopting projects install
 the packaged runner in their PR/MR pipeline and configure project policy with
 `.ai-review.json`; they do not fork the factory core.
 
 ## Review lifecycle
 
-A pull request or merge request starts a CI job. The job runs `ai-code-review`,
+A pull request or merge request starts a CI job. The job runs `code-reviewer`,
 which fetches change metadata and diffs through the GitHub or GitLab API,
 filters low-signal files, classifies the change by risk tier, builds shared
 context artifacts, runs the configured reviewers, synthesizes a summary, writes
@@ -17,7 +17,7 @@ At adopter altitude, the flow is:
 ```text
 PR/MR event
   -> CI job
-  -> ai-code-review runner
+  -> code-reviewer runner
   -> VCS metadata and diff fetch
   -> diff filtering and risk tiering
   -> specialist reviewers and coordinator

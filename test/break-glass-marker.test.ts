@@ -86,13 +86,7 @@ describe("breakGlassMatchesHead", () => {
   });
 
   test("bot footer mentioning break glass → false (first line is not the marker)", () => {
-    const botBody = [
-      "<!-- ai-code-review-factory",
-      "{}",
-      "-->",
-      "",
-      "break glass abc1234def56",
-    ].join("\n");
+    const botBody = ["<!-- code-reviewer", "{}", "-->", "", "break glass abc1234def56"].join("\n");
     expect(breakGlassMatchesHead(botBody, HEAD)).toBe(false);
   });
 });

@@ -10,6 +10,9 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
 
 ## [Unreleased]
 
+### Changed
+- Renamed the package to `@briggsd/code-reviewer` and the CLI bin to `code-reviewer`; the hidden review-summary metadata marker changed from `ai-code-review-factory` to `code-reviewer` (existing open PRs will get one fresh summary comment instead of an in-place update on the first review after upgrade).
+
 ### Added
 
 - Bitbucket Cloud is now a supported VCS provider. Pass `--provider bitbucket` with a Bearer
@@ -69,7 +72,7 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
 
 ## [0.1.0]
 
-Initial pre-registry baseline of the AI Code Review Factory.
+Initial pre-registry baseline of the Code Reviewer.
 
 ### Added
 
@@ -87,5 +90,5 @@ Initial pre-registry baseline of the AI Code Review Factory.
 - Pre-registry distribution as a Bun-backed npm tarball plus a quality stamp, built by the
   release artifact workflow; registry publish is deferred and `private: true` is intentional.
 
-[Unreleased]: https://github.com/briggsd/ai-code-review-factory/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/briggsd/ai-code-review-factory/releases/tag/v0.1.0
+[Unreleased]: https://github.com/briggsd/code-reviewer/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/briggsd/code-reviewer/releases/tag/v0.1.0

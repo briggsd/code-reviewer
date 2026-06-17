@@ -8,8 +8,8 @@ describe("GitHub Action wrapper", () => {
     expect(action).toContain("using: composite");
     expect(action).toContain("oven-sh/setup-bun@v2");
     expect(action).toContain('bun add --global "$AI_REVIEW_PACKAGE"');
-    expect(action).toContain("default: ai-code-review-factory@0.1.0");
-    expect(action).toContain('ai-code-review "${args[@]}"');
+    expect(action).toContain("default: @briggsd/code-reviewer@0.1.0");
+    expect(action).toContain('code-reviewer "${args[@]}"');
     expect(action).toContain("fixture:");
     expect(action).toContain('--fixture "$AI_REVIEW_FIXTURE"');
     expect(action).toContain("provider, repo, and change-id are required unless fixture is set");

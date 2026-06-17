@@ -1,6 +1,6 @@
 # Getting started for adopters
 
-This guide is the short path for wiring AI Code Review Factory into an existing
+This guide is the short path for wiring Code Reviewer into an existing
 GitHub or GitLab repository. It assumes you want CI to run the packaged review
 runner on pull requests or merge requests, keep the factory core unmodified, and
 control repo-specific behavior through a small `.ai-review.json`.

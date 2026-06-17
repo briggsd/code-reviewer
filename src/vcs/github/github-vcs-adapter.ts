@@ -126,7 +126,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
   constructor(options: GitHubVcsAdapterOptions = {}) {
     this.token = options.token;
     this.apiBaseUrl = (options.apiBaseUrl ?? "https://api.github.com").replace(/\/$/, "");
-    this.userAgent = options.userAgent ?? "ai-code-review-factory";
+    this.userAgent = options.userAgent ?? "code-reviewer";
     this.fetchImpl = options.fetch ?? fetch;
     this.http = new HttpJsonClient({
       baseUrl: this.apiBaseUrl,
@@ -238,7 +238,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
   async getPriorReviewState(ref: ChangeRef): Promise<PriorReviewState | undefined> {
     // Mirror the #84 bot-author guard from findExistingSummaryComment: only load prior state
     // from a comment authored by the bot itself. Any PR participant can post a comment with a
-    // crafted <!-- ai-code-review-factory --> block — without an author check, a forged comment
+    // crafted <!-- code-reviewer --> block — without an author check, a forged comment
     // would be loaded as prior state and influence convergence (#149), resolvedLog (#279), and
     // disposition (#256). Safe-on-failure: if botId is unresolved, return undefined (first review)
     // rather than falling back to the author-blind selection (the unsafe direction).
@@ -271,7 +271,7 @@ export class GitHubVcsAdapter implements VcsAdapter {
       // carries no association and forces the members/all lookup in the adapter below.
       const qualifying = comments.filter(
         (comment) =>
-          comment.body?.includes("<!-- ai-code-review-factory") !== true &&
+          comment.body?.includes("<!-- code-reviewer") !== true &&
           breakGlassMatchesHead(comment.body, ref.headSha) &&
           comment.author_association !== undefined &&
           GITHUB_TRUSTED_ASSOCIATIONS.has(comment.author_association),
@@ -517,16 +517,14 @@ export class GitHubVcsAdapter implements VcsAdapter {
   // This is the single trust point for both findExistingSummaryComment (publish dedup) and
   // getPriorReviewState (prior-state loading) — both paths must use the same predicate (#84/#263).
   private isOwnSummaryComment(comment: GitHubIssueCommentResponse, botId: number): boolean {
-    return (
-      comment.body?.includes("<!-- ai-code-review-factory") === true && comment.user?.id === botId
-    );
+    return comment.body?.includes("<!-- code-reviewer") === true && comment.user?.id === botId;
   }
 
   private async findExistingSummaryComment(
     change: ChangeMetadata,
   ): Promise<GitHubIssueCommentResponse | undefined> {
     // Only treat a BOT-authored comment as the existing summary to update (#84). An attacker who
-    // can comment could otherwise plant a `<!-- ai-code-review-factory` marker, get picked as the
+    // can comment could otherwise plant a `<!-- code-reviewer` marker, get picked as the
     // "existing" summary, and make publishSummary PATCH a comment the bot can't edit → 403 → the
     // whole summary post fails (suppression). Safe-on-failure: if botId is unresolved the filter
     // matches nothing → publishSummary POSTs a fresh comment (a possible duplicate, the safe

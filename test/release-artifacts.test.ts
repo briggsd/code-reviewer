@@ -82,7 +82,7 @@ describe("release artifact workflow", () => {
     expect(guide).toContain("immutable URL");
     expect(guide).toContain("internal/self-managed GitLab beta");
     expect(guide).toContain(
-      "https://gitlab.example.com/<your-org>/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz",
+      "https://gitlab.example.com/<your-org>/dev-tools/code-reviewer/-/releases/v0.1.0/downloads/briggsd-code-reviewer-0.1.0.tgz",
     );
     expect(readiness).toContain("manual release artifact workflow");
   });

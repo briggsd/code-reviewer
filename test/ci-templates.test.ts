@@ -11,9 +11,9 @@ describe("CI starter templates", () => {
     expect(workflow).toContain(
       "github.event.pull_request.head.repo.full_name == github.repository",
     );
-    expect(workflow).toContain("AI_REVIEW_PACKAGE: ai-code-review-factory@0.1.0");
+    expect(workflow).toContain("AI_REVIEW_PACKAGE: @briggsd/code-reviewer@0.1.0");
     expect(workflow).toContain('bun add --global "$AI_REVIEW_PACKAGE"');
-    expect(workflow).toContain("ai-code-review run");
+    expect(workflow).toContain("code-reviewer run");
     expect(workflow).toContain("--provider github");
     expect(workflow).toContain("--publish-summary");
     expect(workflow).not.toContain("--publish-inline");
@@ -35,7 +35,7 @@ describe("CI starter templates", () => {
       "github.event.pull_request.head.repo.full_name == github.repository",
     );
     expect(workflow).toContain(
-      "uses: briggsd/ai-code-review-factory@REPLACE_WITH_FULL_COMMIT_SHA_OR_IMMUTABLE_TAG",
+      "uses: briggsd/code-reviewer@REPLACE_WITH_FULL_COMMIT_SHA_OR_IMMUTABLE_TAG",
     );
     expect(workflow).toContain("package-source: ${{ env.AI_REVIEW_PACKAGE }}");
     expect(workflow).toContain('publish-summary: "true"');
@@ -109,9 +109,9 @@ describe("CI starter templates", () => {
     expect(pipeline).toContain("GITLAB_TOKEN_READ");
     expect(pipeline).toContain("GITLAB_TOKEN_WRITE");
     expect(pipeline).toContain(
-      "AI_REVIEW_PACKAGE: https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/ai-code-review-factory/0.2.0/ai-code-review-factory.tgz",
+      "AI_REVIEW_PACKAGE: https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/code-reviewer/0.2.0/code-reviewer.tgz",
     );
-    expect(pipeline).not.toContain("AI_REVIEW_PACKAGE: ai-code-review-factory@0.1.0");
+    expect(pipeline).not.toContain("AI_REVIEW_PACKAGE: @briggsd/code-reviewer@0.1.0");
     expect(pipeline).toContain('AI_REVIEW_GITLAB_API_BASE_URL: "$CI_API_V4_URL"');
     expect(pipeline).toContain("AI_REVIEW_DRY_RUN_RUNTIME: dummy");
     expect(pipeline).toContain("AI_REVIEW_PUBLISH_RUNTIME: dummy");
@@ -119,7 +119,7 @@ describe("CI starter templates", () => {
     expect(pipeline).toContain("expire_in: 14 days");
     expect(pipeline).toContain("artifacts: false");
     expect(pipeline).toContain('bun add --global "$AI_REVIEW_PACKAGE"');
-    expect(pipeline).toContain("ai-code-review run");
+    expect(pipeline).toContain("code-reviewer run");
     expect(pipeline).toContain("--provider gitlab");
     expect(pipeline).toContain('--api-base-url "${AI_REVIEW_GITLAB_API_BASE_URL:-$CI_API_V4_URL}"');
     expect(pipeline).toContain('--runtime "$AI_REVIEW_DRY_RUN_RUNTIME"');

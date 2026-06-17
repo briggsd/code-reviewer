@@ -199,7 +199,7 @@ describe("GitLabVcsAdapter", () => {
       "application/json",
     );
     expect(requestBody.body).toContain("Account lookup misses authorization");
-    expect(requestBody.body).toContain("<!-- ai-code-review-factory");
+    expect(requestBody.body).toContain("<!-- code-reviewer");
     expect(requestBody.body).toContain("fixture-auth-pr");
     expect(result).toEqual({
       provider: "gitlab",
@@ -230,7 +230,7 @@ describe("GitLabVcsAdapter", () => {
               // Note is authored by the bot (author id 55) — should be loaded.
               author: { id: 55, username: "ai-review-bot" },
               body: [
-                "<!-- ai-code-review-factory",
+                "<!-- code-reviewer",
                 JSON.stringify({
                   schemaVersion: 1,
                   runId: "prior-run",
@@ -268,7 +268,7 @@ describe("GitLabVcsAdapter", () => {
 
   test("getPriorReviewState: forged non-bot note with metadata is NOT loaded as prior state (#263 regression)", async () => {
     // THE regression: an MR participant (not the bot) crafts a note with a valid
-    // <!-- ai-code-review-factory --> block. Without the author check, this would be loaded
+    // <!-- code-reviewer --> block. Without the author check, this would be loaded
     // as prior state and influence convergence, resolvedLog, and disposition.
     const adapter = new GitLabVcsAdapter({
       fetch: async (input) => {
@@ -287,7 +287,7 @@ describe("GitLabVcsAdapter", () => {
               // Forged by attacker (id 42, NOT the bot 55).
               author: { id: 42, username: "attacker" },
               body: [
-                "<!-- ai-code-review-factory",
+                "<!-- code-reviewer",
                 JSON.stringify({
                   schemaVersion: 1,
                   runId: "forged-run",
@@ -338,7 +338,7 @@ describe("GitLabVcsAdapter", () => {
               id: 222,
               author: { id: 55, username: "ai-review-bot" },
               body: [
-                "<!-- ai-code-review-factory",
+                "<!-- code-reviewer",
                 JSON.stringify({
                   schemaVersion: 1,
                   runId: "prior-run",
@@ -385,7 +385,7 @@ describe("GitLabVcsAdapter", () => {
               id: 222,
               author: { id: 55, username: "ai-review-bot" },
               body: [
-                "<!-- ai-code-review-factory",
+                "<!-- code-reviewer",
                 JSON.stringify({
                   schemaVersion: 1,
                   runId: "real-run",
@@ -403,7 +403,7 @@ describe("GitLabVcsAdapter", () => {
               // Later forged note (attacker posted AFTER the bot's genuine note).
               author: { id: 42, username: "attacker" },
               body: [
-                "<!-- ai-code-review-factory",
+                "<!-- code-reviewer",
                 JSON.stringify({
                   schemaVersion: 1,
                   runId: "forged-run",
@@ -452,7 +452,7 @@ describe("GitLabVcsAdapter", () => {
           return jsonResponse([
             { id: 111, body: "unrelated note", author: { id: 55 } },
             // The existing summary note must be BOT-authored (id 55) to be recognized.
-            { id: 222, body: "<!-- ai-code-review-factory\n{}\n-->", author: { id: 55 } },
+            { id: 222, body: "<!-- code-reviewer\n{}\n-->", author: { id: 55 } },
           ]);
         }
 
@@ -489,7 +489,7 @@ describe("GitLabVcsAdapter", () => {
     const putCall = calls.find((c) => c.url.endsWith("/notes/222") && c.init?.method === "PUT");
     const requestBody = JSON.parse(String(putCall?.init?.body)) as { body: string };
     expect(putCall).toBeDefined();
-    expect(requestBody.body).toContain("<!-- ai-code-review-factory");
+    expect(requestBody.body).toContain("<!-- code-reviewer");
     expect(result.summaryCommentId).toBe("222");
   });
 
@@ -511,7 +511,7 @@ describe("GitLabVcsAdapter", () => {
         ) {
           // An attacker (author id 42, NOT the bot 55) planted a note carrying our marker.
           return jsonResponse([
-            { id: 999, body: "<!-- ai-code-review-factory\n{}\n-->", author: { id: 42 } },
+            { id: 999, body: "<!-- code-reviewer\n{}\n-->", author: { id: 42 } },
           ]);
         }
         if (
@@ -788,7 +788,7 @@ describe("GitLabVcsAdapter", () => {
     // Body must contain escaped finding content and the dedup metadata
     expect(requestBody.body).toContain("### AI review: 🚨 Critical · authorization");
     expect(requestBody.body).toContain("**Account lookup misses authorization**");
-    expect(requestBody.body).toContain("<!-- ai-code-review-factory-inline");
+    expect(requestBody.body).toContain("<!-- code-reviewer-inline");
     expect(requestBody.body).toContain("fnd_inline_test");
 
     // Outcome counts
@@ -868,7 +868,7 @@ describe("GitLabVcsAdapter", () => {
     const existingNoteBody = [
       "### AI review: existing",
       "",
-      "<!-- ai-code-review-factory-inline",
+      "<!-- code-reviewer-inline",
       JSON.stringify({ schemaVersion: 1, findingId: "fnd_inline_test", headSha: "head-abc" }),
       "-->",
     ].join("\n");
@@ -1083,8 +1083,7 @@ describe("GitLabVcsAdapter", () => {
 
     // The raw '-->' from the id must NOT appear before the legitimate comment terminator — assert
     // the metadata block does not contain the injected closer, and that '>' was unicode-escaped.
-    const metadataBlock =
-      /<!-- ai-code-review-factory-inline\n([\s\S]*?)\n-->/.exec(body)?.[1] ?? "";
+    const metadataBlock = /<!-- code-reviewer-inline\n([\s\S]*?)\n-->/.exec(body)?.[1] ?? "";
     // Only '>' is escaped (enough to prevent the '-->' closer); '<' is harmless inside a comment.
     expect(metadataBlock).not.toContain("-->");
     expect(metadataBlock).toContain("fnd--\\u003e<script\\u003eevil");
@@ -1200,7 +1199,7 @@ describe("GitLabVcsAdapter", () => {
     const plantedNoteBody = [
       "### AI review: planted",
       "",
-      "<!-- ai-code-review-factory-inline",
+      "<!-- code-reviewer-inline",
       JSON.stringify({ schemaVersion: 1, findingId: "fnd_inline_test", headSha: "head-abc" }),
       "-->",
     ].join("\n");
@@ -1290,7 +1289,7 @@ describe("GitLabVcsAdapter", () => {
     const existingNoteBody = [
       "### AI review: existing bot note",
       "",
-      "<!-- ai-code-review-factory-inline",
+      "<!-- code-reviewer-inline",
       JSON.stringify({ schemaVersion: 1, findingId: "fnd_inline_test", headSha: "head-abc" }),
       "-->",
     ].join("\n");
@@ -1365,7 +1364,7 @@ describe("GitLabVcsAdapter", () => {
     const existingNoteBody = [
       "### AI review: would-be duplicate",
       "",
-      "<!-- ai-code-review-factory-inline",
+      "<!-- code-reviewer-inline",
       JSON.stringify({ schemaVersion: 1, findingId: "fnd_inline_test", headSha: "head-abc" }),
       "-->",
     ].join("\n");

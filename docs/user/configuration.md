@@ -285,14 +285,14 @@ stays off. Both steps are required:
 
 1. Add the repo **Secret** `AI_REVIEW_LOKI_BASIC_AUTH` (credentials → always a Secret) and the
    **Secret or Variable** `AI_REVIEW_LOKI_URL`.
-2. Reference them in the `env:` of the step that runs `ai-code-review`:
+2. Reference them in the `env:` of the step that runs `code-reviewer`:
    ```yaml
    - name: Run review
      env:
        # …existing token/provider env…
        AI_REVIEW_LOKI_URL: ${{ secrets.AI_REVIEW_LOKI_URL || vars.AI_REVIEW_LOKI_URL }}
        AI_REVIEW_LOKI_BASIC_AUTH: ${{ secrets.AI_REVIEW_LOKI_BASIC_AUTH }}
-     run: ai-code-review run …
+     run: code-reviewer run …
    ```
    (For the **generic HTTP** exporter, map `AI_REVIEW_TELEMETRY_URL` / `AI_REVIEW_TELEMETRY_BASIC_AUTH`
    the same way — the mechanism is identical per namespace.)

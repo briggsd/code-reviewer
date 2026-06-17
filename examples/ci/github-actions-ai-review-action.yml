@@ -13,7 +13,7 @@ permissions:
   pull-requests: read
 
 env:
-  AI_REVIEW_PACKAGE: https://example.invalid/releases/download/v0.1.0/ai-code-review-factory-0.1.0.tgz
+  AI_REVIEW_PACKAGE: https://example.invalid/releases/download/v0.1.0/briggsd-code-reviewer-0.1.0.tgz
   AI_REVIEW_ACTION_REF: REPLACE_WITH_FULL_COMMIT_SHA_OR_IMMUTABLE_TAG
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
 
       - name: Run AI review without write-back
-        uses: briggsd/ai-code-review-factory@REPLACE_WITH_FULL_COMMIT_SHA_OR_IMMUTABLE_TAG
+        uses: briggsd/code-reviewer@REPLACE_WITH_FULL_COMMIT_SHA_OR_IMMUTABLE_TAG
         env:
           AI_REVIEW_GITHUB_TOKEN: ${{ github.token }}
         with:
@@ -63,7 +63,7 @@ jobs:
           persist-credentials: false
 
       - name: Publish AI review summary for same-repo PR
-        uses: briggsd/ai-code-review-factory@REPLACE_WITH_FULL_COMMIT_SHA_OR_IMMUTABLE_TAG
+        uses: briggsd/code-reviewer@REPLACE_WITH_FULL_COMMIT_SHA_OR_IMMUTABLE_TAG
         env:
           AI_REVIEW_GITHUB_TOKEN: ${{ github.token }}
         with:

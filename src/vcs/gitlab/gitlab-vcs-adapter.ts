@@ -238,7 +238,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
   async getPriorReviewState(ref: ChangeRef): Promise<PriorReviewState | undefined> {
     // Mirror the #84 bot-author guard from findExistingSummaryNote: only load prior state
     // from a note authored by the bot itself. Any MR participant can post a note with a
-    // crafted <!-- ai-code-review-factory --> block — without an author check, a forged note
+    // crafted <!-- code-reviewer --> block — without an author check, a forged note
     // would be loaded as prior state and influence convergence (#149), resolvedLog (#279), and
     // disposition (#256). Safe-on-failure: if botId is unresolved, return undefined (first review)
     // rather than falling back to the author-blind selection (the unsafe direction).
@@ -324,7 +324,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
         .filter(
           (note) =>
             note.system !== true &&
-            note.body?.includes("<!-- ai-code-review-factory") !== true &&
+            note.body?.includes("<!-- code-reviewer") !== true &&
             breakGlassMatchesHead(note.body, ref.headSha),
         )
         .reverse();
@@ -644,7 +644,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
   private isOwnSummaryNote(note: GitLabNoteResponse, botId: number): boolean {
     return (
       note.system !== true &&
-      note.body?.includes("<!-- ai-code-review-factory") === true &&
+      note.body?.includes("<!-- code-reviewer") === true &&
       note.author?.id === botId
     );
   }
@@ -653,7 +653,7 @@ export class GitLabVcsAdapter implements VcsAdapter {
     change: ChangeMetadata,
   ): Promise<GitLabNoteResponse | undefined> {
     // Only treat a BOT-authored note as the existing summary to update (#84). A planted
-    // `<!-- ai-code-review-factory` marker from another author would otherwise be picked as the
+    // `<!-- code-reviewer` marker from another author would otherwise be picked as the
     // "existing" summary and make publishSummary PUT a note the bot can't edit → the summary post
     // fails (suppression). Safe-on-failure: an unresolved botId matches nothing → a fresh note is
     // POSTed (possible duplicate, the safe direction) rather than editing an unverified one.

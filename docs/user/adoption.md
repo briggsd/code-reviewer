@@ -1,6 +1,6 @@
 # Adoption guide
 
-Use this guide when wiring AI Code Review Factory into another repository. For the internal/self-managed GitLab beta operator checklist, see [Internal/self-managed GitLab beta onboarding](internal-gitlab-beta.md).
+Use this guide when wiring Code Reviewer into another repository. For the internal/self-managed GitLab beta operator checklist, see [Internal/self-managed GitLab beta onboarding](internal-gitlab-beta.md).
 
 ## Recommended adoption path
 
@@ -15,7 +15,7 @@ Use this guide when wiring AI Code Review Factory into another repository. For t
 
 ```yaml
 env:
-  AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz
+  AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/code-reviewer/-/releases/v0.1.0/downloads/briggsd-code-reviewer-0.1.0.tgz
 
 jobs:
   dry-run:
@@ -31,7 +31,7 @@ jobs:
           bun-version: 1.3.0
       - run: bun add --global "$AI_REVIEW_PACKAGE"
       - run: |
-          ai-code-review run \
+          code-reviewer run \
             --provider github \
             --repo "${{ github.repository }}" \
             --change-id "${{ github.event.pull_request.number }}" \
@@ -48,14 +48,14 @@ For Bitbucket Pipelines, use `--provider bitbucket` with `AI_REVIEW_BITBUCKET_TO
 > **The summary comment's visible Markdown is not a stable interface.** Its layout changed
 > in #33 (grouped by reviewer, collapsed details) and may change again. Tooling that needs
 > the decision, outcome, or finding data programmatically should read the run artifacts
-> (`run.json` / `summary.json`) or the hidden `<!-- ai-code-review-factory -->` metadata
+> (`run.json` / `summary.json`) or the hidden `<!-- code-reviewer -->` metadata
 > block — those are the stable surfaces; never parse the human-facing comment text.
 
 ## What has been live-tested
 
 - **GitHub same-repository summary publishing:** PR #2 verified dry-run, artifact upload, same-repo summary publishing, and idempotent update of a single bot summary comment.
 - **GitHub re-review metadata:** seeded provider-backed publishes against PR #2 verified new, recurring, and fixed finding classification from hidden metadata.
-- **Packaged external install:** `bun run smoke:external-package` verifies isolated Bun global install plus installed `ai-code-review` execution; a live GitHub provider-backed variant has run successfully.
+- **Packaged external install:** `bun run smoke:external-package` verifies isolated Bun global install plus installed `code-reviewer` execution; a live GitHub provider-backed variant has run successfully.
 - **Packaged Pi runtime:** `AI_REVIEW_LIVE_PI=1 bun run smoke:pi` has run successfully through the packed CLI and Pi JSON mode, producing `run.json`, `summary.json`, and `trace.jsonl` artifacts.
 - **Failure observability:** tests simulate runtime failure and assert persisted `run.json.error` plus a terminal `review.failed` trace event.
 - **GitHub inline publishing:** unit/adapter coverage verifies readiness gating, GitHub review comment creation, skipped reasons, and duplicate suppression. Live smoke status is tracked in `inline-publishing.md` and `workflow-smoke-test.md`.
@@ -75,7 +75,7 @@ For Bitbucket Pipelines, use `--provider bitbucket` with `AI_REVIEW_BITBUCKET_TO
 
 - **Oversized diffs degrade gracefully instead of hard-failing (#145).** Previously a diff that exceeded the model context limit failed the run with a non-retryable `context_overflow` (no summary produced). Now a **patch-admission gate** runs before the model call: when total (post-deletion-pruning) patch bytes exceed the per-tier `patchBudgets` budget (defaults: trivial 64 KB / lite 512 KB / full 4 MB — see [configuration.md](configuration.md)), the review still completes but ranks files **signal-aware** — signal-bearing logic files are admitted first (regardless of size), then the remaining budget is filled smallest-first — and demotes the overflow to **name + line-stat only**, with low-signal bulk (test fixtures, snapshots, generated data) demoted preferentially (#218, M021). The published comment then carries a prominent **`⚠️ Partial review by size`** block listing the omitted files. **What to expect on upgrade:** a large PR/MR that used to show a red `context_overflow` failure will instead show a green/partial review with that warning block — this is the new expected behavior, not a silent regression. In a fixture-heavy diff, the logic now wins the byte budget over smaller fixtures (so `code_quality` converges instead of being crowded out). **Low-signal classification rules (#218):** a file is treated as low-signal when its path has a `__snapshots__/` segment, ends in `*.snap`/`*.golden`, lives under `examples/fixtures/`, or is a `.json`/`.jsonl`/`.txt`/`.csv` data file under a `fixtures/`/`__fixtures__/` segment. Test *logic* (`*.test.ts`/`*.spec.ts`), any `.ts`/`.js` source, and files matched by `sensitivePaths` are **never** low-signal. This rule set is **not user-configurable** (it is internal to the factory, not a `.ai-review.json` key) — the only adopter lever is `patchBudgets`: a repo whose `fixtures/` dirs hold large *signal-bearing* data can raise the relevant tier budget so nothing is demoted. `context_overflow` remains only as the safety net for genuine post-degradation model overflow.
 
-- **Hidden-metadata `schemaVersion` bump 3 → 4 (#145).** The `<!-- ai-code-review-factory … -->` metadata block embedded in the published comment now reports `schemaVersion: 4` and may carry a new optional `partialBySize` counts block (admitted/dropped file counts and byte totals; **counts only — no paths or content cross this boundary**). The bump is **additive and backward-compatible**: parsers that ignore unknown keys are unaffected. **Action:** any tooling that asserts an exact `schemaVersion === 3` on the metadata block must be updated to accept `>= 3` (or `4`).
+- **Hidden-metadata `schemaVersion` bump 3 → 4 (#145).** The `<!-- code-reviewer … -->` metadata block embedded in the published comment now reports `schemaVersion: 4` and may carry a new optional `partialBySize` counts block (admitted/dropped file counts and byte totals; **counts only — no paths or content cross this boundary**). The bump is **additive and backward-compatible**: parsers that ignore unknown keys are unaffected. **Action:** any tooling that asserts an exact `schemaVersion === 3` on the metadata block must be updated to accept `>= 3` (or `4`).
 
 - **Hidden-metadata `schemaVersion` bump 4 → 5 (#149).** The metadata block now reports `schemaVersion: 5` and adds an optional `findingsHash` field: a 16-hex-character SHA-256 prefix of the sorted stable finding-ID set (empty string when there are no findings). The hash lets tooling detect a stable finding set across re-reviews without comparing full ID arrays. The bump is **additive and backward-compatible**: parsers that ignore unknown keys are unaffected. **Action:** any tooling that asserts an exact `schemaVersion === 4` on the metadata block must be updated to accept `>= 4` (or `5`). **Operator note:** when a re-review detects that the finding set is unchanged since the last review (converged — all prior findings are recurring, none new/fixed/withheld), the summary comment re-post is **suppressed** to avoid noise. CI status and exit code are never affected by convergence. To force a re-post regardless, pass `--force-review` to the CLI.
 

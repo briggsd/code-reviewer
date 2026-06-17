@@ -2,7 +2,7 @@
 
 The normal test suite never calls Pi, a model provider, or the network. It uses fake process runners for the Pi adapter.
 
-Use the live smoke test only when you intentionally want to verify the packaged `ai-code-review` CLI, local `pi` CLI, provider credentials, JSON-mode adapter, trace writing, and structured output prompts end-to-end.
+Use the live smoke test only when you intentionally want to verify the packaged `code-reviewer` CLI, local `pi` CLI, provider credentials, JSON-mode adapter, trace writing, and structured output prompts end-to-end.
 
 ## Run
 
@@ -36,11 +36,11 @@ Artifacts are written under:
 
 On runtime/model/schema failure after context construction, `run.json` is still written with `error`, `completedAt`, `context`, and `tracePath`, and `trace.jsonl` ends with a structured `review.failed` event containing `phase: "agent_runtime"`, the error name, and the error message. Inspect those artifacts before rerunning; they should identify whether the failure was a Pi process error, timeout, malformed JSON, or unrecoverable schema drift.
 
-When enabled, the script packs the current trusted checkout with `npm pack`, installs the tarball into an isolated Bun global directory, creates an adopter-like temporary working directory, and invokes the installed `ai-code-review run --runtime pi` binary. The temporary adopter directory includes an `AGENTS.md` trap file; the Pi adapter's `--no-context-files --no-extensions --no-skills --no-prompt-templates --no-approve --no-session` flags are expected to keep project-local (reviewed-repo) resources out of the model context. Note the distinction (M015 S03, #126): `--no-extensions` turns off reviewed-repo extension *discovery*, but the adapter *separately* loads one trusted, factory-owned extension by explicit path (`--extension <submit-findings path>`) — an explicit `-e`/`--extension` still loads under `--no-extensions`. So "no extensions" means "no reviewed-repo extensions," not "no extensions at all" — see `fork-safety.md`.
+When enabled, the script packs the current trusted checkout with `npm pack`, installs the tarball into an isolated Bun global directory, creates an adopter-like temporary working directory, and invokes the installed `code-reviewer run --runtime pi` binary. The temporary adopter directory includes an `AGENTS.md` trap file; the Pi adapter's `--no-context-files --no-extensions --no-skills --no-prompt-templates --no-approve --no-session` flags are expected to keep project-local (reviewed-repo) resources out of the model context. Note the distinction (M015 S03, #126): `--no-extensions` turns off reviewed-repo extension *discovery*, but the adapter *separately* loads one trusted, factory-owned extension by explicit path (`--extension <submit-findings path>`) — an explicit `-e`/`--extension` still loads under `--no-extensions`. So "no extensions" means "no reviewed-repo extensions," not "no extensions at all" — see `fork-safety.md`.
 
 ## What it exercises
 
-- Packaged `ai-code-review` binary execution
+- Packaged `code-reviewer` binary execution
 - `PiAgentRuntime`
 - `BunPiProcessRunner`
 - `pi --mode json --print` (prompt piped via STDIN, not argv — M015 S03, #126)
@@ -64,7 +64,7 @@ Safety properties:
 - The job is guarded to `refs/heads/main` so secrets are not exposed to arbitrary branch workflow edits.
 - The `run_live_pi` input defaults to `false`; the default run exercises the no-op safety path.
 - The workflow installs Pi with `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`.
-- The enabled path installs and runs the packed `ai-code-review` CLI rather than calling `bun run src/cli.ts`.
+- The enabled path installs and runs the packed `code-reviewer` CLI rather than calling `bun run src/cli.ts`.
 - Provider secrets are only referenced by this manual workflow job.
 
 To run a real live smoke in GitHub Actions:

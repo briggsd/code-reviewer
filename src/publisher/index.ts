@@ -1,5 +1,5 @@
 // inline-comment-markdown.ts is intentionally NOT re-exported here: it encodes the exact wire
-// format of the `ai-code-review-factory-inline` dedup metadata (incl. the security-sensitive
+// format of the `code-reviewer-inline` dedup metadata (incl. the security-sensitive
 // parser), which must not become part of the package's public API surface (#82 review). The
 // adapters import it via its direct file path; tests do the same.
 export * from "./inline-readiness.ts";

@@ -1,12 +1,12 @@
 # GitHub Action wrapper
 
-`action.yml` provides a thin GitHub Action wrapper around the packaged `ai-code-review` CLI. It is for adopters who prefer `uses:` syntax over manually installing Bun and running `ai-code-review run` in every workflow.
+`action.yml` provides a thin GitHub Action wrapper around the packaged `code-reviewer` CLI. It is for adopters who prefer `uses:` syntax over manually installing Bun and running `code-reviewer run` in every workflow.
 
 The wrapper does not implement review logic. It:
 
 1. sets up Bun,
 2. installs `inputs.package-source` with `bun add --global`,
-3. builds an `ai-code-review run ...` command from explicit inputs,
+3. builds a `code-reviewer run ...` command from explicit inputs,
 4. runs the packaged CLI.
 
 ## CLI template vs Action wrapper
@@ -29,10 +29,10 @@ Pin both surfaces immutably:
 
 ```yaml
 env:
-  AI_REVIEW_PACKAGE: https://example.invalid/releases/download/v0.1.0/ai-code-review-factory-0.1.0.tgz
+  AI_REVIEW_PACKAGE: https://example.invalid/releases/download/v0.1.0/briggsd-code-reviewer-0.1.0.tgz
 
 steps:
-  - uses: briggsd/ai-code-review-factory@<full-commit-sha-or-immutable-tag>
+  - uses: briggsd/code-reviewer@<full-commit-sha-or-immutable-tag>
     with:
       package-source: ${{ env.AI_REVIEW_PACKAGE }}
       provider: github
@@ -69,4 +69,4 @@ Run the local wrapper/package smoke with:
 bun run smoke:action-wrapper
 ```
 
-The script packs the current checkout, installs the tarball into an isolated Bun global directory, and runs the installed `ai-code-review` binary against a fixture. This verifies the same package install/run boundary the composite wrapper uses without requiring provider credentials.
+The script packs the current checkout, installs the tarball into an isolated Bun global directory, and runs the installed `code-reviewer` binary against a fixture. This verifies the same package install/run boundary the composite wrapper uses without requiring provider credentials.

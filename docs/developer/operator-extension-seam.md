@@ -164,7 +164,7 @@ needed to make free-form roles safe; the seam inherits the existing identity gua
 
 ## What this note settles for S02/S03
 
-- **S02 (#175)** commits the public API surface: the package root import (`ai-code-review-factory`,
+- **S02 (#175)** commits the public API surface: the package root import (`@briggsd/code-reviewer`,
   mapped via `package.json` `"exports": { ".": "./src/public.ts" }`) exposes the functions
   `defineReviewer` / `createReviewerDefinition` (alias) and the types `ReviewerDefinition`,
   `DefineReviewerInput` (the `defineReviewer` argument shape), and `Severity` (referenced by

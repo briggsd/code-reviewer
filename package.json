@@ -1,22 +1,22 @@
 {
-  "name": "ai-code-review-factory",
+  "name": "@briggsd/code-reviewer",
   "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Reusable CI-native AI code review system for GitHub and GitLab projects.",
-  "homepage": "https://github.com/briggsd/ai-code-review-factory#readme",
+  "homepage": "https://github.com/briggsd/code-reviewer#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/briggsd/ai-code-review-factory.git"
+    "url": "git+https://github.com/briggsd/code-reviewer.git"
   },
   "bugs": {
-    "url": "https://github.com/briggsd/ai-code-review-factory/issues"
+    "url": "https://github.com/briggsd/code-reviewer/issues"
   },
   "exports": {
     ".": "./src/public.ts"
   },
   "bin": {
-    "ai-code-review": "./src/cli.ts"
+    "code-reviewer": "./src/cli.ts"
   },
   "scripts": {
     "review:local": "bun run src/cli.ts run --git-diff",
@@ -71,7 +71,7 @@
     "ai-review"
   ],
   "license": "Apache-2.0",
-  "author": "The AI Code Review Factory Authors",
+  "author": "The Code Reviewer Authors",
   "devDependencies": {
     "@biomejs/biome": "2.4.16",
     "@types/bun": "^1.3.14",

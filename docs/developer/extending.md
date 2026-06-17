@@ -94,7 +94,7 @@ reviewed repo (same lockout shape as the Pi `--extension`; see `../user/fork-saf
 "Operator reviewer extensions" and `operator-extension-seam.md` for the full design).
 
 **1. Author the module** against the public API. The package root export
-(`ai-code-review-factory`, mapped to `src/public.ts`) exposes `defineReviewer`
+(`@briggsd/code-reviewer`, mapped to `src/public.ts`) exposes `defineReviewer`
 (alias `createReviewerDefinition`) and the `DefineReviewerInput` / `ReviewerDefinition` /
 `Severity` types. `defineReviewer` validates the input and injects the trusted shared
 mandatory rules (anti-prompt-injection plus cross-cutting soundness constraints — e.g. the
@@ -103,7 +103,7 @@ judgment-shaping fields:
 
 ```ts
 // my-reviewers.ts
-import { defineReviewer } from "ai-code-review-factory";
+import { defineReviewer } from "@briggsd/code-reviewer";
 
 export default [   // or: `export const reviewers = [ … ]` — both names are accepted
   defineReviewer({
@@ -136,7 +136,7 @@ export default {
 **2. Load it in your CI** — applies to every `run` form:
 
 ```bash
-ai-code-review run --reviewers ./my-reviewers.ts   # + your usual flags
+code-reviewer run --reviewers ./my-reviewers.ts   # + your usual flags
 ```
 
 **3. Merge semantics** (`mergeReviewerDefinitions`, operator-wins by role): a new role
@@ -166,7 +166,7 @@ Start with the required four (metadata fetch, diff fetch, prior-state read, summ
 
 - **Unified diff parsing:** `parseUnifiedDiff` from `src/shared/unified-diff.ts`. It lives in `src/shared/` (not `src/vcs/shared/`) because `src/runner` also calls it via `context-artifacts.ts`; any diff parser shared with the runner must live there, not in `src/vcs/shared/`.
 - **HTTP client:** `HttpJsonClient` (and `HttpRequestError`) from `src/vcs/shared/http-json-client.ts`. Use `requestAllPagesCursor` for cursor-based pagination (Bitbucket uses `next` links) and `requestAllPages` for offset/Link-header pagination (GitHub/GitLab).
-- **Summary metadata:** `parseSummaryHiddenMetadata` and `createPriorReviewStateFromMetadata` from `src/publisher/summary-metadata.ts`. Parse the hidden `<!-- ai-code-review-factory -->` block from the existing PR/MR comment to reconstruct prior review state.
+- **Summary metadata:** `parseSummaryHiddenMetadata` and `createPriorReviewStateFromMetadata` from `src/publisher/summary-metadata.ts`. Parse the hidden `<!-- code-reviewer -->` block from the existing PR/MR comment to reconstruct prior review state.
 - **Summary and inline formatters:** `formatReviewSummaryMarkdown` from `src/publisher/summary-markdown.ts` and `formatInlineFindingComment` / `inlineCommentKey` / `parseInlineCommentMetadata` from `src/publisher/inline-comment-markdown.ts`.
 - **Break-glass detection:** `src/vcs/break-glass-marker.ts` — `breakGlassMatchesHead`, `mapBitbucketPermission` (or the GitHub/GitLab equivalents), and the provider-specific `TRUSTED_PERMISSIONS` set.
 

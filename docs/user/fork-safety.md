@@ -64,10 +64,10 @@ The distinction is *discovery* vs *explicit load*, not "no extensions at all." T
 Operators may register their own reviewer definitions without forking the core (M017 S03, #143).
 This reuses the **discovery-vs-explicit-load** distinction verbatim: just like the one factory-owned
 Pi extension above, an operator reviewer module is loaded only from an **explicit, operator-supplied
-path** (`ai-code-review run … --reviewers <path>`), resolved in the trusted operator's own CI. It is
+path** (`code-reviewer run … --reviewers <path>`), resolved in the trusted operator's own CI. It is
 **never auto-discovered from the reviewed repo**, so a reviewed repository cannot smuggle a reviewer
 in — there is no discovery path to honor, only the operator's explicit flag. The module is authored
-against the public `defineReviewer`/`createReviewerDefinition` factory (the `ai-code-review-factory`
+against the public `defineReviewer`/`createReviewerDefinition` factory (the `@briggsd/code-reviewer`
 package root export).
 
 The loaded definitions are **merged onto the factory's trusted set, operator-wins by role**: a new
@@ -131,7 +131,7 @@ rules:
   - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID'
 ```
 
-Do not assume `CI_JOB_TOKEN` can publish comments/notes. Use separate read and write token variables such as `GITLAB_TOKEN_READ` and `GITLAB_TOKEN_WRITE`, and keep write tokens protected/scoped. On self-managed GitLab, pass the instance API endpoint from `$CI_API_V4_URL` (or an explicitly configured `AI_REVIEW_GITLAB_API_BASE_URL`) to `ai-code-review run --api-base-url`; do not let templates silently fall back to GitLab.com.
+Do not assume `CI_JOB_TOKEN` can publish comments/notes. Use separate read and write token variables such as `GITLAB_TOKEN_READ` and `GITLAB_TOKEN_WRITE`, and keep write tokens protected/scoped. On self-managed GitLab, pass the instance API endpoint from `$CI_API_V4_URL` (or an explicitly configured `AI_REVIEW_GITLAB_API_BASE_URL`) to `code-reviewer run --api-base-url`; do not let templates silently fall back to GitLab.com.
 
 **Single project access token (internal projects).** The READ/WRITE split is the recommended default: it limits blast radius if the read token is compromised. For internal projects where a single token is easier to manage, a project access token with both read and write scope covers both jobs. Set it as both `GITLAB_TOKEN_READ` and `GITLAB_TOKEN_WRITE`. The fork-safety guard (`$CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID`) still prevents write-back on fork pipelines regardless of which token pattern you use. This is an opt-in convenience for internal setups, not the hardened default.
 

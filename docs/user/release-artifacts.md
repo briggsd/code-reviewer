@@ -50,7 +50,7 @@ After a maintainer downloads or attaches the generated tarball to an internal re
 
 ```yaml
 env:
-  AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz
+  AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/code-reviewer/-/releases/v0.1.0/downloads/briggsd-code-reviewer-0.1.0.tgz
 ```
 
 For a self-managed GitLab beta, host the tarball as an internal release asset or generic package file reachable by beta CI runners. Keep the URL versioned and immutable, and record the tarball filename plus source commit SHA in the beta rollout notes. Do not use mutable branches, floating tags, or `latest` for adopter CI. The installed review toolchain must be reproducible from CI logs.

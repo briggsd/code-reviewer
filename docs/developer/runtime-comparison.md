@@ -2,7 +2,7 @@
 
 ## Reader and post-read action
 
-**Reader:** an engineer choosing the first agent runtime adapter for the AI Code Review Factory.
+**Reader:** an engineer choosing the first agent runtime adapter for Code Reviewer.
 
 **After reading, they should be able to:** decide whether the MVP should start with an OpenCode adapter, a Pi adapter, or a runtime-neutral interface with both implementations behind it.
 

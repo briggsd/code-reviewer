@@ -167,7 +167,7 @@ describe("GitHubVcsAdapter", () => {
       "application/json",
     );
     expect(requestBody.body).toContain("Account lookup misses authorization");
-    expect(requestBody.body).toContain("<!-- ai-code-review-factory");
+    expect(requestBody.body).toContain("<!-- code-reviewer");
     expect(requestBody.body).toContain("fixture-auth-pr");
     expect(result).toEqual({
       provider: "github",
@@ -272,7 +272,7 @@ describe("GitHubVcsAdapter", () => {
     expect(String(requestBody.body)).toContain(
       "CI status and the summary comment remain authoritative",
     );
-    expect(String(requestBody.body)).toContain("<!-- ai-code-review-factory-inline");
+    expect(String(requestBody.body)).toContain("<!-- code-reviewer-inline");
     expect(String(requestBody.body)).toContain("fnd_auth_missing_owner_check");
     expect(String(requestBody.body)).toContain("abc123");
     expect(String(requestBody.body)).toContain("example/payments-api");
@@ -379,7 +379,7 @@ describe("GitHubVcsAdapter", () => {
               body: [
                 "### AI review: Account lookup misses authorization",
                 "",
-                "<!-- ai-code-review-factory-inline",
+                "<!-- code-reviewer-inline",
                 JSON.stringify({
                   schemaVersion: 1,
                   findingId: "fnd_auth_missing_owner_check",
@@ -458,12 +458,12 @@ describe("GitHubVcsAdapter", () => {
           return jsonResponse([
             {
               id: 111,
-              body: "<!-- ai-code-review-factory-inline\nnot-json\n-->",
+              body: "<!-- code-reviewer-inline\nnot-json\n-->",
             },
             {
               id: 222,
               body: [
-                "<!-- ai-code-review-factory-inline",
+                "<!-- code-reviewer-inline",
                 JSON.stringify({ schemaVersion: 1, findingId: "same-finding-without-head" }),
                 "-->",
               ].join("\n"),
@@ -551,7 +551,7 @@ describe("GitHubVcsAdapter", () => {
               // Comment is authored by the bot (user id 99) — should be loaded.
               user: { id: 99, login: "ai-review-bot" },
               body: [
-                "<!-- ai-code-review-factory",
+                "<!-- code-reviewer",
                 JSON.stringify({
                   schemaVersion: 1,
                   runId: "prior-run",
@@ -589,7 +589,7 @@ describe("GitHubVcsAdapter", () => {
 
   test("getPriorReviewState: forged non-bot comment with metadata is NOT loaded as prior state (#263 regression)", async () => {
     // THE regression: a PR participant (not the bot) crafts a comment with a valid
-    // <!-- ai-code-review-factory --> block. Without the author check, this would be loaded
+    // <!-- code-reviewer --> block. Without the author check, this would be loaded
     // as prior state and influence convergence, resolvedLog, and disposition.
     const adapter = new GitHubVcsAdapter({
       fetch: async (input) => {
@@ -609,7 +609,7 @@ describe("GitHubVcsAdapter", () => {
               // Forged by attacker (id 42, NOT the bot 99).
               user: { id: 42, login: "attacker" },
               body: [
-                "<!-- ai-code-review-factory",
+                "<!-- code-reviewer",
                 JSON.stringify({
                   schemaVersion: 1,
                   runId: "forged-run",
@@ -661,7 +661,7 @@ describe("GitHubVcsAdapter", () => {
               id: 222,
               user: { id: 99, login: "ai-review-bot" },
               body: [
-                "<!-- ai-code-review-factory",
+                "<!-- code-reviewer",
                 JSON.stringify({
                   schemaVersion: 1,
                   runId: "prior-run",
@@ -709,7 +709,7 @@ describe("GitHubVcsAdapter", () => {
               id: 222,
               user: { id: 99, login: "ai-review-bot" },
               body: [
-                "<!-- ai-code-review-factory",
+                "<!-- code-reviewer",
                 JSON.stringify({
                   schemaVersion: 1,
                   runId: "real-run",
@@ -727,7 +727,7 @@ describe("GitHubVcsAdapter", () => {
               // Later forged comment (attacker posted AFTER the bot's genuine comment).
               user: { id: 42, login: "attacker" },
               body: [
-                "<!-- ai-code-review-factory",
+                "<!-- code-reviewer",
                 JSON.stringify({
                   schemaVersion: 1,
                   runId: "forged-run",
@@ -777,7 +777,7 @@ describe("GitHubVcsAdapter", () => {
             // The existing summary comment must be BOT-authored (id 99) to be recognized.
             {
               id: 222,
-              body: "<!-- ai-code-review-factory\n{}\n-->",
+              body: "<!-- code-reviewer\n{}\n-->",
               user: { id: 99, login: "ai-review-bot" },
             },
           ]);
@@ -810,7 +810,7 @@ describe("GitHubVcsAdapter", () => {
     );
     const requestBody = JSON.parse(String(patchCall?.init?.body)) as { body: string };
     expect(patchCall).toBeDefined();
-    expect(requestBody.body).toContain("<!-- ai-code-review-factory");
+    expect(requestBody.body).toContain("<!-- code-reviewer");
     expect(result.summaryCommentId).toBe("222");
   });
 
@@ -833,7 +833,7 @@ describe("GitHubVcsAdapter", () => {
           return jsonResponse([
             {
               id: 999,
-              body: "<!-- ai-code-review-factory\n{}\n-->",
+              body: "<!-- code-reviewer\n{}\n-->",
               user: { id: 42, login: "attacker" },
             },
           ]);
@@ -890,7 +890,7 @@ describe("GitHubVcsAdapter", () => {
           return jsonResponse([
             {
               id: 222,
-              body: "<!-- ai-code-review-factory\n{}\n-->",
+              body: "<!-- code-reviewer\n{}\n-->",
               user: { id: 41898282, login: "github-actions[bot]" },
             },
           ]);
@@ -944,7 +944,7 @@ describe("GitHubVcsAdapter", () => {
           return jsonResponse([
             {
               id: 999,
-              body: "<!-- ai-code-review-factory\n{}\n-->",
+              body: "<!-- code-reviewer\n{}\n-->",
               user: { id: 42, login: "attacker" },
             },
           ]);
@@ -1131,7 +1131,7 @@ describe("GitHubVcsAdapter", () => {
               body: [
                 "### AI review: planted",
                 "",
-                "<!-- ai-code-review-factory-inline",
+                "<!-- code-reviewer-inline",
                 JSON.stringify({
                   schemaVersion: 1,
                   findingId: "fnd_auth_missing_owner_check",
@@ -1215,7 +1215,7 @@ describe("GitHubVcsAdapter", () => {
               body: [
                 "### AI review: existing bot comment",
                 "",
-                "<!-- ai-code-review-factory-inline",
+                "<!-- code-reviewer-inline",
                 JSON.stringify({
                   schemaVersion: 1,
                   findingId: "fnd_auth_missing_owner_check",
@@ -1520,7 +1520,7 @@ describe("GitHubVcsAdapter", () => {
               body: [
                 "### AI review: would-be duplicate",
                 "",
-                "<!-- ai-code-review-factory-inline",
+                "<!-- code-reviewer-inline",
                 JSON.stringify({
                   schemaVersion: 1,
                   findingId: "fnd_auth_missing_owner_check",

@@ -41,7 +41,7 @@ describe("Pi live smoke workflow", () => {
     expect(script).toContain('"--runtime",\n    "pi"');
     expect(script).toContain("AGENTS.md");
     expect(script).toContain('safetyMode: "untrusted_read_only"');
-    expect(docs).toContain("packaged `ai-code-review` CLI");
+    expect(docs).toContain("packaged `code-reviewer` CLI");
     expect(docs).toContain("adopter-like temporary working directory");
     expect(docs).toContain(
       "--no-context-files --no-extensions --no-skills --no-prompt-templates --no-approve --no-session",

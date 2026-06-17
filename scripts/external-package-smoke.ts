@@ -6,7 +6,7 @@ import { isAbsolute, join } from "node:path";
 const tempDirectory = await mkdtemp(join(tmpdir(), "ai-review-external-package-"));
 const bunInstallDirectory = join(tempDirectory, "bun-install");
 const adopterDirectory = join(tempDirectory, "adopter-repo");
-const installedCli = join(bunInstallDirectory, "bin", "ai-code-review");
+const installedCli = join(bunInstallDirectory, "bin", "code-reviewer");
 
 try {
   const pack = await run(["npm", "pack", "--json", "--pack-destination", tempDirectory]);

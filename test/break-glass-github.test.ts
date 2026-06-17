@@ -132,7 +132,7 @@ describe("GitHubVcsAdapter.detectBreakGlassOverride", () => {
     expect(result).toBeUndefined();
   });
 
-  test("comment containing bot marker '<!-- ai-code-review-factory' even by OWNER → undefined (bot comment excluded)", async () => {
+  test("comment containing bot marker '<!-- code-reviewer' even by OWNER → undefined (bot comment excluded)", async () => {
     const adapter = new GitHubVcsAdapter({
       fetch: async (input) => {
         const url = String(input);
@@ -140,7 +140,7 @@ describe("GitHubVcsAdapter.detectBreakGlassOverride", () => {
           return jsonResponse([
             {
               id: 707,
-              body: "break glass abc1234def56\n<!-- ai-code-review-factory\n{}\n-->",
+              body: "break glass abc1234def56\n<!-- code-reviewer\n{}\n-->",
               author_association: "OWNER",
             },
           ]);

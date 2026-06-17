@@ -2,7 +2,7 @@
  * Provider-agnostic inline-comment renderer shared by GitHub and GitLab adapters.
  *
  * Centralising the formatter here (rather than one copy per adapter) ensures that the
- * #74 markdown-escaping and the `ai-code-review-factory-inline` dedup metadata are
+ * #74 markdown-escaping and the `code-reviewer-inline` dedup metadata are
  * identical across providers and cannot drift.
  */
 
@@ -68,7 +68,7 @@ export function formatInlineFindingComment(
     "",
     "_AI review inline comment. CI status and the summary comment remain authoritative._",
     "",
-    "<!-- ai-code-review-factory-inline",
+    "<!-- code-reviewer-inline",
     metadata,
     "-->",
   ].join("\n");
@@ -87,7 +87,7 @@ export function parseInlineCommentMetadata(
     return undefined;
   }
 
-  const match = /<!-- ai-code-review-factory-inline\s*\n([\s\S]*?)\n-->/m.exec(body);
+  const match = /<!-- code-reviewer-inline\s*\n([\s\S]*?)\n-->/m.exec(body);
   if (match?.[1] === undefined) {
     return undefined;
   }

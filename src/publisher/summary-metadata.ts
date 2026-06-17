@@ -6,7 +6,7 @@ import type {
   PriorReviewState,
 } from "../contracts/index.ts";
 
-const hiddenMetadataPattern = /<!--\s*ai-code-review-factory\s*\n([\s\S]*?)\n\s*-->/m;
+const hiddenMetadataPattern = /<!--\s*code-reviewer\s*\n([\s\S]*?)\n\s*-->/m;
 
 export interface ParsedSummaryMetadata {
   schemaVersion?: number;

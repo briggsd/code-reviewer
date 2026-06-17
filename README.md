@@ -1,4 +1,4 @@
-# AI Code Review Factory
+# Code Reviewer
 
 Reusable CI-native AI code review system for GitHub and GitLab projects.
 
@@ -56,7 +56,7 @@ The implementation is a Bun-friendly TypeScript CLI/package. Bun can run TypeScr
 ```bash
 bun run check
 bun run pack:smoke # validates npm tarball contents and packaged CLI execution
-bun run smoke:external-package # installs the tarball into an isolated Bun global dir and runs installed ai-code-review
+bun run smoke:external-package # installs the tarball into an isolated Bun global dir and runs installed code-reviewer
 bun run smoke:pi # exits 0 unless AI_REVIEW_LIVE_PI=1 is set
 bun run smoke:gitlab # exits 0 unless AI_REVIEW_LIVE_GITLAB=1 is set
 bun run src/cli.ts schemas # includes structured output schemas and .ai-review.json config schema
@@ -131,7 +131,7 @@ Example `.ai-review.json`:
 - GitLab VCS adapter MVP for MR metadata and changed-file diff fetching, with an opt-in live smoke harness.
 - CI decision policy and markdown summary formatter.
 - Package artifact allowlist, external packaged install smoke, and adoption guide for the Bun-backed CLI tarball.
-- Distribution-facing CI templates that install the package and run `ai-code-review` instead of repository-local source commands.
+- Distribution-facing CI templates that install the package and run `code-reviewer` instead of repository-local source commands.
 - Experimental GitHub-only inline publishing behind explicit `--publish-inline`, gated by stale-head/diff/line-coordinate readiness checks and same-head duplicate suppression.
 - Disabled-by-default GitHub Actions Pi live smoke workflow for trusted maintainer runs.
 - Disabled-by-default same-repository GitHub PR real-review job using Pi/model credentials behind `AI_REVIEW_REAL_REVIEW_ENABLED=true`.

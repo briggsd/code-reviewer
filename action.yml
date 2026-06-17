@@ -1,12 +1,12 @@
 name: AI Code Review
 
-description: Install and run the AI Code Review Factory CLI for a pull request.
+description: Install and run the Code Reviewer CLI for a pull request.
 
 inputs:
   package-source:
     description: Immutable package source passed to `bun add --global`.
     required: false
-    default: ai-code-review-factory@0.1.0
+    default: @briggsd/code-reviewer@0.1.0
   fixture:
     description: Optional fixture path for local/action smoke mode. When set, provider/repo/change-id are ignored.
     required: false
@@ -128,7 +128,7 @@ runs:
           args+=(--ci-exit)
         fi
 
-        ai-code-review "${args[@]}"
+        code-reviewer "${args[@]}"
       env:
         AI_REVIEW_FIXTURE: ${{ inputs.fixture }}
         AI_REVIEW_PROVIDER: ${{ inputs.provider }}

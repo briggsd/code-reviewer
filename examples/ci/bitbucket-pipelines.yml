@@ -1,4 +1,4 @@
-# Bitbucket Pipelines starter template for AI Code Review Factory.
+# Bitbucket Pipelines starter template for Code Reviewer.
 # Copy into your repository's bitbucket-pipelines.yml (or merge into an
 # existing one) and replace AI_REVIEW_PACKAGE with an immutable tarball URL,
 # exact registry version, or full Git commit SHA for the tested build.
@@ -8,8 +8,8 @@
 # --------------
 # Set AI_REVIEW_PACKAGE to the same value in your Pipelines repository
 # variables (Settings > Repository variables) or inline below. Examples:
-#   https://example.com/releases/ai-code-review-factory-0.2.0.tgz   # tarball URL
-#   ai-code-review-factory@0.2.0                                      # npm registry
+#   https://example.com/releases/briggsd-code-reviewer-0.2.0.tgz   # tarball URL
+#   @briggsd/code-reviewer@0.2.0                                      # npm registry
 #
 # Required Pipelines variable (Settings > Repository variables)
 # -------------------------------------------------------------
@@ -60,7 +60,7 @@ pipelines:
           script:
             - bun add --global "$AI_REVIEW_PACKAGE"
             - >
-              ai-code-review run
+              code-reviewer run
               --provider bitbucket
               --repo "$BITBUCKET_REPO_FULL_NAME"
               --change-id "$BITBUCKET_PR_ID"
@@ -83,7 +83,7 @@ pipelines:
           script:
             - bun add --global "$AI_REVIEW_PACKAGE"
             - >
-              ai-code-review run
+              code-reviewer run
               --provider bitbucket
               --repo "$BITBUCKET_REPO_FULL_NAME"
               --change-id "$BITBUCKET_PR_ID"
@@ -112,7 +112,7 @@ pipelines:
 #        - npm install -g bun
 #        - npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.79.4
 #        - bun add --global "$AI_REVIEW_PACKAGE"
-#        - ai-code-review run ... --runtime pi ...
+#        - code-reviewer run ... --runtime pi ...
 #
 # 2. Add your provider API key (ANTHROPIC_API_KEY by default, matching your
 #    .ai-review.json modelRouting provider) as a SECURED Pipelines variable

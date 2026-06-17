@@ -268,7 +268,7 @@ describe("re-review finding classification", () => {
     );
 
     const parsed = parseSummaryHiddenMetadata(
-      ["<!-- ai-code-review-factory", JSON.stringify(metadata), "-->"].join("\n"),
+      ["<!-- code-reviewer", JSON.stringify(metadata), "-->"].join("\n"),
     );
     if (parsed === undefined) {
       throw new Error("expected metadata to parse");

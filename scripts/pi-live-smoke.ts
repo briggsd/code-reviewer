@@ -25,7 +25,7 @@ if ((provider === undefined) !== (model === undefined)) {
 const tempDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-live-"));
 const bunInstallDirectory = join(tempDirectory, "bun-install");
 const adopterDirectory = join(tempDirectory, "adopter-repo");
-const installedCli = join(bunInstallDirectory, "bin", "ai-code-review");
+const installedCli = join(bunInstallDirectory, "bin", "code-reviewer");
 const outputDirectory = resolve(
   readOptionalEnv("AI_REVIEW_SMOKE_OUTPUT_DIR") ?? ".ai-review-smoke",
 );

@@ -162,4 +162,4 @@ a required reason. What none of them defend against — and what this design mus
 via `stringifyPromptData` under a fixed trusted label) → tests in `test/prompt-quality.test.ts`,
 `test/pi-runtime.test.ts`, `test/runner.test.ts`.
 
-[#60]: https://github.com/briggsd/ai-code-review-factory/issues/60
+[#60]: https://github.com/briggsd/code-reviewer/issues/60

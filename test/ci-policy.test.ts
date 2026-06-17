@@ -184,7 +184,7 @@ describe("summary markdown formatting", () => {
     );
     // Reviewer is now shown as a group heading (escaped plain text), not inline in detail lines
     expect(markdown).toContain("🔒 security");
-    expect(markdown).toContain("<!-- ai-code-review-factory");
+    expect(markdown).toContain("<!-- code-reviewer");
     expect(markdown).toContain('"runId": "fixture-auth-pr"');
   });
 });

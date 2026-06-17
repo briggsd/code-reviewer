@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a problem with the AI Code Review Factory
+about: Report a problem with Code Reviewer
 title: "[bug] "
 labels: bug
 ---

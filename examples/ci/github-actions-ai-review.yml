@@ -14,7 +14,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  AI_REVIEW_PACKAGE: ai-code-review-factory@0.1.0
+  AI_REVIEW_PACKAGE: @briggsd/code-reviewer@0.1.0
 
 jobs:
   dry-run:
@@ -42,7 +42,7 @@ jobs:
         env:
           AI_REVIEW_GITHUB_TOKEN: ${{ github.token }}
         run: |
-          ai-code-review run \
+          code-reviewer run \
             --provider github \
             --repo "${{ github.repository }}" \
             --change-id "${{ github.event.pull_request.number }}" \
@@ -96,7 +96,7 @@ jobs:
         env:
           AI_REVIEW_GITHUB_TOKEN: ${{ github.token }}
         run: |
-          ai-code-review run \
+          code-reviewer run \
             --provider github \
             --repo "${{ github.repository }}" \
             --change-id "${{ github.event.pull_request.number }}" \

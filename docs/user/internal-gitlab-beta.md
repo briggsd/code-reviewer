@@ -17,8 +17,8 @@ For self-managed installs, host the tarball in the **GitLab generic package regi
 ```bash
 # Publish the tarball to your instance's generic package registry
 curl --header "JOB-TOKEN: $CI_JOB_TOKEN" \
-  --upload-file ai-code-review-factory-0.2.0.tgz \
-  "https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/ai-code-review-factory/0.2.0/ai-code-review-factory.tgz"
+  --upload-file briggsd-code-reviewer-0.2.0.tgz \
+  "https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/code-reviewer/0.2.0/code-reviewer.tgz"
 ```
 
 This is a **one-time setup step** you run from a machine or a separate CI job that has curl installed — the `oven/bun:1.3` review image does not (the warning below applies to the review job, not this publish step). `$CI_JOB_TOKEN` is only set inside a CI job; if you publish locally, replace it with a personal or deploy access token that has package-write scope.
@@ -26,7 +26,7 @@ This is a **one-time setup step** you run from a machine or a separate CI job th
 The resulting API download URL looks like:
 
 ```
-https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/ai-code-review-factory/0.2.0/ai-code-review-factory.tgz
+https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/code-reviewer/0.2.0/code-reviewer.tgz
 ```
 
 Use that API endpoint URL as `AI_REVIEW_PACKAGE`. For a private registry the runner must fetch with `JOB-TOKEN` auth; use the `bun -e` fetch snippet in the Pi section of the template (origin-checked, no cross-origin redirect). A GitLab releases asset URL (`/-/releases/.../downloads/...`) also works but needs the same authenticated fetch for private projects.

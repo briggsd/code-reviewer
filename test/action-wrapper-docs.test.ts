@@ -11,7 +11,7 @@ describe("GitHub Action wrapper docs", () => {
     expect(readme).toContain("[GitHub Action wrapper](docs/user/github-action-wrapper.md)");
     expect(ciDocs).toContain("examples/ci/github-actions-ai-review-action.yml");
     expect(adoption).toContain("github-actions-ai-review-action.yml");
-    expect(guide).toContain("thin GitHub Action wrapper around the packaged `ai-code-review` CLI");
+    expect(guide).toContain("thin GitHub Action wrapper around the packaged `code-reviewer` CLI");
     expect(guide).toContain("sets up Bun");
     expect(guide).toContain("installs `inputs.package-source` with `bun add --global`");
     expect(guide).toContain("Do not pin the action or package source to mutable branches");

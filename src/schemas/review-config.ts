@@ -22,7 +22,7 @@ const modelSelectionSchema = {
 
 export const reviewConfigSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://ai-code-review-factory.local/schemas/review-config.json",
+  $id: "https://code-reviewer.local/schemas/review-config.json",
   title: "AI code review project config",
   description: "JSON project config loaded from .ai-review.json, ai-review.json, or --config.",
   type: "object",

@@ -177,7 +177,7 @@
   reopen #129 / PR #163. (Declined in review: the round-5 Windows-absolute-path nit — hypothetical on
   Linux/macOS CI with committed repo-relative fixtures; the POSIX `/` check is sufficient here.)
 - Do not re-export `src/publisher/inline-comment-markdown.ts` from `publisher/index.ts` (#82/#83 review):
-  it encodes the `ai-code-review-factory-inline` wire format + the security-sensitive dedup parser;
+  it encodes the `code-reviewer-inline` wire format + the security-sensitive dedup parser;
   keep it off the public API. Adapters/tests import it via the direct file path. The renderer
   unicode-escapes `>` in the embedded metadata (prevents `-->` HTML-comment breakout); don't undo that.
 - Do not set `sensitivePaths`/`ignoredPaths`/`failOn` in `.ai-review.json` expecting them to APPEND to

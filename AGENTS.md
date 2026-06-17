@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Agent onboarding for the **AI Code Review Factory** — a reusable, CI-native AI code
+Agent onboarding for the **Code Reviewer** — a reusable, CI-native AI code
 review system for GitHub and GitLab. This file is a map, not the manual: it points to
 the canonical docs. Keep it under ~250 lines.
 
@@ -39,7 +39,7 @@ Full design: **docs/developer/architecture.md**. Project purpose & status: **REA
 
 - **Runtime:** Bun `>=1.3.0`, TypeScript (ESNext, `type: module`). Bun runs `.ts`
   directly — there is **no build step** in the prototype.
-- **Entry point:** `src/cli.ts` (installed as the `ai-code-review` bin).
+- **Entry point:** `src/cli.ts` (installed as the `code-reviewer` bin).
 
 ```bash
 bun run gate           # check + boundaries + lint + docs:check + complexity:check + workflows:check + knip  ← THE pre-PR verification gate (mirrors CI's blocking check job)

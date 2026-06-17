@@ -1,6 +1,6 @@
 # Security policy
 
-The AI Code Review Factory is a security-adjacent tool: it runs in CI, processes
+Code Reviewer is a security-adjacent tool: it runs in CI, processes
 untrusted pull/merge request content, and handles model-provider and VCS credentials.
 We take vulnerability reports seriously and welcome responsible disclosure.
 

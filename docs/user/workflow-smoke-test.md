@@ -26,7 +26,7 @@ Required setup:
 3. Keep the job guarded to same-repository PRs:
    `github.event.pull_request.head.repo.full_name == github.repository`.
 
-When enabled, the real job installs Pi with `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`, runs `ai-code-review` with `--runtime pi`, publishes the summary with `--publish-summary`, and uploads `.ai-review/` artifacts as `ai-review-real-<pr-number>`.
+When enabled, the real job installs Pi with `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`, runs `code-reviewer` with `--runtime pi`, publishes the summary with `--publish-summary`, and uploads `.ai-review/` artifacts as `ai-review-real-<pr-number>`.
 
 Do not move the real job to `pull_request_target` or expose model secrets to fork PRs.
 

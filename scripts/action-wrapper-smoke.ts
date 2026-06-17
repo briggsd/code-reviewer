@@ -39,7 +39,7 @@ try {
   const fixture = resolve(root, "examples/fixtures/auth-pr.json");
   const run = Bun.spawn(
     [
-      join(bunInstall, "bin", "ai-code-review"),
+      join(bunInstall, "bin", "code-reviewer"),
       "run",
       "--fixture",
       fixture,
@@ -77,7 +77,7 @@ try {
   }
 
   console.log(
-    `action wrapper smoke passed: installed ${tarballs[0]} and ran packaged ai-code-review`,
+    `action wrapper smoke passed: installed ${tarballs[0]} and ran packaged code-reviewer`,
   );
 } finally {
   await rm(temp, { recursive: true, force: true });

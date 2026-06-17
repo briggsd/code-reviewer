@@ -132,7 +132,7 @@ describe("GitLabVcsAdapter.detectBreakGlassOverride", () => {
     expect(result).toBeUndefined();
   });
 
-  test("bot summary note (contains '<!-- ai-code-review-factory') is ignored by OWNER-level author", async () => {
+  test("bot summary note (contains '<!-- code-reviewer') is ignored by OWNER-level author", async () => {
     const adapter = new GitLabVcsAdapter({
       fetch: async (input) => {
         const url = String(input);
@@ -140,7 +140,7 @@ describe("GitLabVcsAdapter.detectBreakGlassOverride", () => {
           return jsonResponse([
             {
               id: 507,
-              body: "break glass abc1234def56\n<!-- ai-code-review-factory\n{}\n-->",
+              body: "break glass abc1234def56\n<!-- code-reviewer\n{}\n-->",
               author: { id: 70 },
             },
           ]);

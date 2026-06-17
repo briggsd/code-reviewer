@@ -1,4 +1,4 @@
-# AI Code Review Factory Architecture
+# Code Reviewer Architecture
 
 ## Reader and post-read action
 
@@ -8,7 +8,7 @@
 
 ## Purpose
 
-The AI Code Review Factory provides a fast first-pass review for pull requests and merge requests. It should catch concrete correctness, security, performance, documentation, and release-risk issues before a human reviewer spends full attention.
+Code Reviewer provides a fast first-pass review for pull requests and merge requests. It should catch concrete correctness, security, performance, documentation, and release-risk issues before a human reviewer spends full attention.
 
 The system is designed for many projects, not one repository. Project teams should adopt it through CI configuration and small project-local config files. The core review runner should not be forked per project.
 
@@ -543,7 +543,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Run AI code review
-        uses: org/ai-code-review-factory-action@v1
+        uses: org/code-reviewer-action@v1
         with:
           mode: blocking
         env:
@@ -565,11 +565,11 @@ Merge request pipeline mode:
 
 ```yaml
 ai_code_review:
-  image: registry.example.com/ai-code-review-factory:latest
+  image: registry.example.com/code-reviewer:latest
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   script:
-    - ai-code-review run --provider gitlab --mode blocking
+    - code-reviewer run --provider gitlab --mode blocking
   variables:
     AI_REVIEW_CONFIG: .ai-review.yml
 ```

@@ -25,7 +25,7 @@ describe("package distribution metadata", () => {
   test("defines a Bun CLI entrypoint and package smoke script", async () => {
     const manifest = JSON.parse(await readFile("package.json", "utf8")) as PackageJson;
 
-    expect(manifest.bin?.["ai-code-review"]).toBe("./src/cli.ts");
+    expect(manifest.bin?.["code-reviewer"]).toBe("./src/cli.ts");
     expect(manifest.scripts?.["pack:smoke"]).toBe("bun run scripts/package-smoke.ts");
     expect(manifest.scripts?.["smoke:external-package"]).toBe(
       "bun run scripts/external-package-smoke.ts",
@@ -44,16 +44,16 @@ describe("package distribution metadata", () => {
     const packaging = await readFile("docs/user/packaging.md", "utf8");
     const releaseReadiness = await readFile("docs/user/release-readiness.md", "utf8");
 
-    expect(manifest.name).toBe("ai-code-review-factory");
+    expect(manifest.name).toBe("@briggsd/code-reviewer");
     expect(manifest.version).toBe("0.2.0");
     expect(manifest.private).toBe(true);
     expect(manifest.license).toBe("Apache-2.0");
-    expect(manifest.homepage).toBe("https://github.com/briggsd/ai-code-review-factory#readme");
+    expect(manifest.homepage).toBe("https://github.com/briggsd/code-reviewer#readme");
     expect(manifest.repository).toEqual({
       type: "git",
-      url: "git+https://github.com/briggsd/ai-code-review-factory.git",
+      url: "git+https://github.com/briggsd/code-reviewer.git",
     });
-    expect(manifest.bugs?.url).toBe("https://github.com/briggsd/ai-code-review-factory/issues");
+    expect(manifest.bugs?.url).toBe("https://github.com/briggsd/code-reviewer/issues");
     expect(packaging).toContain("Registry publishing is intentionally blocked");
     expect(packaging).toContain("public npm is not part of the beta channel");
     expect(packaging).toContain("private: true");
@@ -99,7 +99,7 @@ describe("package distribution metadata", () => {
     expect(packaging).toContain("Do not use mutable install sources");
     expect(packaging).toContain("internal/self-managed GitLab beta");
     expect(packaging).toContain(
-      "https://gitlab.example.com/<your-org>/dev-tools/ai-code-review-factory/-/releases/v0.1.0/downloads/ai-code-review-factory-0.1.0.tgz",
+      "https://gitlab.example.com/<your-org>/dev-tools/code-reviewer/-/releases/v0.1.0/downloads/briggsd-code-reviewer-0.1.0.tgz",
     );
     expect(ciTemplates).toContain("Do not pin adopter CI to mutable branches");
     expect(ciTemplates).toContain(
@@ -124,7 +124,7 @@ describe("package distribution metadata", () => {
     const manifest = JSON.parse(await readFile("package.json", "utf8")) as PackageJson;
 
     expect(manifest.license).toBe("Apache-2.0");
-    expect(manifest.author).toBe("The AI Code Review Factory Authors");
+    expect(manifest.author).toBe("The Code Reviewer Authors");
 
     // private:true is a DELIBERATE registry-deferral guard: distribution this round is
     // GitHub Releases + tarball, and `private:true` blocks only `npm publish`, not
@@ -136,8 +136,8 @@ describe("package distribution metadata", () => {
     expect(license).toContain("Version 2.0");
 
     const notice = await readFile("NOTICE", "utf8");
-    expect(notice).toContain("AI Code Review Factory");
-    expect(notice).toContain("Copyright 2026 The AI Code Review Factory Authors");
+    expect(notice).toContain("Code Reviewer");
+    expect(notice).toContain("Copyright 2026 The Code Reviewer Authors");
   });
 
   test("ships runtime assets without test or workflow internals", async () => {

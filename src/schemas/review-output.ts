@@ -30,7 +30,7 @@ const findingLocationSchema = {
 
 export const findingOutputSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://ai-code-review-factory.local/schemas/finding-output.json",
+  $id: "https://code-reviewer.local/schemas/finding-output.json",
   title: "Normalized review finding",
   type: "object",
   additionalProperties: false,
@@ -68,7 +68,7 @@ export const findingOutputSchema = {
 
 export const reviewerOutputSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://ai-code-review-factory.local/schemas/reviewer-output.json",
+  $id: "https://code-reviewer.local/schemas/reviewer-output.json",
   title: "Reviewer structured output",
   type: "object",
   additionalProperties: false,
@@ -83,7 +83,7 @@ export const reviewerOutputSchema = {
 
 export const coordinatorOutputSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://ai-code-review-factory.local/schemas/coordinator-output.json",
+  $id: "https://code-reviewer.local/schemas/coordinator-output.json",
   title: "Coordinator structured output",
   type: "object",
   additionalProperties: false,

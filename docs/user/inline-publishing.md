@@ -2,10 +2,10 @@
 
 Inline comments are now available as an **experimental, opt-in** path on **GitHub and GitLab**. Summary comments remain the default write-back UX and CI status remains the canonical merge gate.
 
-By default, `ai-code-review run` does not publish inline comments. Provider-backed runs only attempt line-level comments when `--publish-inline` is supplied explicitly.
+By default, `code-reviewer run` does not publish inline comments. Provider-backed runs only attempt line-level comments when `--publish-inline` is supplied explicitly.
 
 ```bash
-AI_REVIEW_GITHUB_TOKEN=... ai-code-review run \
+AI_REVIEW_GITHUB_TOKEN=... code-reviewer run \
   --provider github \
   --repo owner/name \
   --change-id 123 \
@@ -28,7 +28,7 @@ GitLab inline findings are posted as **MR diff discussions** positioned with the
 metadata apply as on GitHub. Example (mirrors the GitHub invocation above):
 
 ```bash
-AI_REVIEW_GITLAB_TOKEN=... ai-code-review run \
+AI_REVIEW_GITLAB_TOKEN=... code-reviewer run \
   --provider gitlab \
   --repo group/project \
   --change-id 42 \
@@ -84,7 +84,7 @@ Both GitHub and GitLab inline comments embed the same hidden metadata via the sh
 `src/publisher/inline-comment-markdown.ts` renderer:
 
 ```text
-<!-- ai-code-review-factory-inline
+<!-- code-reviewer-inline
 {"schemaVersion":1,"findingId":"...","headSha":"..."}
 -->
 ```
@@ -103,7 +103,7 @@ Dedup metadata is only trusted on comments/notes **authored by the review bot it
 resolve the bot identity once via `GET /user` (the token's own user, memoized) and ignore any
 comment whose author id is not the bot's. Without this, anyone able to comment on the PR/MR could
 plant a comment carrying a matching `findingId`+`headSha` (or, for the summary, the
-`<!-- ai-code-review-factory` marker) to make the bot treat a finding as already-posted — silently
+`<!-- code-reviewer` marker) to make the bot treat a finding as already-posted — silently
 suppressing it — or, for the summary, target a comment the bot cannot edit so the update fails. The
 same author check guards the **summary**-comment dedup (`findExistingSummaryComment` /
 `findExistingSummaryNote`), not just inline.
