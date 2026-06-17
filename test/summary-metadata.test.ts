@@ -217,6 +217,7 @@ describe("summary hidden metadata parsing", () => {
 // ---------------------------------------------------------------------------
 // schemaVersion 4 + partialBySize counts (#145) / schemaVersion 5 + findingsHash (#149)
 // schemaVersion 6 + resolvedLog (#279) / schemaVersion 7 + recurrenceDepths (#260)
+// schemaVersion 8 + findingTitles (#333)
 // ---------------------------------------------------------------------------
 
 const CHANGE: ChangeMetadata = {
@@ -229,10 +230,10 @@ const CHANGE: ChangeMetadata = {
   labels: [],
 };
 
-describe("schemaVersion 7 hidden metadata (#260)", () => {
-  test("createPublishHiddenMetadata emits schemaVersion 7", () => {
+describe("schemaVersion 8 hidden metadata (#333)", () => {
+  test("createPublishHiddenMetadata emits schemaVersion 8", () => {
     const meta = createPublishHiddenMetadata("run-1", CHANGE);
-    expect(meta.schemaVersion).toBe(7);
+    expect(meta.schemaVersion).toBe(8);
   });
 
   test("partialBySize counts block is included when summary.partialBySize is present", () => {
@@ -262,7 +263,7 @@ describe("schemaVersion 7 hidden metadata (#260)", () => {
 
     const meta = createPublishHiddenMetadata("run-1", CHANGE, summary);
 
-    expect(meta.schemaVersion).toBe(7);
+    expect(meta.schemaVersion).toBe(8);
     const partialBySize = meta.partialBySize as
       | {
           admittedFileCount: number;
@@ -470,7 +471,7 @@ describe("schemaVersion 6 — resolvedLog (#279)", () => {
     };
     const meta = createPublishHiddenMetadata("run-6", CHANGE, summary);
 
-    expect(meta.schemaVersion).toBe(7);
+    expect(meta.schemaVersion).toBe(8);
     expect(meta.resolvedLog).toEqual([
       { stableId: "fnd_old", title: "Old auth issue", resolvedAtSha: "abc1234" },
     ]);
@@ -479,7 +480,7 @@ describe("schemaVersion 6 — resolvedLog (#279)", () => {
   test("createPublishHiddenMetadata omits resolvedLog when absent (back-compat)", () => {
     const meta = createPublishHiddenMetadata("run-6", CHANGE, BASE_SUMMARY);
 
-    expect(meta.schemaVersion).toBe(7);
+    expect(meta.schemaVersion).toBe(8);
     expect(meta.resolvedLog).toBeUndefined();
   });
 
@@ -592,5 +593,240 @@ describe("schemaVersion 7 — recurrenceDepths (#260)", () => {
       ].join("\n"),
     );
     expect(legacy?.recurrenceDepths).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #333 — findingTitles: write round-trip, parse, placeholder title recovery
+// ---------------------------------------------------------------------------
+
+describe("#333 — findingTitles metadata", () => {
+  test("write round-trip: createPublishHiddenMetadata emits findingTitles map with id→title", () => {
+    const summary = {
+      decision: "approved" as const,
+      outcome: "pass" as const,
+      title: "Test",
+      body: "body",
+      findings: [
+        {
+          id: "fnd_aaa",
+          reviewer: "security",
+          severity: "warning" as const,
+          category: "auth",
+          title: "SQL injection in query builder",
+          body: "body",
+          confidence: "high" as const,
+          evidence: [],
+          recommendation: "Sanitize input.",
+        },
+        {
+          id: "fnd_bbb",
+          reviewer: "code_quality",
+          severity: "suggestion" as const,
+          category: "style",
+          title: "Unused import",
+          body: "body",
+          confidence: "medium" as const,
+          evidence: [],
+          recommendation: "Remove it.",
+        },
+      ],
+      risk: {
+        tier: "full" as const,
+        reason: "test",
+        matchedRules: [],
+        sensitivePaths: [],
+        reviewedFileCount: 2,
+        ignoredFileCount: 0,
+      },
+    };
+
+    const meta = createPublishHiddenMetadata("run-tt", CHANGE, summary);
+    const titles = meta.findingTitles as Record<string, string> | undefined;
+    expect(titles).toBeDefined();
+    expect(titles?.["fnd_aaa"]).toBe("SQL injection in query builder");
+    expect(titles?.["fnd_bbb"]).toBe("Unused import");
+  });
+
+  test("write round-trip: titles are truncated at 120 chars", () => {
+    const longTitle = "A".repeat(130);
+    const summary = {
+      decision: "approved" as const,
+      outcome: "pass" as const,
+      title: "Test",
+      body: "body",
+      findings: [
+        {
+          id: "fnd_long",
+          reviewer: "security",
+          severity: "warning" as const,
+          category: "auth",
+          title: longTitle,
+          body: "body",
+          confidence: "high" as const,
+          evidence: [],
+          recommendation: "Fix it.",
+        },
+      ],
+      risk: {
+        tier: "full" as const,
+        reason: "test",
+        matchedRules: [],
+        sensitivePaths: [],
+        reviewedFileCount: 1,
+        ignoredFileCount: 0,
+      },
+    };
+
+    const meta = createPublishHiddenMetadata("run-trunc", CHANGE, summary);
+    const titles = meta.findingTitles as Record<string, string> | undefined;
+    expect(titles?.["fnd_long"]).toBe("A".repeat(120));
+  });
+
+  test("write round-trip: findingTitles is omitted when all findings lack id or title", () => {
+    const summary = {
+      decision: "approved" as const,
+      outcome: "pass" as const,
+      title: "Test",
+      body: "body",
+      findings: [
+        {
+          // no id
+          reviewer: "security",
+          severity: "warning" as const,
+          category: "auth",
+          title: "Some issue",
+          body: "body",
+          confidence: "high" as const,
+          evidence: [],
+          recommendation: "Fix it.",
+        },
+      ],
+      risk: {
+        tier: "full" as const,
+        reason: "test",
+        matchedRules: [],
+        sensitivePaths: [],
+        reviewedFileCount: 1,
+        ignoredFileCount: 0,
+      },
+    };
+
+    const meta = createPublishHiddenMetadata("run-noid", CHANGE, summary);
+    expect((meta as Record<string, unknown>).findingTitles).toBeUndefined();
+  });
+
+  test("write round-trip: findingTitles is omitted when summary has no findings", () => {
+    const meta = createPublishHiddenMetadata("run-empty", CHANGE);
+    expect((meta as Record<string, unknown>).findingTitles).toBeUndefined();
+  });
+
+  test("parse: valid findingTitles entries are accepted", () => {
+    const parsed = parseSummaryHiddenMetadata(
+      [
+        "<!-- ai-code-review-factory",
+        JSON.stringify({
+          schemaVersion: 8,
+          runId: "run-8",
+          headSha: "abc123",
+          findingIds: ["fnd_a", "fnd_b"],
+          findingTitles: {
+            fnd_a: "SQL injection in query builder",
+            fnd_b: "Unused variable in loop",
+          },
+        }),
+        "-->",
+      ].join("\n"),
+    );
+    expect(parsed?.findingTitles).toEqual({
+      fnd_a: "SQL injection in query builder",
+      fnd_b: "Unused variable in loop",
+    });
+  });
+
+  test("parse: untrusted findingTitles — non-string, empty, and over-long values are dropped", () => {
+    const overLong = "A".repeat(201);
+    const emptyAfterTrim = "   ";
+    const parsed = parseSummaryHiddenMetadata(
+      [
+        "<!-- ai-code-review-factory",
+        JSON.stringify({
+          schemaVersion: 8,
+          runId: "run-bad",
+          headSha: "abc123",
+          findingIds: ["fnd_valid", "fnd_nonstring", "fnd_empty", "fnd_toolong"],
+          findingTitles: {
+            fnd_valid: "Good title",
+            fnd_nonstring: 42,
+            fnd_empty: emptyAfterTrim,
+            fnd_toolong: overLong,
+          },
+        }),
+        "-->",
+      ].join("\n"),
+    );
+    // Only the valid entry survives.
+    expect(parsed?.findingTitles).toEqual({ fnd_valid: "Good title" });
+  });
+
+  test("parse: findingTitles absent → undefined (back-compat with older comments)", () => {
+    const parsed = parseSummaryHiddenMetadata(
+      [
+        "<!-- ai-code-review-factory",
+        JSON.stringify({
+          schemaVersion: 7,
+          runId: "run-7",
+          headSha: "abc123",
+          findingIds: ["fnd_a"],
+        }),
+        "-->",
+      ].join("\n"),
+    );
+    expect(parsed?.findingTitles).toBeUndefined();
+  });
+
+  test("placeholder: findingTitles recovered → createPriorReviewStateFromMetadata uses real title", () => {
+    const parsed = parseSummaryHiddenMetadata(
+      [
+        "<!-- ai-code-review-factory",
+        JSON.stringify({
+          schemaVersion: 8,
+          runId: "run-8",
+          headSha: "abc123",
+          findingIds: ["fnd_a", "fnd_b"],
+          findingTitles: {
+            fnd_a: "SQL injection in query builder",
+          },
+        }),
+        "-->",
+      ].join("\n"),
+    );
+    if (parsed === undefined) throw new Error("expected metadata to parse");
+
+    const state = createPriorReviewStateFromMetadata(parsed, ref);
+    const byId = new Map(state.findings.map((f) => [f.stableId, f]));
+    // fnd_a: real title recovered
+    expect(byId.get("fnd_a")?.finding.title).toBe("SQL injection in query builder");
+    // fnd_b: no title in map → fallback placeholder
+    expect(byId.get("fnd_b")?.finding.title).toBe("Prior finding fnd_b");
+  });
+
+  test("placeholder: no findingTitles → fallback 'Prior finding fnd_…' for all (no regression)", () => {
+    const parsed = parseSummaryHiddenMetadata(
+      [
+        "<!-- ai-code-review-factory",
+        JSON.stringify({
+          schemaVersion: 7,
+          runId: "run-7",
+          headSha: "abc123",
+          findingIds: ["fnd_x"],
+        }),
+        "-->",
+      ].join("\n"),
+    );
+    if (parsed === undefined) throw new Error("expected metadata to parse");
+
+    const state = createPriorReviewStateFromMetadata(parsed, ref);
+    expect(state.findings[0]?.finding.title).toBe("Prior finding fnd_x");
   });
 });

@@ -675,6 +675,30 @@ export function formatReviewSummaryMarkdown(
     for (const f of summary.groundingWithheld ?? []) {
       if (f.id !== undefined) currentFindingIds.add(f.id);
     }
+    // Dedup against this round's fixed + withheld (#332): an entry already shown under
+    // "Fixed prior findings" or "Withheld prior findings" must not appear again in the
+    // resolved log. Build the exclusion set from classifications + orphan IDs (same source
+    // the re-review section uses above) so the two sections are always consistent.
+    // Cross-round value is preserved: entries resolved in earlier pushes that are NOT in
+    // this round's fixed/withheld and NOT currently recurring still appear here.
+    if (summary.reReview !== undefined) {
+      const thisRoundFixed = summary.reReview.classifications.filter((c) => c.status === "fixed");
+      const thisRoundWithheld = summary.reReview.classifications.filter(
+        (c) => c.status === "withheld",
+      );
+      const thisRoundFixedClassifiedIds = new Set(thisRoundFixed.map((c) => c.stableId));
+      const thisRoundWithheldClassifiedIds = new Set(thisRoundWithheld.map((c) => c.stableId));
+      const thisRoundFixedOrphans = summary.reReview.fixedFindingIds.filter(
+        (id) => !thisRoundFixedClassifiedIds.has(id),
+      );
+      const thisRoundWithheldOrphans = summary.reReview.withheldFindingIds.filter(
+        (id) => !thisRoundWithheldClassifiedIds.has(id),
+      );
+      for (const c of thisRoundFixed) currentFindingIds.add(c.stableId);
+      for (const c of thisRoundWithheld) currentFindingIds.add(c.stableId);
+      for (const id of thisRoundFixedOrphans) currentFindingIds.add(id);
+      for (const id of thisRoundWithheldOrphans) currentFindingIds.add(id);
+    }
     const visibleEntries = summary.resolvedLog.filter(
       (entry) => !currentFindingIds.has(entry.stableId),
     );
@@ -714,7 +738,11 @@ export function formatReviewSummaryMarkdown(
   if (options.includeHiddenMetadata === true) {
     lines.push("");
     lines.push("<!-- ai-code-review-factory");
-    lines.push(JSON.stringify(options.hiddenMetadata ?? {}, null, 2));
+    // Unicode-escape '>' so no model-authored field value (e.g. a findingTitles entry containing
+    // '-->') can prematurely close the HTML comment and inject Markdown into the rendered body
+    // (#82 security review — mirrors the same defence in inline-comment-markdown.ts).
+    // JSON.parse in parseSummaryHiddenMetadata decodes > back to '>', so the round-trip is unaffected.
+    lines.push(JSON.stringify(options.hiddenMetadata ?? {}, null, 2).replace(/>/g, "\\u003e"));
     lines.push("-->");
   }
 

@@ -85,6 +85,22 @@ export function createPublishHiddenMetadata(
   }
   const hasFindingReviewers = Object.keys(findingReviewers).length > 0;
 
+  // findingTitles: id → title (truncated to 120 chars) for findings that have a non-empty id
+  // and a non-empty title. Only included when non-empty; omitted entirely when no findings
+  // qualify. Enables re-review summaries to recover real titles from the prior PR comment
+  // instead of degrading to placeholder "Prior finding fnd_…" text. (#333)
+  // M008 counts-only / egress boundary: titles are stored only in the HIDDEN PR-COMMENT
+  // metadata (same channel as findingPaths/findingReviewers) — NOT in telemetry/run_metrics.
+  const findingTitles: Record<string, string> = {};
+  if (summary !== undefined) {
+    for (const finding of summary.findings) {
+      if (finding.id !== undefined && finding.id.length > 0 && finding.title.length > 0) {
+        findingTitles[finding.id] = finding.title.slice(0, 120);
+      }
+    }
+  }
+  const hasFindingTitles = Object.keys(findingTitles).length > 0;
+
   // recurrenceDepths: id → consecutive reviewed rounds currently open (#260, schemaVersion 7+).
   // First reviews seed depth=1; re-reviews use the computed per-finding depths.
   const recurrenceDepths: Record<string, number> = {};
@@ -122,10 +138,10 @@ export function createPublishHiddenMetadata(
       : undefined;
 
   return {
-    // Bumped 6 → 7 for recurrenceDepths (#260). The bump is additive and backward-compatible:
+    // Bumped 7 → 8 for findingTitles (#333). The bump is additive and backward-compatible:
     // old parsers ignore unknown keys per the existing
     // defensive-parse pattern (parseSummaryHiddenMetadata in summary-metadata.ts line ~40).
-    schemaVersion: 7,
+    schemaVersion: 8,
     runId,
     headSha: change.headSha,
     provider: change.provider,
@@ -134,6 +150,7 @@ export function createPublishHiddenMetadata(
     ...(findingIds !== undefined ? { findingIds } : {}),
     ...(hasFindingPaths ? { findingPaths } : {}),
     ...(hasFindingReviewers ? { findingReviewers } : {}),
+    ...(hasFindingTitles ? { findingTitles } : {}),
     ...(hasRecurrenceDepths ? { recurrenceDepths } : {}),
     // Comprehension-gate verdict (#26): additive, present only when the reviewer ran. v1 parsers
     // ignore unknown keys, so this stays backward-compatible with the existing metadata reader.

@@ -20,6 +20,8 @@ export interface ParsedSummaryMetadata {
   findingPaths?: Record<string, string>;
   /** schemaVersion 3+: id → reviewer role for prior findings. */
   findingReviewers?: Record<string, string>;
+  /** schemaVersion 8+: id → finding title (truncated) for prior findings. (#333) */
+  findingTitles?: Record<string, string>;
   /** schemaVersion 7+: id → consecutive open reviewed-round count. */
   recurrenceDepths?: Record<string, number>;
   /**
@@ -88,6 +90,27 @@ export function parseSummaryHiddenMetadata(
       }
     }
 
+    // Parse findingTitles defensively. This is UNTRUSTED prior-comment content: it only
+    // influences the display title of prior-finding placeholder findings in re-review
+    // summaries — it never affects the CI gate, decision, or outcome. Accept only non-empty
+    // string values after trim, bounded to 200 chars (permissive — titles are free text, not
+    // constrained to a shape like path/reviewer). A rejected entry leaves that prior finding
+    // with the existing "Prior finding fnd_…" fallback title, which is the safe direction.
+    // SAFETY: titles are passed through escapeMarkdown(...) at every render site in
+    // summary-markdown.ts, so no new injection vector is introduced here.
+    let findingTitles: Record<string, string> | undefined;
+    if (isJsonObject(parsed.findingTitles)) {
+      const filtered: Record<string, string> = {};
+      for (const [key, value] of Object.entries(parsed.findingTitles)) {
+        if (typeof value === "string" && isSafeFindingTitle(value)) {
+          filtered[key] = value;
+        }
+      }
+      if (Object.keys(filtered).length > 0) {
+        findingTitles = filtered;
+      }
+    }
+
     // Parse recurrenceDepths defensively. This is UNTRUSTED prior-comment content and only
     // feeds convergence analytics. Accept bounded positive integers; rejected values fall
     // back to legacy depth inference in createReReviewSummary.
@@ -116,6 +139,7 @@ export function parseSummaryHiddenMetadata(
         : [],
       ...(findingPaths !== undefined ? { findingPaths } : {}),
       ...(findingReviewers !== undefined ? { findingReviewers } : {}),
+      ...(findingTitles !== undefined ? { findingTitles } : {}),
       ...(recurrenceDepths !== undefined ? { recurrenceDepths } : {}),
       // Parse findingsHash defensively: accept only a 16-hex string (schemaVersion 5+).
       // This is UNTRUSTED prior-comment content. It influences convergence substrate only —
@@ -148,6 +172,7 @@ export function createPriorReviewStateFromMetadata(
           stableId,
           metadata.findingPaths?.[stableId],
           metadata.findingReviewers?.[stableId],
+          metadata.findingTitles?.[stableId],
         ),
         status: "open",
         lastSeenHeadSha,
@@ -159,7 +184,12 @@ export function createPriorReviewStateFromMetadata(
   };
 }
 
-function createPlaceholderFinding(stableId: string, path?: string, reviewer?: string): Finding {
+function createPlaceholderFinding(
+  stableId: string,
+  path?: string,
+  reviewer?: string,
+  title?: string,
+): Finding {
   return {
     id: stableId,
     // Use the recovered reviewer role when available (schemaVersion 3+ metadata). Fall back to
@@ -170,7 +200,10 @@ function createPlaceholderFinding(stableId: string, path?: string, reviewer?: st
     reviewer: reviewer ?? "unknown",
     severity: "suggestion",
     category: "prior_state",
-    title: `Prior finding ${stableId}`,
+    // Use the recovered title when available (schemaVersion 8+ metadata via findingTitles).
+    // Fall back to the opaque "Prior finding fnd_…" placeholder so older comments (which lack
+    // findingTitles) continue to display a recognisable label rather than a blank. (#333)
+    title: title ?? `Prior finding ${stableId}`,
     body: "Full prior finding details were not available in summary metadata.",
     confidence: "low",
     evidence: [],
@@ -217,4 +250,13 @@ function isSafeReviewerRole(value: string): boolean {
 
 function isSafeRecurrenceDepth(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 10_000;
+}
+
+// A safe finding-title value for untrusted findingTitles values: non-empty after trim,
+// bounded length (≤ 200). Titles are free text (no shape constraint like path/reviewer);
+// the parse-side cap of 200 provides a defence-in-depth bound above the 120-char write cap.
+// Titles are always passed through escapeMarkdown(...) at every render site in
+// summary-markdown.ts, so no injection vector is introduced by accepting the value here.
+function isSafeFindingTitle(value: string): boolean {
+  return value.trim().length > 0 && value.length <= 200;
 }

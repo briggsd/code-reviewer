@@ -173,11 +173,11 @@ The `run_metrics` telemetry event also includes an `incremental` block when the 
 
 ## Hidden summary metadata
 
-Published summary comments/notes include hidden metadata with `schemaVersion: 7` and `findingIds` (and optionally `findingPaths`, `findingReviewers`, `partialBySize`, `findingsHash`, `resolvedLog`, and `recurrenceDepths`). At schemaVersion 6 (legacy), `recurrenceDepths` is absent; at schemaVersion 5 (legacy), `resolvedLog` is absent; at schemaVersion 4 (legacy), `findingsHash` is also absent; at schemaVersion 3 (legacy), `partialBySize` is also absent; at schemaVersion 2 (legacy), `findingReviewers` is absent and placeholder findings use reviewer `"unknown"`; at schemaVersion 1 (legacy), `findingPaths` is also absent and placeholder findings have no `location`; incremental re-review falls back to full review or carries forward all prior findings conservatively. (The `schemaVersion: 2` example in the `findingPaths` section above shows the v2 shape for reference.)
+Published summary comments/notes include hidden metadata with `schemaVersion: 8` and `findingIds` (and optionally `findingPaths`, `findingReviewers`, `partialBySize`, `findingsHash`, `resolvedLog`, `recurrenceDepths`, and `findingTitles`). At schemaVersion 7 (legacy), `findingTitles` is absent and placeholder findings use the `Prior finding ${stableId}` title; at schemaVersion 6 (legacy), `recurrenceDepths` is also absent; at schemaVersion 5 (legacy), `resolvedLog` is absent; at schemaVersion 4 (legacy), `findingsHash` is also absent; at schemaVersion 3 (legacy), `partialBySize` is also absent; at schemaVersion 2 (legacy), `findingReviewers` is absent and placeholder findings use reviewer `"unknown"`; at schemaVersion 1 (legacy), `findingPaths` is also absent and placeholder findings have no `location`; incremental re-review falls back to full review or carries forward all prior findings conservatively. (The `schemaVersion: 2` example in the `findingPaths` section above shows the v2 shape for reference.)
 
 ```json
 {
-  "schemaVersion": 7,
+  "schemaVersion": 8,
   "runId": "run-123",
   "headSha": "abc123",
   "provider": "github",
@@ -196,10 +196,14 @@ Published summary comments/notes include hidden metadata with `schemaVersion: 7`
   "findingsHash": "a1b2c3d4e5f6a7b8",
   "resolvedLog": [
     { "stableId": "fnd_0123456789abcdef", "title": "Auth token not rotated", "resolvedAtSha": "abc1234" }
-  ]
+  ],
+  "findingTitles": {
+    "fnd_0123456789abcdef": "Auth token not rotated"
+  }
 }
 ```
 
+- **`findingTitles`** (v8, optional): stable finding ID → model-authored finding title, as written into the summary on the round the finding was first seen (#333). Titles are truncated to 120 characters on write. Parsed defensively: non-string, empty, and over-200-character values are silently dropped (untrusted prior-comment content). When absent or when a specific ID has no entry, placeholder findings fall back to `Prior finding ${stableId}` as the title. The `>` character is unicode-escaped on serialization (→ `\u003e`) to prevent HTML-comment breakout (#82); JSON.parse decodes `>` back to `>` on read so the round-trip is transparent. Parsers built on schemaVersion ≤ 7 ignore this field (additive, backward-compatible).
 - **`recurrenceDepths`** (v7, optional): stable finding ID → consecutive reviewed rounds the finding has remained open (#260). First reviews seed a depth of `1`; recurring findings increment by one on the next reviewed round; legacy prior metadata without the field falls back to depth `2` for a recurring finding because it was present in both the prior and current reviewed rounds. The map is persisted for current findings only. Parsed defensively: only bounded positive integers are accepted. Parsers built on schemaVersion ≤ 6 ignore this field (backward-compatible additive field).
 - **`resolvedLog`** (v6, optional): cross-round resolved-finding history (#279, M026 S02). An array of objects `{ stableId, title, resolvedAtSha }` accumulated across re-review rounds — each entry records a finding that was classified `fixed` in some prior round and the short head SHA where it was resolved. Capped at 50 entries (oldest dropped when exceeded). Absent on first review or when no findings have been resolved yet. Parsed defensively: malformed entries are dropped silently; only non-empty string values with bounded length are accepted. Parsers built on schemaVersion ≤ 5 ignore this field (backward-compatible additive field).
 - **`findingsHash`** (v5, optional): a 16-hex-character SHA-256 prefix of the sorted stable finding-ID set. Empty string when there are no findings. Used by the convergence gate to detect a stable finding set across re-reviews without comparing full ID arrays. Parsers built on schemaVersion ≤ 4 ignore this field (backward-compatible additive field).

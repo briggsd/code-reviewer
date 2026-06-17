@@ -494,6 +494,48 @@ describe("preservation of existing behaviors", () => {
     expect(markdown).not.toContain("<!-- ai-code-review-factory");
   });
 
+  // #82 security review — mirrors the defence already applied to inline-comment-markdown.ts.
+  // A model-authored findingTitles value containing '-->' must NOT prematurely close the HTML
+  // comment block; '>' is unicode-escaped on write and round-trips cleanly via JSON.parse.
+  test("HTML-comment breakout: findingTitles value with '-->' is unicode-escaped and round-trips", () => {
+    const evilTitle = "Auth bypass via crafted header --> injected content";
+    const hiddenMeta = {
+      schemaVersion: 8,
+      runId: "run-breakout",
+      headSha: "abc123",
+      provider: "github",
+      repository: "example/repo",
+      changeId: "99",
+      findingIds: ["fnd_abc"],
+      findingTitles: {
+        fnd_abc: evilTitle,
+      },
+    };
+    const markdown = formatReviewSummaryMarkdown(makeSummary({ findings: [] }), {
+      includeHiddenMetadata: true,
+      hiddenMetadata: hiddenMeta,
+    });
+
+    // Extract the raw content inside the HTML comment block.
+    const metadataBlock = /<!-- ai-code-review-factory\n([\s\S]*?)\n-->/.exec(markdown)?.[1] ?? "";
+
+    // (a) The literal '-->' must NOT appear inside the metadata block — the comment is not
+    //     prematurely closed, so no Markdown injection is possible.
+    expect(metadataBlock).not.toContain("-->");
+
+    // '>' is escaped to '>', so the problematic sequence becomes '-->'.
+    expect(metadataBlock).toContain("\\u003e");
+
+    // (b) parseSummaryHiddenMetadata round-trips the value back to the original title
+    //     (JSON.parse decodes '>' → '>' transparently).
+    const parsed = parseSummaryHiddenMetadata(markdown);
+    expect(parsed).not.toBeNull();
+    const titles = (parsed as unknown as Record<string, unknown>).findingTitles as
+      | Record<string, string>
+      | undefined;
+    expect(titles?.fnd_abc).toBe(evilTitle);
+  });
+
   test("### Re-review status section preserved with correct bullets", () => {
     const summary: ReviewSummary = {
       ...makeSummary({ findings: [makeFinding({ title: "Issue" })] }),
@@ -1821,17 +1863,25 @@ describe("resolvedLog — cross-round history section", () => {
   });
 
   test("history section appears after re-review status and before break-glass footer", () => {
+    // fnd_fixed is in fixedFindingIds this round; fnd_earlier was resolved in a prior push
+    // and is NOT in fixedFindingIds — so fnd_earlier still appears in the resolved log,
+    // letting us assert that the resolved log section renders in the correct position.
     const summary = makeSummary({
       findings: [],
       reReview: {
         newFindingIds: [],
         recurringFindingIds: [],
-        fixedFindingIds: ["fnd_old"],
+        fixedFindingIds: ["fnd_fixed"],
         withheldFindingIds: [],
         carriedForwardFindingIds: [],
         classifications: [],
       },
-      resolvedLog: [{ stableId: "fnd_old", title: "Old issue", resolvedAtSha: "abc1234" }],
+      resolvedLog: [
+        // fnd_fixed: this-round fixed — deduped out of the resolved log (correct behavior, #332)
+        { stableId: "fnd_fixed", title: "Fixed this push", resolvedAtSha: "abc1234" },
+        // fnd_earlier: resolved in an earlier push — must still appear in the resolved log
+        { stableId: "fnd_earlier", title: "Earlier issue", resolvedAtSha: "bbb2222" },
+      ],
     });
     const markdown = formatReviewSummaryMarkdown(summary);
 
@@ -1844,6 +1894,249 @@ describe("resolvedLog — cross-round history section", () => {
     expect(breakGlassIdx).toBeGreaterThan(-1);
     expect(reReviewIdx).toBeLessThan(historyIdx);
     expect(historyIdx).toBeLessThan(breakGlassIdx);
+    // fnd_earlier appears in the history section (cross-round value preserved)
+    expect(markdown).toContain("✅ Earlier issue — fixed in `bbb2222`");
+    // fnd_fixed must NOT appear in the history section (deduped, #332)
+    const historySection = markdown.slice(historyIdx);
+    expect(historySection).not.toContain("Fixed this push");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #332 — Dedup resolved log against this round's fixed + withheld
+// ---------------------------------------------------------------------------
+
+describe("#332 — resolved log dedup against this round's fixed/withheld", () => {
+  test("finding resolved in THIS push appears only under 'Fixed prior findings', NOT in resolved log", () => {
+    // One push fixes all prior findings. fnd_old appears in both reReview.fixedFindingIds
+    // and resolvedLog — the resolved log must NOT repeat it.
+    const summary = makeSummary({
+      findings: [],
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: ["fnd_old"],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: [],
+        classifications: [
+          {
+            stableId: "fnd_old",
+            status: "fixed",
+            priorFinding: {
+              id: "fnd_old",
+              reviewer: "security",
+              severity: "warning",
+              category: "auth",
+              title: "Old auth issue",
+              body: "Was a bug.",
+              confidence: "high",
+              evidence: [],
+              recommendation: "Fixed.",
+            },
+            lastSeenHeadSha: "abc1234",
+          },
+        ],
+      },
+      resolvedLog: [{ stableId: "fnd_old", title: "Old auth issue", resolvedAtSha: "abc1234" }],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // Must appear in "Fixed prior findings"
+    expect(markdown).toContain("✅ Old auth issue — last seen `abc1234`");
+    // Must NOT appear in the resolved log (the cumulative history section)
+    expect(markdown).not.toContain("🗂 Resolved over this PR");
+  });
+
+  test("finding resolved in THIS push via withheld appears only under 'Withheld prior findings', NOT in resolved log", () => {
+    const summary = makeSummary({
+      findings: [],
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: [],
+        withheldFindingIds: ["fnd_held"],
+        carriedForwardFindingIds: [],
+        classifications: [
+          {
+            stableId: "fnd_held",
+            status: "withheld",
+            priorFinding: {
+              id: "fnd_held",
+              reviewer: "code_quality",
+              severity: "suggestion",
+              category: "style",
+              title: "Magic number",
+              body: "Hard-coded.",
+              confidence: "medium",
+              evidence: [],
+              recommendation: "Use a constant.",
+            },
+            lastSeenHeadSha: "def5678",
+          },
+        ],
+      },
+      resolvedLog: [{ stableId: "fnd_held", title: "Magic number", resolvedAtSha: "def5678" }],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).toContain("Magic number — withheld");
+    expect(markdown).not.toContain("🗂 Resolved over this PR");
+  });
+
+  test("earlier-round resolved entry (not in this round's fixed/withheld) still appears in resolved log", () => {
+    // fnd_old2 was resolved two pushes ago — it is NOT in fixedFindingIds/withheldFindingIds this
+    // round, and it is NOT currently recurring. It MUST still appear in the resolved log.
+    const summary = makeSummary({
+      findings: [],
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: ["fnd_old"],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: [],
+        classifications: [
+          {
+            stableId: "fnd_old",
+            status: "fixed",
+            priorFinding: {
+              id: "fnd_old",
+              reviewer: "security",
+              severity: "warning",
+              category: "auth",
+              title: "Old auth issue",
+              body: "Was a bug.",
+              confidence: "high",
+              evidence: [],
+              recommendation: "Fixed.",
+            },
+            lastSeenHeadSha: "abc1234",
+          },
+        ],
+      },
+      resolvedLog: [
+        // This round's fixed — must NOT appear in resolved log
+        { stableId: "fnd_old", title: "Old auth issue", resolvedAtSha: "abc1234" },
+        // Earlier round — must STILL appear in resolved log
+        { stableId: "fnd_old2", title: "Earlier SQL issue", resolvedAtSha: "bbb2222" },
+      ],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // Earlier-round entry must appear in resolved log
+    expect(markdown).toContain("🗂 Resolved over this PR (1)");
+    expect(markdown).toContain("✅ Earlier SQL issue — fixed in `bbb2222`");
+    // This-round entry must NOT appear in resolved log (already shown in "Fixed prior findings")
+    const historySection = markdown.slice(markdown.indexOf("🗂 Resolved over this PR"));
+    expect(historySection).not.toContain("Old auth issue");
+  });
+
+  test("orphan fixed ID (no classification record) is also excluded from resolved log", () => {
+    // An ID in fixedFindingIds with no matching classification record is an orphan — it renders
+    // as a fallback row in "Fixed prior findings" but must still be deduped from the resolved log.
+    const summary = makeSummary({
+      findings: [],
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: ["fnd_orphan"],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: [],
+        classifications: [], // intentionally empty — orphan
+      },
+      resolvedLog: [{ stableId: "fnd_orphan", title: "Orphan issue", resolvedAtSha: "aaa1111" }],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // Orphan renders as fallback row in "Fixed prior findings"
+    expect(markdown).toContain("✅ `fnd_orphan`");
+    // Must NOT appear again in resolved log
+    expect(markdown).not.toContain("🗂 Resolved over this PR");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #333 — Real titles recovered in rendered re-review summary sections
+// ---------------------------------------------------------------------------
+
+describe("#333 — real titles in rendered fixed/withheld rows and resolved log", () => {
+  test("fixed prior finding with placeholder finding carrying recovered title renders real title", () => {
+    // Simulate: the prior comment had findingTitles → createPriorReviewStateFromMetadata
+    // sets the real title on the placeholder finding → fixed classification inherits it.
+    const summary = makeSummary({
+      findings: [],
+      reReview: {
+        newFindingIds: [],
+        recurringFindingIds: [],
+        fixedFindingIds: ["fnd_aaa"],
+        withheldFindingIds: [],
+        carriedForwardFindingIds: [],
+        classifications: [
+          {
+            stableId: "fnd_aaa",
+            status: "fixed",
+            priorFinding: {
+              id: "fnd_aaa",
+              reviewer: "security",
+              severity: "warning",
+              category: "auth",
+              // Real title recovered from findingTitles metadata
+              title: "SQL injection in query builder",
+              body: "Full prior finding details were not available in summary metadata.",
+              confidence: "low",
+              evidence: [],
+              recommendation:
+                "Load the full prior summary artifact or state store for finding details.",
+            },
+            lastSeenHeadSha: "abc1234",
+          },
+        ],
+      },
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    // Rendered title must be the real one, not the placeholder
+    expect(markdown).toContain("✅ SQL injection in query builder — last seen `abc1234`");
+    expect(markdown).not.toContain("Prior finding fnd_aaa");
+  });
+
+  test("resolved log entry inherits real title (from resolvedLog entry built off recovered placeholder)", () => {
+    // resolvedLog carries the title that was on the finding when it was resolved.
+    // When the placeholder has a real title, the resolvedLog entry should also carry it.
+    const summary = makeSummary({
+      findings: [],
+      resolvedLog: [
+        {
+          stableId: "fnd_aaa",
+          // Real title — as would be set when the resolvedLog entry was built from a placeholder
+          // that had the recovered title
+          title: "SQL injection in query builder",
+          resolvedAtSha: "abc1234",
+        },
+      ],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).toContain("✅ SQL injection in query builder — fixed in `abc1234`");
+    expect(markdown).not.toContain("Prior finding fnd_aaa");
+  });
+
+  test("resolved log entry with placeholder title (no findingTitles in prior metadata) shows placeholder", () => {
+    // Back-compat: when the prior comment had no findingTitles, the resolvedLog entry carries
+    // the placeholder title "Prior finding fnd_…" — this must still render without error.
+    const summary = makeSummary({
+      findings: [],
+      resolvedLog: [
+        {
+          stableId: "fnd_old",
+          title: "Prior finding fnd_old",
+          resolvedAtSha: "abc1234",
+        },
+      ],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).toContain("🗂 Resolved over this PR (1)");
+    expect(markdown).toContain("Prior finding fnd\\_old");
   });
 });
 

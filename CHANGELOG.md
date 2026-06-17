@@ -12,6 +12,24 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
 
 ### Fixed
 
+- Re-review summaries now recover real finding titles from hidden summary metadata into placeholder
+  findings, so the resolved-log and re-review status sections show the original title (e.g.
+  "Auth token not rotated") instead of the generic `Prior finding fnd_…` placeholder (#333).
+- Resolved-log accumulation deduplicates against the current round's `fixed` and `withheld`
+  finding IDs before appending, preventing stale resolved entries from re-appearing in
+  the log when a finding bounces between states across rounds (#332).
+- Hidden summary metadata serialization now unicode-escapes `>` (→ `\u003e`) at the write
+  site, preventing a model-authored `findingTitles` value containing `-->` from prematurely
+  closing the HTML comment block and injecting Markdown into the rendered summary. Mirrors the
+  same defence already applied to inline comments (#82). The `parseSummaryHiddenMetadata`
+  round-trip is unaffected (JSON.parse decodes `>` back to `\u003e`).
+
+### Added
+
+- Hidden-metadata `schemaVersion` bumped 7→8 for the additive `findingTitles` field (stable
+  finding ID → model-authored title map). Backward-compatible: schemaVersion ≤ 7 parsers
+  ignore the field; when absent, placeholder findings fall back to `Prior finding ${stableId}`.
+
 - `acknowledgements`: durable `stableFindingId` matching across finding-ID drift — when a pinned
   ID is absent from the current run (the model re-assigned an ID), `acknowledge`-mode acks now
   relax to path+category so the ack stays active across model-volatile ID churn (#346). Safety
