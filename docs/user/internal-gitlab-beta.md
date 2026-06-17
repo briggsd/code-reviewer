@@ -6,9 +6,34 @@ Use this guide to onboard the first internal/self-managed GitLab beta repositori
 
 - A self-managed GitLab project with merge request pipelines enabled.
 - A beta tarball produced from a trusted checkout with `npm pack` or the manual release artifact workflow.
-- An immutable internal tarball URL reachable by CI runners, for example a GitLab release asset or generic package file.
+- An immutable internal tarball URL reachable by CI runners. The recommended default is the **GitLab generic package registry** (see [Package hosting](#package-hosting)).
 - Bun-capable CI image access. The starter template uses `oven/bun:1.3`.
 - A low-risk same-project merge request for the first smoke.
+
+## Package hosting
+
+For self-managed installs, host the tarball in the **GitLab generic package registry**. Publishing there uses `JOB-TOKEN` auth so no GitHub personal access token is needed in each pipeline run:
+
+```bash
+# Publish the tarball to your instance's generic package registry
+curl --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+  --upload-file ai-code-review-factory-0.2.0.tgz \
+  "https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/ai-code-review-factory/0.2.0/ai-code-review-factory.tgz"
+```
+
+This is a **one-time setup step** you run from a machine or a separate CI job that has curl installed — the `oven/bun:1.3` review image does not (the warning below applies to the review job, not this publish step). `$CI_JOB_TOKEN` is only set inside a CI job; if you publish locally, replace it with a personal or deploy access token that has package-write scope.
+
+The resulting API download URL looks like:
+
+```
+https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/ai-code-review-factory/0.2.0/ai-code-review-factory.tgz
+```
+
+Use that API endpoint URL as `AI_REVIEW_PACKAGE`. For a private registry the runner must fetch with `JOB-TOKEN` auth; use the `bun -e` fetch snippet in the Pi section of the template (origin-checked, no cross-origin redirect). A GitLab releases asset URL (`/-/releases/.../downloads/...`) also works but needs the same authenticated fetch for private projects.
+
+If `AI_REVIEW_PACKAGE` is a fully public URL, `bun add --global "$AI_REVIEW_PACKAGE"` works directly. For private registries, use the authenticated fetch path.
+
+> **No curl in `oven/bun:1.3`.** The image is Debian slim and ships no curl. Fetch tarballs with `bun -e` (shown in the Pi section of the template) rather than a curl step.
 
 ## CI variables
 
@@ -23,6 +48,14 @@ Configure these project or group CI/CD variables before enabling write-back:
 | Pi/model credentials | trusted publish or later model-backed jobs | masked + protected | Do not add until dummy-runtime summary publishing is stable. Treat them like write tokens. |
 
 Do not rely on `CI_JOB_TOKEN` for summary publishing unless the target GitLab instance policy is explicitly verified. Use separate read and write token variables so the dry-run path can stay less privileged.
+
+### Single project access token (optional hardening)
+
+The template uses two separate variables (`GITLAB_TOKEN_READ` and `GITLAB_TOKEN_WRITE`) so the dry-run job runs with fewer privileges. That split is the recommended default.
+
+For internal projects where token proliferation is a concern, a single project access token with `api` scope (which already includes read access) covers both jobs. Set it as both `GITLAB_TOKEN_READ` and `GITLAB_TOKEN_WRITE`, or reference the same variable in both job definitions. The fork-safety guard (`$CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID`) still limits write-back to same-project pipelines regardless of which token pattern you use.
+
+The READ/WRITE split remains the hardened recommendation: a narrower dry-run token limits blast radius if a read token is compromised.
 
 ## Onboard one beta repository
 
@@ -69,7 +102,10 @@ What to check:
 
 | Symptom | Likely cause | Next step |
 |---|---|---|
-| `bun add --global "$AI_REVIEW_PACKAGE"` fails | Tarball URL unreachable from runner, auth required, or mutable/incorrect URL | Verify runner network access and replace with the exact internal release asset/generic package file URL. |
+| `bun add --global "$AI_REVIEW_PACKAGE"` fails with a network or auth error | Tarball URL unreachable from runner, auth required, or mutable/incorrect URL | Verify runner network access. For private GitLab registries, use the `bun -e` fetch snippet (JOB-TOKEN auth) from the Pi section of the template rather than a plain `bun add --global`. |
+| `curl: command not found` in before_script | `oven/bun:1.3` is Debian slim and has no curl | Switch to the `bun -e` fetch approach; do not install curl. |
+| GitLab CI linter reports "before_script is not valid" on a variable | Unquoted YAML string containing double-quote characters | Single-quote the variable value in YAML. Double-quote characters inside a YAML value must be in a single-quoted string. |
+| GitLab CI linter reports "cache is not valid" | `cache: []` is invalid on GitLab 15.x and older | Omit the `cache` key entirely instead of setting it to an empty list. |
 | GitLab API 401/403 | Token missing, wrong scope, or unavailable to this pipeline context | Check `GITLAB_TOKEN_READ`/`GITLAB_TOKEN_WRITE` masking/protection and project membership. |
 | GitLab API 404 | Wrong `CI_PROJECT_PATH`, MR IID, or API base URL | Confirm `$CI_API_V4_URL`, `$CI_PROJECT_PATH`, and `$CI_MERGE_REQUEST_IID` in job logs. |
 | Publish job does not run | MR is from a fork/different source project or rules do not match | This is expected for untrusted/fork-like MRs; keep artifacts/status only. |

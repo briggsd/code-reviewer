@@ -1,6 +1,36 @@
 # Internal/self-managed GitLab beta template.
 # Copy this into a beta repository's .gitlab-ci.yml and replace AI_REVIEW_PACKAGE
 # with the immutable internal tarball URL for the tested beta build.
+#
+# Package hosting for self-managed installs
+# -----------------------------------------
+# The recommended default is the GitLab generic package registry. The API
+# download endpoint (not the web-UI path) is what works as AI_REVIEW_PACKAGE:
+#   https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/<pkg>/<ver>/ai-code-review-factory.tgz
+# Publishing there uses JOB-TOKEN auth, so no GitHub personal access token is
+# needed in each pipeline run. A GitLab releases asset URL works too but
+# requires the same JOB-TOKEN fetch workaround for private projects.
+#
+# If AI_REVIEW_PACKAGE is a fully public URL, bun add --global installs it
+# directly (no auth). For a private GitLab registry, use the bun -e fetch
+# snippet in the Pi section below (authenticated, origin-checked).
+#
+# NOTE: oven/bun:1.3 is a Debian slim image — curl is not installed.
+# Do not add a before_script step that calls curl to fetch the tarball.
+# Use bun add --global for public URLs or the bun -e fetch for private ones.
+#
+# YAML quoting gotcha
+# -------------------
+# GitLab CI lints variable values. Strings that contain double-quote
+# characters must themselves be single-quoted in YAML, or the linter
+# surfaces a misleading "before_script invalid" error rather than pointing
+# at the offending variable. Single-quote any value that embeds double quotes.
+#
+# cache: [] gotcha
+# ----------------
+# cache: [] is invalid on GitLab 15.x and older and causes a misleading
+# "before_script" validation error. Omit the cache key entirely (as done
+# here) rather than setting it to an empty list.
 
 stages:
   - review

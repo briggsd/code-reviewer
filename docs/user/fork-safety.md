@@ -133,6 +133,8 @@ rules:
 
 Do not assume `CI_JOB_TOKEN` can publish comments/notes. Use separate read and write token variables such as `GITLAB_TOKEN_READ` and `GITLAB_TOKEN_WRITE`, and keep write tokens protected/scoped. On self-managed GitLab, pass the instance API endpoint from `$CI_API_V4_URL` (or an explicitly configured `AI_REVIEW_GITLAB_API_BASE_URL`) to `ai-code-review run --api-base-url`; do not let templates silently fall back to GitLab.com.
 
+**Single project access token (internal projects).** The READ/WRITE split is the recommended default: it limits blast radius if the read token is compromised. For internal projects where a single token is easier to manage, a project access token with both read and write scope covers both jobs. Set it as both `GITLAB_TOKEN_READ` and `GITLAB_TOKEN_WRITE`. The fork-safety guard (`$CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID`) still prevents write-back on fork pipelines regardless of which token pattern you use. This is an opt-in convenience for internal setups, not the hardened default.
+
 ## Model/runtime secrets
 
 Treat model credentials like write tokens. They should not be available in fork-triggered jobs unless the runtime is guaranteed not to execute project code, not to load project-local agent instructions as trusted instructions, and not to expose tools that can exfiltrate secrets.
