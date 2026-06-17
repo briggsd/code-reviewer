@@ -5,4 +5,4 @@
 # Biome formatter adoption + lint-debt clear, squash-merged as PR #107 (#96).
 # NOTE: list the SQUASH commit on main, not the branch commit — squash merges
 # rewrite the hash and a non-ancestry rev here is silently inert.
-8cc2f4cc9d65e136e3ef0bd0b312a52eccaa7754
+abdc34b0f252f4728a896053abbe864bdff1d39d
