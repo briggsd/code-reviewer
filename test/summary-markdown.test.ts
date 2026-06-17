@@ -155,17 +155,17 @@ describe("group-by-reviewer layout", () => {
 // ---------------------------------------------------------------------------
 
 describe("severity badge and recommendation tier", () => {
-  test("single critical: badge shows '1 critical' (singular), tier = 🔴 Major Comments", () => {
+  test("single critical: badge shows '1 critical' (singular), tier = 🔴 Address before merge", () => {
     const findings = [makeFinding({ severity: "critical", title: "Critical issue" })];
     const markdown = formatReviewSummaryMarkdown(makeSummary({ findings }));
 
     expect(markdown).toContain("🔴 1 critical");
-    expect(markdown).toContain("Recommendation: 🔴 Major Comments");
+    expect(markdown).toContain("Recommendation: 🔴 Address before merge");
     // plural should NOT appear
     expect(markdown).not.toContain("criticals");
   });
 
-  test("two warnings: badge shows '2 warnings' (plural), tier = ⚠️ Minor Comments", () => {
+  test("two warnings: badge shows '2 warnings' (plural), tier = ⚠️ Worth addressing", () => {
     const findings = [
       makeFinding({ severity: "warning", title: "Warning A" }),
       makeFinding({ severity: "warning", title: "Warning B" }),
@@ -173,19 +173,19 @@ describe("severity badge and recommendation tier", () => {
     const markdown = formatReviewSummaryMarkdown(makeSummary({ findings }));
 
     expect(markdown).toContain("⚠️ 2 warnings");
-    expect(markdown).toContain("Recommendation: ⚠️ Minor Comments");
+    expect(markdown).toContain("Recommendation: ⚠️ Worth addressing");
   });
 
-  test("one suggestion: badge shows '1 suggestion' (singular), tier = 💬 Optional Nits", () => {
+  test("one suggestion: badge shows '1 suggestion' (singular), tier = 💬 Optional", () => {
     const findings = [makeFinding({ severity: "suggestion", title: "Suggestion" })];
     const markdown = formatReviewSummaryMarkdown(makeSummary({ findings }));
 
     expect(markdown).toContain("💬 1 suggestion");
-    expect(markdown).toContain("Recommendation: 💬 Optional Nits");
+    expect(markdown).toContain("Recommendation: 💬 Optional");
     expect(markdown).not.toContain("suggestions");
   });
 
-  test("mixed: critical + warning + suggestion → badge has all three, tier = Major Comments", () => {
+  test("mixed: critical + warning + suggestion → badge has all three, tier = Address before merge", () => {
     const findings = [
       makeFinding({ severity: "critical", title: "Critical" }),
       makeFinding({ severity: "warning", title: "Warning" }),
@@ -196,7 +196,7 @@ describe("severity badge and recommendation tier", () => {
     expect(markdown).toContain("🔴 1 critical");
     expect(markdown).toContain("⚠️ 1 warning");
     expect(markdown).toContain("💬 1 suggestion");
-    expect(markdown).toContain("Recommendation: 🔴 Major Comments");
+    expect(markdown).toContain("Recommendation: 🔴 Address before merge");
   });
 
   test("absent severities are omitted from badge", () => {
@@ -1168,7 +1168,7 @@ describe("multi-reviewer 8-finding summary", () => {
     expect(secGroup).toContain("🔴 1 critical");
     expect(secGroup).toContain("⚠️ 1 warning");
     expect(secGroup).toContain("💬 1 suggestion");
-    expect(secGroup).toContain("Recommendation: 🔴 Major Comments");
+    expect(secGroup).toContain("Recommendation: 🔴 Address before merge");
 
     // One-line bullets (above the fold, before details)
     expect(secGroup).toContain("CRITICAL: SQL injection in query builder");

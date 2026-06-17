@@ -108,17 +108,17 @@ function recommendationTier(findings: Finding[]): string {
       // matching case or the switch becomes a compile error.
       switch (sev) {
         case "critical":
-          return "🔴 Major Comments";
+          return "🔴 Address before merge";
         case "warning":
-          return "⚠️ Minor Comments";
+          return "⚠️ Worth addressing";
         case "suggestion":
-          return "💬 Optional Nits";
+          return "💬 Optional";
         default:
           return assertNever(sev, "Severity");
       }
     }
   }
-  return "💬 Optional Nits";
+  return "💬 Optional";
 }
 
 // ---------------------------------------------------------------------------
