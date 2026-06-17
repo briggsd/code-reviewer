@@ -11,6 +11,7 @@
     "src/publisher/publish-summary.ts": 1,
     "src/publisher/summary-markdown.ts": 1,
     "src/publisher/summary-metadata.ts": 1,
+    "src/runner/acknowledgements.ts": 1,
     "src/runner/config.ts": 2,
     "src/runner/context-artifacts.ts": 1,
     "src/runner/diff-filter.ts": 1,

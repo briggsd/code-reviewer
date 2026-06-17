@@ -163,9 +163,30 @@ from your local config — which is exactly how you can test policy rules locall
   `"acknowledged"` (default) = accepted-as-is. An `expires` date in the
   past makes the entry inactive. Like `conventions`, these are read from the **base branch** in the
   provider path. Bounded: ≤100 entries.
+  **`stableFindingId` matching** follows three-case logic: *(a)* no `stableFindingId` → path glob +
+  optional category is sufficient; *(b)* pinned ID is still present among findings that match this
+  ack's path (and category if set) → exact-ID match required (sibling precision: two findings on the
+  same path+category keep distinct IDs, so the ack stays pinned to the right one); *(c)* pinned ID
+  has drifted away (absent from findings that match this ack's path (and category if set)) →
+  **`acknowledge` mode only** relaxes to
+  path+category, but **only when exactly one finding matches the ack's path (and category if set)**
+  in scope — if two or more findings match, the drift is ambiguous and the ack requires an explicit
+  ID update rather than fanning out to unintended siblings. `suppress` mode does **not** relax on a
+  drifted ID — a suppressed finding whose ID changed re-surfaces (visible) rather than silently
+  hiding a potentially different finding under a broad glob. Security findings (`reviewer:
+  "security"`) **never relax** regardless of mode — a drifted security finding always re-surfaces for
+  manual review, mirroring the codebase's "never silently hide a security finding" invariant.
   > **⚠️ Upgrading:** earlier releases declared `acknowledgements` but ignored it. After upgrading,
   > acknowledgements on your **base branch** become active and will change which findings reach the
   > gate. Review any pre-configured entries before upgrading. (`reason` is now required.)
+
+  > **⚠️ Upgrading (stableFindingId drift):** if you have pre-existing `acknowledge`-mode entries
+  > whose `stableFindingId` was pinned in an earlier run and has since drifted (the old ID no longer
+  > appears in the current finding set), those acks become active after upgrading — they will relax
+  > to path+category and exclude the matching finding from the CI gate. Audit your base-branch
+  > acknowledgements to confirm that each relaxed path+category match still targets the finding you
+  > intended to accept; if a path+category glob now matches multiple findings, update
+  > `stableFindingId` to re-pin the ack to the correct one.
 - `timeouts`: reviewer/coordinator/overall budgets in milliseconds.
   - Reviewer agents run in parallel; the coordinator runs after all reviewers complete.
   - `overallMs` is an enforced wall-clock ceiling for the whole runtime phase and should be at least `reviewerMs + coordinatorMs` plus headroom.

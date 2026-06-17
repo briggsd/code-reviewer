@@ -10,6 +10,19 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
 
 ## [Unreleased]
 
+### Fixed
+
+- `acknowledgements`: durable `stableFindingId` matching across finding-ID drift — when a pinned
+  ID is absent from the current run (the model re-assigned an ID), `acknowledge`-mode acks now
+  relax to path+category so the ack stays active across model-volatile ID churn (#346). Safety
+  guardrails: relaxation requires **exactly one** path+category-matching finding in scope (prevents
+  fan-out to unintended siblings when ≥2 findings share the same path+category); `suppress`-mode
+  acks do **not** relax on a drifted ID (the finding re-surfaces visibly rather than risk silently
+  hiding a different finding under a broad glob); security findings (`reviewer: "security"`) never
+  relax regardless of mode; and the pinned-ID presence check is scoped to path (and optional
+  category) matching findings (prevents an unrelated global ID collision from disabling durability). Per-ack scope is
+  precomputed once (O(N·A)) rather than rescanned per finding.
+
 ### Added
 
 - `EscapedString` branded string type returned by `escapeMarkdown` and `codeSpan`; renderer
