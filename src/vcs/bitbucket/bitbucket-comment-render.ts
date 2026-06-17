@@ -98,13 +98,24 @@ export function flattenHtmlDetails(md: string): string {
 export function buildBitbucketMetadataFence(
   hiddenMetadata: Record<string, unknown> | undefined,
 ): string {
-  // Minimize: drop only the bulky `findingTitles` field (long human-readable strings).
-  // `recurrenceDepths` is retained — it is tiny (id → int) and load-bearing for cross-round
-  // convergence depth tracking; dropping it would cap recurrence depth at the current round.
-  // When hiddenMetadata is undefined we use an empty object so the marker is still present.
-  const { findingTitles: _ft, ...minimized } = hiddenMetadata ?? {};
+  // The block is unavoidably visible on Bitbucket (no hidden HTML comments, no Connect-app
+  // property store), so keep it as small as possible:
+  //   - Drop `findingTitles` — bulky human-readable strings (re-review falls back to placeholders).
+  //   - Drop `provider` / `repository` / `changeId` — re-derivable from the current run's ref;
+  //     `createPriorReviewStateFromMetadata` never reads them.
+  //   - Retain `findingIds` / `findingPaths` / `findingReviewers` / `recurrenceDepths` /
+  //     `findingsHash` / `runId` / `headSha` / `schemaVersion` — all consumed by re-review.
+  //   - Serialize COMPACT (no indentation) so the visible block is ~one line, not ~25.
+  // `parseSummaryHiddenMetadata` matches the marker + JSON regardless of formatting.
+  const {
+    findingTitles: _ft,
+    provider: _p,
+    repository: _r,
+    changeId: _c,
+    ...minimized
+  } = hiddenMetadata ?? {};
 
-  const json = JSON.stringify(minimized, null, 2).replace(/>/g, "\\u003e");
+  const json = JSON.stringify(minimized).replace(/>/g, "\\u003e");
 
   return `\n\n\`\`\`\n<!-- code-reviewer\n${json}\n-->\n\`\`\``;
 }
