@@ -3,7 +3,7 @@
   "threshold": 15,
   "files": {
     "src/ci/decision-policy.ts": 1,
-    "src/cli.ts": 2,
+    "src/cli.ts": 3,
     "src/cli/review-progress-reporter.ts": 1,
     "src/docs-check/check.ts": 1,
     "src/docs-check/extract.ts": 2,
@@ -29,6 +29,7 @@
     "src/state/quality-report.ts": 2,
     "src/state/run-metrics-analyze.ts": 6,
     "src/state/run-metrics-rollup.ts": 1,
+    "src/vcs/bitbucket/bitbucket-vcs-adapter.ts": 1,
     "src/vcs/github/github-vcs-adapter.ts": 1,
     "src/vcs/gitlab/gitlab-vcs-adapter.ts": 1
   }

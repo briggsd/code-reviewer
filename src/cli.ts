@@ -29,6 +29,7 @@ import type {
   VcsAdapter,
 } from "./index.ts";
 import {
+  BitbucketVcsAdapter,
   CountsOnlyTelemetryTransport,
   createDefaultReviewConfig,
   createLokiTelemetryTransport,
@@ -329,10 +330,10 @@ async function runCommand(args: string[]): Promise<void> {
 
     if (publishOptions.publishInline) {
       if (source.kind !== "change" || source.adapter === undefined) {
-        throw new Error("--publish-inline requires --provider github|gitlab");
+        throw new Error("--publish-inline requires --provider github|gitlab|bitbucket");
       }
-      if (source.adapter.provider !== "github") {
-        throw new Error("--publish-inline currently supports github only");
+      if (source.adapter.provider !== "github" && source.adapter.provider !== "bitbucket") {
+        throw new Error("--publish-inline currently supports github and bitbucket only");
       }
 
       await publishReviewInlineFindings({
@@ -347,7 +348,7 @@ async function runCommand(args: string[]): Promise<void> {
 
     if (publishOptions.publishSummary) {
       if (source.kind !== "change" || source.adapter === undefined) {
-        throw new Error("--publish-summary requires --provider github|gitlab");
+        throw new Error("--publish-summary requires --provider github|gitlab|bitbucket");
       }
 
       // Convergence gate (#149 — Tier 1): suppress the summary comment re-post when the
@@ -455,8 +456,10 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
   }
 
   const provider = readFlag(args, "--provider");
-  if (provider !== "github" && provider !== "gitlab") {
-    throw new Error("run requires --fixture <path>, --git-diff, or --provider github|gitlab");
+  if (provider !== "github" && provider !== "gitlab" && provider !== "bitbucket") {
+    throw new Error(
+      "run requires --fixture <path>, --git-diff, or --provider github|gitlab|bitbucket",
+    );
   }
 
   const repo = requiredFlag(args, "--repo");
@@ -482,10 +485,12 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
     changeId,
     headSha,
   };
-  const adapter =
+  const adapter: VcsAdapter =
     provider === "github"
       ? new GitHubVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) })
-      : new GitLabVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) });
+      : provider === "gitlab"
+        ? new GitLabVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) })
+        : new BitbucketVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) });
   const [metadata, diff, priorState, breakGlassOverride] = await Promise.all([
     adapter.getChange(ref),
     adapter.getDiff(ref),
@@ -592,20 +597,24 @@ function isHeadContentCandidate(file: ChangedFile): boolean {
   return !file.isBinary && file.status !== "deleted";
 }
 
-function readProviderToken(provider: "github" | "gitlab", args: string[]): string {
+function readProviderToken(provider: "github" | "gitlab" | "bitbucket", args: string[]): string {
   const tokenEnv = readFlag(args, "--token-env");
   const value =
     tokenEnv !== undefined
       ? process.env[tokenEnv]
       : provider === "github"
         ? (process.env.AI_REVIEW_GITHUB_TOKEN ?? process.env.GITHUB_TOKEN)
-        : (process.env.AI_REVIEW_GITLAB_TOKEN ?? process.env.GITLAB_TOKEN);
+        : provider === "gitlab"
+          ? (process.env.AI_REVIEW_GITLAB_TOKEN ?? process.env.GITLAB_TOKEN)
+          : (process.env.AI_REVIEW_BITBUCKET_TOKEN ?? process.env.BITBUCKET_TOKEN);
 
   if (value === undefined || value.length === 0) {
     const defaults =
       provider === "github"
         ? "AI_REVIEW_GITHUB_TOKEN or GITHUB_TOKEN"
-        : "AI_REVIEW_GITLAB_TOKEN or GITLAB_TOKEN";
+        : provider === "gitlab"
+          ? "AI_REVIEW_GITLAB_TOKEN or GITLAB_TOKEN"
+          : "AI_REVIEW_BITBUCKET_TOKEN or BITBUCKET_TOKEN";
     throw new Error(`provider mode requires a read token in ${tokenEnv ?? defaults}`);
   }
 

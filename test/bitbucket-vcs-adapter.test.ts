@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ChangeRef, FetchLike } from "../src/index.ts";
+import type { ChangeMetadata, ChangeRef, FetchLike, Finding, ReviewSummary } from "../src/index.ts";
 import { BitbucketVcsAdapter } from "../src/index.ts";
 
 const changeRef: ChangeRef = {
@@ -400,6 +400,32 @@ describe("BitbucketVcsAdapter.getPriorReviewState", () => {
     expect(state).toBeUndefined();
   });
 
+  test("selects the summary, not a bot inline comment, on the shared /comments endpoint", async () => {
+    // Bitbucket has ONE comments endpoint for both summary and inline comments. A bare
+    // `includes("<!-- ai-code-review-factory")` substring would also match the inline marker
+    // `<!-- ai-code-review-factory-inline`, so a bot inline comment could be mis-selected as the
+    // "existing summary" — losing prior review state. The summary scan must require a parseable
+    // summary metadata block. Here the inline comment is listed LAST (findLast would pick it under
+    // the buggy substring check); the fixed scan must still resolve the real summary.
+    const botUuid = "{bot-uuid-99}";
+    const summaryBody = makeBotCommentBody("prior-run-777", "head-777", ["fnd_keep_1"]);
+    const inlineBody =
+      'Inline finding text.\n\n<!-- ai-code-review-factory-inline\n{"findingId":"fnd_inline"}\n-->';
+
+    const adapter = new BitbucketVcsAdapter({
+      fetch: makeFetchWithComments(botUuid, [
+        { id: 200, contentRaw: summaryBody, userUuid: botUuid },
+        { id: 201, contentRaw: inlineBody, userUuid: botUuid },
+      ]),
+    });
+
+    const state = await adapter.getPriorReviewState(changeRef);
+
+    expect(state).toBeDefined();
+    expect(state?.previousRunId).toBe("prior-run-777");
+    expect(state?.findings.map((f) => f.stableId)).toEqual(["fnd_keep_1"]);
+  });
+
   test("returns undefined when there are no PR comments at all", async () => {
     const adapter = new BitbucketVcsAdapter({
       fetch: makeFetchWithComments("{bot-uuid}", []),
@@ -468,24 +494,419 @@ describe("BitbucketVcsAdapter", () => {
     const adapter = new BitbucketVcsAdapter({ token: "tok" });
     expect(adapter.provider).toBe("bitbucket");
   });
+});
 
-  test("publishSummary stub rejects (not yet implemented — S03)", async () => {
-    const adapter = new BitbucketVcsAdapter({ token: "tok" });
-    await expect(
-      adapter.publishSummary({
-        change: {
-          provider: "bitbucket",
-          repository: { provider: "bitbucket", name: "r", slug: "w/r" },
-          changeId: "1",
-          headSha: "h",
-          baseSha: "b",
-          title: "t",
-          author: { username: "u" },
-          labels: [],
+// ------ publishSummary tests ------
+
+const BOT_UUID = "{bot-uuid-pub}";
+
+const CHANGE_META: ChangeMetadata = {
+  provider: "bitbucket",
+  repository: {
+    provider: "bitbucket",
+    owner: "acme-org",
+    name: "payments-api",
+    slug: "acme-org/payments-api",
+  },
+  changeId: "42",
+  headSha: "abc123def456",
+  baseSha: "base789sha",
+  title: "Harden account lookup",
+  author: { username: "octo-dev" },
+  labels: [],
+};
+
+const MINIMAL_SUMMARY: ReviewSummary = {
+  decision: "approved",
+  outcome: "pass",
+  title: "All checks passed",
+  body: "No findings.",
+  findings: [],
+  risk: {
+    tier: "trivial",
+    reason: "Small diff",
+    matchedRules: [],
+    sensitivePaths: [],
+    reviewedFileCount: 1,
+    ignoredFileCount: 0,
+  },
+};
+
+function makeFinding(overrides: Partial<Finding> = {}): Finding {
+  return {
+    reviewer: "security",
+    severity: "warning",
+    category: "auth",
+    title: "Auth check changed",
+    body: "The auth check changed.",
+    confidence: "high",
+    evidence: ["Evidence item."],
+    recommendation: "Verify the new auth behavior.",
+    ...overrides,
+  };
+}
+
+/** Build a fake-fetch that handles /user, /comments (GET paginated), and POST/PUT to /comments */
+function makePublishFetch(options: {
+  botUuid: string;
+  existingComments?: Array<{ id: number; contentRaw?: string; userUuid?: string }>;
+  onPost?: (url: string, body: unknown) => { id: number; links?: { html?: { href?: string } } };
+  onPut?: (url: string, body: unknown) => { id: number; links?: { html?: { href?: string } } };
+}): FetchLike {
+  const { botUuid, existingComments = [], onPost, onPut } = options;
+
+  return async (input, init) => {
+    const url = String(input);
+    const method = init?.method?.toUpperCase() ?? "GET";
+
+    if (url === "https://api.bitbucket.org/2.0/user") {
+      return new Response(JSON.stringify({ uuid: botUuid }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.includes("/comments") && method === "GET") {
+      const values = existingComments.map((c) => ({
+        id: c.id,
+        content: c.contentRaw !== undefined ? { raw: c.contentRaw } : undefined,
+        user: c.userUuid !== undefined ? { uuid: c.userUuid } : undefined,
+      }));
+      return new Response(JSON.stringify({ values, next: undefined }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.includes("/comments") && method === "POST") {
+      const parsed = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as unknown;
+      const result = onPost ? onPost(url, parsed) : { id: 999 };
+      return new Response(JSON.stringify(result), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.includes("/comments") && method === "PUT") {
+      const parsed = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as unknown;
+      const result = onPut ? onPut(url, parsed) : { id: 888 };
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ message: `unexpected: ${method} ${url}` }), {
+      status: 404,
+    });
+  };
+}
+
+describe("BitbucketVcsAdapter.publishSummary", () => {
+  test("no existing bot comment → POSTs a new comment with content.raw", async () => {
+    let capturedMethod: string | undefined;
+    let capturedBody: unknown;
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [],
+        onPost: (_url, body) => {
+          capturedMethod = "POST";
+          capturedBody = body;
+          return {
+            id: 701,
+            links: {
+              html: {
+                href: "https://bitbucket.org/acme-org/payments-api/pull-requests/42/_/diff#comment-701",
+              },
+            },
+          };
         },
-        // Cast to satisfy the type: the stub always rejects before inspecting the value.
-        summary: {} as Parameters<typeof adapter.publishSummary>[0]["summary"],
       }),
-    ).rejects.toThrow("not yet implemented");
+    });
+
+    const result = await adapter.publishSummary({
+      change: CHANGE_META,
+      summary: MINIMAL_SUMMARY,
+    });
+
+    expect(capturedMethod).toBe("POST");
+    // body must use content.raw (not body) field
+    expect((capturedBody as { content?: { raw?: string } }).content?.raw).toBeDefined();
+    expect(result.provider).toBe("bitbucket");
+    expect(result.summaryCommentId).toBe("701");
+    expect(result.summaryUrl).toContain("comment-701");
+    expect(result.postedInlineCount).toBe(0);
+    expect(result.failedInlineCount).toBe(0);
+  });
+
+  test("existing bot comment (matching uuid + marker) → PUTs to that comment id (update not create)", async () => {
+    const existingBody = makeBotCommentBody("prior-run-pub", "old-head-sha", []);
+    let capturedMethod: string | undefined;
+    let capturedPutUrl: string | undefined;
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [{ id: 555, contentRaw: existingBody, userUuid: BOT_UUID }],
+        onPut: (url, _body) => {
+          capturedMethod = "PUT";
+          capturedPutUrl = url;
+          return { id: 555 };
+        },
+      }),
+    });
+
+    const result = await adapter.publishSummary({
+      change: CHANGE_META,
+      summary: MINIMAL_SUMMARY,
+    });
+
+    expect(capturedMethod).toBe("PUT");
+    // URL should include the comment id 555
+    expect(capturedPutUrl).toContain("/comments/555");
+    expect(result.summaryCommentId).toBe("555");
+  });
+});
+
+// ------ publishInlineFindings tests ------
+
+describe("BitbucketVcsAdapter.publishInlineFindings", () => {
+  test("RIGHT-side finding → POSTs with inline: { path, to } and content.raw", async () => {
+    let capturedPostBody: unknown;
+
+    const finding = makeFinding({
+      id: "fnd_right_001",
+      location: { path: "src/auth.ts", line: 42, side: "RIGHT" },
+    });
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [],
+        onPost: (_url, body) => {
+          capturedPostBody = body;
+          return { id: 801, links: { html: { href: "https://bitbucket.org/.../comment-801" } } };
+        },
+      }),
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: CHANGE_META,
+      findings: [finding],
+      runId: "run-inline-test",
+    });
+
+    expect(result.provider).toBe("bitbucket");
+    expect(result.attemptedInlineCount).toBe(1);
+    expect(result.postedInlineCount).toBe(1);
+    expect(result.skippedInlineCount).toBe(0);
+    expect(result.failedInlineCount).toBe(0);
+    expect(result.findings[0]?.disposition).toBe("posted");
+    expect(result.findings[0]?.providerCommentId).toBe("801");
+
+    // Verify the POST body shape
+    const body = capturedPostBody as {
+      content?: { raw?: string };
+      inline?: { path?: string; to?: number; from?: number };
+    };
+    expect(body.content?.raw).toBeDefined();
+    expect(body.inline?.path).toBe("src/auth.ts");
+    expect(body.inline?.to).toBe(42);
+    expect(body.inline?.from).toBeUndefined();
+  });
+
+  test("inline POST that errors → disposition 'failed' (counted, does not throw)", async () => {
+    const finding = makeFinding({
+      id: "fnd_fail_001",
+      location: { path: "src/auth.ts", line: 7, side: "RIGHT" },
+    });
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: async (input, init) => {
+        const url = String(input);
+        const method = init?.method?.toUpperCase() ?? "GET";
+        if (url === "https://api.bitbucket.org/2.0/user") {
+          return new Response(JSON.stringify({ uuid: BOT_UUID }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.includes("/comments") && method === "GET") {
+          return new Response(JSON.stringify({ values: [], next: undefined }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        // The inline POST fails with a non-2xx → adapter records 'failed', does not throw.
+        return new Response(JSON.stringify({ error: { message: "Bad request" } }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: CHANGE_META,
+      findings: [finding],
+      runId: "run-inline-fail",
+    });
+
+    expect(result.attemptedInlineCount).toBe(1);
+    expect(result.postedInlineCount).toBe(0);
+    expect(result.failedInlineCount).toBe(1);
+    expect(result.findings[0]?.disposition).toBe("failed");
+  });
+
+  test("LEFT-side finding → POSTs with inline: { path, from }", async () => {
+    let capturedPostBody: unknown;
+
+    const finding = makeFinding({
+      id: "fnd_left_002",
+      location: { path: "src/legacy.ts", line: 10, side: "LEFT" },
+    });
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [],
+        onPost: (_url, body) => {
+          capturedPostBody = body;
+          return { id: 802 };
+        },
+      }),
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: CHANGE_META,
+      findings: [finding],
+    });
+
+    const body = capturedPostBody as {
+      content?: { raw?: string };
+      inline?: { path?: string; to?: number; from?: number };
+    };
+    expect(body.inline?.from).toBe(10);
+    expect(body.inline?.to).toBeUndefined();
+    expect(result.postedInlineCount).toBe(1);
+  });
+
+  test("finding whose marker already exists on a bot comment → skipped/duplicate_inline_comment", async () => {
+    const findingId = "fnd_dup_003";
+    const headSha = CHANGE_META.headSha;
+
+    // Build a comment body with the inline marker embedding the finding id + head sha
+    const inlineMarkerBody = [
+      "### AI review: ⚠️ Warning · auth",
+      "",
+      "<!-- ai-code-review-factory-inline",
+      JSON.stringify({
+        schemaVersion: 1,
+        provider: "bitbucket",
+        repository: "acme-org/payments-api",
+        changeId: "42",
+        headSha,
+        findingId,
+        runId: null,
+      }).replace(/>/g, "\\u003e"),
+      "-->",
+    ].join("\n");
+
+    const finding = makeFinding({
+      id: findingId,
+      location: { path: "src/auth.ts", line: 5, side: "RIGHT" },
+    });
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [{ id: 900, contentRaw: inlineMarkerBody, userUuid: BOT_UUID }],
+      }),
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: CHANGE_META,
+      findings: [finding],
+    });
+
+    expect(result.attemptedInlineCount).toBe(1);
+    expect(result.postedInlineCount).toBe(0);
+    expect(result.skippedInlineCount).toBe(1);
+    expect(result.failedInlineCount).toBe(0);
+    const outcome = result.findings[0];
+    expect(outcome?.disposition).toBe("skipped");
+    expect(outcome?.reason).toBe("duplicate_inline_comment");
+    expect(outcome?.providerCommentId).toBe("900");
+  });
+
+  test("finding with no inline coordinate → skipped/missing_inline_coordinates", async () => {
+    const finding = makeFinding({
+      id: "fnd_nocoord_004",
+      // no location
+    });
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [],
+      }),
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: CHANGE_META,
+      findings: [finding],
+    });
+
+    expect(result.attemptedInlineCount).toBe(1);
+    expect(result.postedInlineCount).toBe(0);
+    expect(result.skippedInlineCount).toBe(1);
+    expect(result.failedInlineCount).toBe(0);
+    expect(result.findings[0]?.disposition).toBe("skipped");
+    expect(result.findings[0]?.reason).toBe("missing_inline_coordinates");
+  });
+
+  test("mixed findings: counts are consistent (posted + skipped + failed = attempted)", async () => {
+    const rightFinding = makeFinding({
+      id: "fnd_mixed_ok",
+      location: { path: "src/a.ts", line: 1, side: "RIGHT" },
+    });
+    const noCoordFinding = makeFinding({
+      id: "fnd_mixed_no_coord",
+      // no location
+    });
+
+    let postCount = 0;
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [],
+        onPost: () => {
+          postCount += 1;
+          return { id: 1000 + postCount };
+        },
+      }),
+    });
+
+    const result = await adapter.publishInlineFindings({
+      change: CHANGE_META,
+      findings: [rightFinding, noCoordFinding],
+    });
+
+    expect(result.attemptedInlineCount).toBe(2);
+    expect(result.postedInlineCount).toBe(1);
+    expect(result.skippedInlineCount).toBe(1);
+    expect(result.failedInlineCount).toBe(0);
+    expect(result.postedInlineCount + result.skippedInlineCount + result.failedInlineCount).toBe(
+      result.attemptedInlineCount,
+    );
   });
 });

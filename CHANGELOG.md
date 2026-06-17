@@ -10,6 +10,18 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
 
 ## [Unreleased]
 
+### Added
+
+- Bitbucket Cloud is now a supported VCS provider. Pass `--provider bitbucket` with a Bearer
+  access token in `AI_REVIEW_BITBUCKET_TOKEN` (or `BITBUCKET_TOKEN`) — a Bitbucket Cloud
+  repository or workspace access token; App Passwords / Basic auth are not supported — to run a
+  review against a Bitbucket Cloud pull request. The adapter implements PR metadata/diff/prior-state read and
+  summary + inline comment publishing against Bitbucket Cloud REST API 2.0 (`content.raw`
+  comment field; inline anchor `{ path, to }` for RIGHT/new-side lines and `{ path, from }` for
+  LEFT/old-side lines). `ProviderKind` was widened with `"bitbucket"` — this change is additive
+  and backward-compatible; `run.json` consumers doing exhaustive matching on the `provider` field
+  should treat it as open-ended. (#361, M033)
+
 ### Fixed
 
 - Re-review summaries now recover real finding titles from hidden summary metadata into placeholder

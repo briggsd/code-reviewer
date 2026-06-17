@@ -2,11 +2,20 @@ import type {
   ChangeMetadata,
   ChangeRef,
   DiffSummary,
+  Finding,
   PriorReviewState,
+  PublishInlineFindingsInput,
+  PublishInlineFindingsResult,
   PublishSummaryInput,
   PublishSummaryResult,
   VcsAdapter,
 } from "../../contracts/index.ts";
+import {
+  formatInlineFindingComment,
+  inlineCommentKey,
+  parseInlineCommentMetadata,
+} from "../../publisher/inline-comment-markdown.ts";
+import { formatReviewSummaryMarkdown } from "../../publisher/summary-markdown.ts";
 import {
   createPriorReviewStateFromMetadata,
   parseSummaryHiddenMetadata,
@@ -80,10 +89,20 @@ interface BitbucketCommentContentResponse {
   raw?: string;
 }
 
+interface BitbucketCommentLinksResponse {
+  html?: { href?: string };
+}
+
 interface BitbucketCommentResponse {
   id: number;
   content?: BitbucketCommentContentResponse;
   user?: BitbucketUserResponse | null;
+  links?: BitbucketCommentLinksResponse;
+  inline?: {
+    path?: string;
+    from?: number;
+    to?: number;
+  };
 }
 
 export class BitbucketVcsAdapter implements VcsAdapter {
@@ -235,20 +254,155 @@ export class BitbucketVcsAdapter implements VcsAdapter {
     return metadata === undefined ? undefined : createPriorReviewStateFromMetadata(metadata, ref);
   }
 
-  // publishSummary is implemented in S03 (write-path slice). This stub satisfies the VcsAdapter
-  // interface contract so the class can be compiled and tested without the write path.
-  publishSummary(_input: PublishSummaryInput): Promise<PublishSummaryResult> {
-    return Promise.reject(
-      new Error("BitbucketVcsAdapter.publishSummary is not yet implemented (S03)"),
-    );
+  async publishSummary(input: PublishSummaryInput): Promise<PublishSummaryResult> {
+    const body = formatReviewSummaryMarkdown(input.summary, {
+      includeHiddenMetadata: true,
+      ...(input.hiddenMetadata !== undefined ? { hiddenMetadata: input.hiddenMetadata } : {}),
+    });
+
+    const [comments, botUuid] = await Promise.all([
+      this.http.requestAllPagesCursor<BitbucketCommentResponse>(this.prCommentsPath(input.change)),
+      this.resolveBotUuid(),
+    ]);
+
+    const existing =
+      botUuid !== undefined
+        ? comments.findLast((comment) => this.isOwnSummaryComment(comment, botUuid))
+        : undefined;
+
+    const response =
+      existing === undefined
+        ? await this.http.request<BitbucketCommentResponse>(this.prCommentsPath(input.change), {
+            method: "POST",
+            body: { content: { raw: body } },
+          })
+        : await this.http.request<BitbucketCommentResponse>(
+            this.prCommentPath(input.change, existing.id),
+            {
+              method: "PUT",
+              body: { content: { raw: body } },
+            },
+          );
+
+    return {
+      provider: "bitbucket",
+      summaryCommentId: String(response.id),
+      ...(response.links?.html?.href !== undefined ? { summaryUrl: response.links.html.href } : {}),
+      postedInlineCount: 0,
+      failedInlineCount: 0,
+    };
   }
 
-  // Returns true when a comment was authored by the bot AND carries the hidden-metadata marker.
+  async publishInlineFindings(
+    input: PublishInlineFindingsInput,
+  ): Promise<PublishInlineFindingsResult> {
+    const existingByKey = await this.buildExistingInlineCommentsMap(input);
+    const outcomes: PublishInlineFindingsResult["findings"] = [];
+
+    for (const finding of input.findings) {
+      const anchor = bitbucketInlineCoordinateForFinding(finding);
+      if (anchor === undefined) {
+        outcomes.push({
+          ...(finding.id !== undefined ? { findingId: finding.id } : {}),
+          disposition: "skipped",
+          reason: "missing_inline_coordinates",
+        });
+        continue;
+      }
+
+      const findingId = finding.id;
+      const duplicate =
+        findingId === undefined
+          ? undefined
+          : existingByKey.get(inlineCommentKey(findingId, input.change.headSha));
+      if (duplicate !== undefined && findingId !== undefined) {
+        outcomes.push({
+          findingId,
+          disposition: "skipped",
+          reason: "duplicate_inline_comment",
+          providerCommentId: String(duplicate.id),
+          ...(duplicate.links?.html?.href !== undefined ? { url: duplicate.links.html.href } : {}),
+        });
+        continue;
+      }
+
+      try {
+        const response = await this.http.request<BitbucketCommentResponse>(
+          this.prCommentsPath(input.change),
+          {
+            method: "POST",
+            body: {
+              content: { raw: formatInlineFindingComment(finding, input.change, input.runId) },
+              inline: anchor,
+            },
+          },
+        );
+        outcomes.push({
+          ...(finding.id !== undefined ? { findingId: finding.id } : {}),
+          disposition: "posted",
+          providerCommentId: String(response.id),
+          ...(response.links?.html?.href !== undefined ? { url: response.links.html.href } : {}),
+        });
+      } catch (error) {
+        outcomes.push({
+          ...(finding.id !== undefined ? { findingId: finding.id } : {}),
+          disposition: "failed",
+          reason: error instanceof Error ? error.message : String(error),
+          ...(error instanceof HttpRequestError ? { httpStatus: error.status } : {}),
+        });
+      }
+    }
+
+    return {
+      provider: "bitbucket",
+      attemptedInlineCount: input.findings.length,
+      postedInlineCount: outcomes.filter((o) => o.disposition === "posted").length,
+      skippedInlineCount: outcomes.filter((o) => o.disposition === "skipped").length,
+      failedInlineCount: outcomes.filter((o) => o.disposition === "failed").length,
+      summaryFallbackCount: 0,
+      findings: outcomes,
+    };
+  }
+
+  /** Build the dedup map for inline comments from existing bot-authored PR comments. */
+  private async buildExistingInlineCommentsMap(
+    input: PublishInlineFindingsInput,
+  ): Promise<Map<string, BitbucketCommentResponse>> {
+    const [comments, botUuid] = await Promise.all([
+      this.http.requestAllPagesCursor<BitbucketCommentResponse>(this.prCommentsPath(input.change)),
+      this.resolveBotUuid(),
+    ]);
+    const byFindingAndHead = new Map<string, BitbucketCommentResponse>();
+
+    for (const comment of comments) {
+      const metadata = parseInlineCommentMetadata(comment.content?.raw);
+      if (
+        metadata?.findingId !== undefined &&
+        metadata.headSha !== undefined &&
+        botUuid !== undefined &&
+        comment.user?.uuid === botUuid
+      ) {
+        byFindingAndHead.set(inlineCommentKey(metadata.findingId, metadata.headSha), comment);
+      }
+    }
+
+    return byFindingAndHead;
+  }
+
+  // Returns true when a comment was authored by the bot AND is the review *summary* comment.
   // This is the single trust point for getPriorReviewState — the author-identity check (#84/#263).
+  //
+  // Bitbucket exposes ONE comments endpoint for both summary and inline comments (unlike GitHub's
+  // separate issue/pull-review endpoints), so the summary scan must distinguish the two: the inline
+  // marker `<!-- ai-code-review-factory-inline` would match a bare `includes("<!-- ai-code-review-factory")`
+  // substring. We therefore require the comment to parse as a real summary hidden-metadata block —
+  // `parseSummaryHiddenMetadata`'s regex requires `ai-code-review-factory\n` and so rejects the
+  // `-inline` marker. Without this, an inline comment could be selected as the "existing summary",
+  // losing prior review state (getPriorReviewState) or overwriting an inline comment (publishSummary).
   private isOwnSummaryComment(comment: BitbucketCommentResponse, botUuid: string): boolean {
     return (
-      comment.content?.raw?.includes("<!-- ai-code-review-factory") === true &&
-      comment.user?.uuid === botUuid
+      comment.user?.uuid === botUuid &&
+      parseSummaryHiddenMetadata(comment.content?.raw) !== undefined
     );
   }
 
@@ -262,9 +416,14 @@ export class BitbucketVcsAdapter implements VcsAdapter {
     return `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests/${encodeURIComponent(ref.changeId)}/diff`;
   }
 
-  private prCommentsPath(ref: ChangeRef): string {
+  private prCommentsPath(ref: ChangeRef | ChangeMetadata): string {
     const [workspace, repoSlug] = splitSlug(ref.repository.slug);
     return `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests/${encodeURIComponent(ref.changeId)}/comments`;
+  }
+
+  private prCommentPath(ref: ChangeRef | ChangeMetadata, commentId: number): string {
+    const [workspace, repoSlug] = splitSlug(ref.repository.slug);
+    return `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests/${encodeURIComponent(ref.changeId)}/comments/${encodeURIComponent(String(commentId))}`;
   }
 
   private headers(hasJsonBody = false): HeadersInit {
@@ -275,6 +434,27 @@ export class BitbucketVcsAdapter implements VcsAdapter {
       ...(this.token !== undefined ? { Authorization: `Bearer ${this.token}` } : {}),
     };
   }
+}
+
+// Maps a finding's location to Bitbucket's `inline` comment anchor.
+// RIGHT/new-side → { path, to: line }; LEFT/old-side → { path, from: line }.
+// Returns undefined when coordinate data is absent (caller skips with missing_inline_coordinates).
+function bitbucketInlineCoordinateForFinding(
+  finding: Finding,
+): { path: string; to: number } | { path: string; from: number } | undefined {
+  const location = finding.location;
+  const line = location?.line ?? location?.startLine;
+  if (location === undefined || line === undefined || location.side === undefined) {
+    return undefined;
+  }
+
+  if (location.side !== "LEFT" && location.side !== "RIGHT") {
+    return undefined;
+  }
+
+  return location.side === "RIGHT"
+    ? { path: location.path, to: line }
+    : { path: location.path, from: line };
 }
 
 // Splits a Bitbucket `workspace/repo_slug` slug into its two components.
