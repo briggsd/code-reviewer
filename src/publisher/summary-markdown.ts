@@ -597,7 +597,7 @@ export function formatReviewSummaryMarkdown(
     lines.push("");
     lines.push(`- New findings: ${summary.reReview.newFindingIds.length}`);
     lines.push(`- Recurring findings: ${summary.reReview.recurringFindingIds.length}`);
-    lines.push(`- Fixed prior findings: ${fixedCount}`);
+    lines.push(`- Fixed this round: ${fixedCount}`);
     if (fixedCount > 0) {
       for (const c of fixedClassifications) {
         const title =
@@ -615,7 +615,7 @@ export function formatReviewSummaryMarkdown(
         lines.push(`  - ✅ \`${id}\``);
       }
     }
-    lines.push(`- Withheld prior findings: ${withheldCount}`);
+    lines.push(`- Withheld this round: ${withheldCount}`);
     if (withheldCount > 0) {
       for (const c of withheldClassifications) {
         const title =
@@ -676,7 +676,7 @@ export function formatReviewSummaryMarkdown(
       if (f.id !== undefined) currentFindingIds.add(f.id);
     }
     // Dedup against this round's fixed + withheld (#332): an entry already shown under
-    // "Fixed prior findings" or "Withheld prior findings" must not appear again in the
+    // "Fixed this round" or "Withheld this round" must not appear again in the
     // resolved log. Build the exclusion set from classifications + orphan IDs (same source
     // the re-review section uses above) so the two sections are always consistent.
     // Cross-round value is preserved: entries resolved in earlier pushes that are NOT in

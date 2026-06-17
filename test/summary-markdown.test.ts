@@ -570,12 +570,12 @@ describe("preservation of existing behaviors", () => {
     expect(markdown).toContain("### Re-review status");
     expect(markdown).toContain("New findings: 0");
     expect(markdown).toContain("Recurring findings: 1");
-    expect(markdown).toContain("Fixed prior findings: 1");
+    expect(markdown).toContain("Fixed this round: 1");
     // New readable format — title is rendered, not opaque ID
     expect(markdown).toContain("✅ Prior fixed finding — last seen `abc1234`");
     // Old opaque format must NOT appear
     expect(markdown).not.toContain("Fixed IDs:");
-    expect(markdown).toContain("Withheld prior findings: 0");
+    expect(markdown).toContain("Withheld this round: 0");
   });
 
   test("carried-forward line rendered when carriedForwardFindingIds is populated", () => {
@@ -715,7 +715,7 @@ describe("preservation of existing behaviors", () => {
     // Readable format with 7-char sha
     expect(markdown).toContain("✅ SQL injection in user input — last seen `deadbee`");
     // Count line unchanged
-    expect(markdown).toContain("Fixed prior findings: 1");
+    expect(markdown).toContain("Fixed this round: 1");
     // Old opaque ID format must NOT appear
     expect(markdown).not.toContain("Fixed IDs:");
     expect(markdown).not.toContain("`fnd_fixed1`");
@@ -754,7 +754,7 @@ describe("preservation of existing behaviors", () => {
 
     expect(markdown).toContain("Unused variable in loop — withheld, last seen `cafe123`");
     // Count line unchanged
-    expect(markdown).toContain("Withheld prior findings: 1");
+    expect(markdown).toContain("Withheld this round: 1");
     // Old opaque ID format must NOT appear
     expect(markdown).not.toContain("Withheld IDs:");
     expect(markdown).not.toContain("`fnd_with1`");
@@ -783,7 +783,7 @@ describe("preservation of existing behaviors", () => {
     // Falls back to stableId in a code span
     expect(markdown).toContain("✅ `fnd_noPrior`");
     // Does not throw or produce blank title
-    expect(markdown).toContain("Fixed prior findings: 1");
+    expect(markdown).toContain("Fixed this round: 1");
   });
 
   test("fixed classification with no lastSeenHeadSha omits 'last seen' suffix", () => {
@@ -820,7 +820,7 @@ describe("preservation of existing behaviors", () => {
     expect(markdown).toContain("✅ Missing auth check");
     // No "last seen" suffix when sha is absent
     expect(markdown).not.toContain("last seen");
-    expect(markdown).toContain("Fixed prior findings: 1");
+    expect(markdown).toContain("Fixed this round: 1");
   });
 
   test("title with markdown metacharacters is escaped in fixed/withheld render", () => {
@@ -888,7 +888,7 @@ describe("preservation of existing behaviors", () => {
 
   test("fixed count/detail mismatch: fixedFindingIds has entry but no matching classification — fallback row emitted (count N ⇒ N detail rows)", () => {
     // Regression for #289: fixedFindingIds has 1 entry but classifications has no fixed record.
-    // Before the fix this rendered "Fixed prior findings: 1" with zero detail rows (silent gap).
+    // Before the fix this rendered "Fixed this round: 1" with zero detail rows (silent gap).
     const summary: ReviewSummary = {
       ...makeSummary({ findings: [] }),
       reReview: {
@@ -903,7 +903,7 @@ describe("preservation of existing behaviors", () => {
     const markdown = formatReviewSummaryMarkdown(summary);
 
     // Count still says 1
-    expect(markdown).toContain("Fixed prior findings: 1");
+    expect(markdown).toContain("Fixed this round: 1");
     // Fallback row uses the stable ID as a code span
     expect(markdown).toContain("✅ `fnd_orphan`");
     // No silent gap: count the "  - ✅" detail rows
@@ -927,11 +927,11 @@ describe("preservation of existing behaviors", () => {
     const markdown = formatReviewSummaryMarkdown(summary);
 
     // Count still says 1
-    expect(markdown).toContain("Withheld prior findings: 1");
+    expect(markdown).toContain("Withheld this round: 1");
     // Fallback row uses the stable ID as a code span + withheld suffix
     expect(markdown).toContain("`fnd_orphan_w` — withheld");
     // No silent gap: count the "  - " detail rows under Withheld
-    const withheldIdx = markdown.indexOf("Withheld prior findings: 1");
+    const withheldIdx = markdown.indexOf("Withheld this round: 1");
     const afterWithheld = markdown.slice(withheldIdx);
     const withheldDetailRows = afterWithheld
       .split("\n")
@@ -973,7 +973,7 @@ describe("preservation of existing behaviors", () => {
     const markdown = formatReviewSummaryMarkdown(summary);
 
     // Count is 2 (1 classified + 1 orphan)
-    expect(markdown).toContain("Fixed prior findings: 2");
+    expect(markdown).toContain("Fixed this round: 2");
     // Classified row: readable title + sha
     expect(markdown).toContain("✅ Auth token leak — last seen `abc1234`");
     // Orphan row: fallback to stable ID code span
@@ -1032,8 +1032,8 @@ describe("preservation of existing behaviors", () => {
     const markdown = formatReviewSummaryMarkdown(summary);
 
     // Counts are still derived correctly
-    expect(markdown).toContain("Fixed prior findings: 1");
-    expect(markdown).toContain("Withheld prior findings: 1");
+    expect(markdown).toContain("Fixed this round: 1");
+    expect(markdown).toContain("Withheld this round: 1");
     // Readable titles preserved
     expect(markdown).toContain("✅ XSS in template — last seen `deadbee`");
     expect(markdown).toContain("Magic number in config — withheld, last seen `cafe567`");
@@ -1907,7 +1907,7 @@ describe("resolvedLog — cross-round history section", () => {
 // ---------------------------------------------------------------------------
 
 describe("#332 — resolved log dedup against this round's fixed/withheld", () => {
-  test("finding resolved in THIS push appears only under 'Fixed prior findings', NOT in resolved log", () => {
+  test("finding resolved in THIS push appears only under 'Fixed this round', NOT in resolved log", () => {
     // One push fixes all prior findings. fnd_old appears in both reReview.fixedFindingIds
     // and resolvedLog — the resolved log must NOT repeat it.
     const summary = makeSummary({
@@ -1941,13 +1941,13 @@ describe("#332 — resolved log dedup against this round's fixed/withheld", () =
     });
     const markdown = formatReviewSummaryMarkdown(summary);
 
-    // Must appear in "Fixed prior findings"
+    // Must appear in "Fixed this round"
     expect(markdown).toContain("✅ Old auth issue — last seen `abc1234`");
     // Must NOT appear in the resolved log (the cumulative history section)
     expect(markdown).not.toContain("🗂 Resolved over this PR");
   });
 
-  test("finding resolved in THIS push via withheld appears only under 'Withheld prior findings', NOT in resolved log", () => {
+  test("finding resolved in THIS push via withheld appears only under 'Withheld this round', NOT in resolved log", () => {
     const summary = makeSummary({
       findings: [],
       reReview: {
@@ -2025,14 +2025,14 @@ describe("#332 — resolved log dedup against this round's fixed/withheld", () =
     // Earlier-round entry must appear in resolved log
     expect(markdown).toContain("🗂 Resolved over this PR (1)");
     expect(markdown).toContain("✅ Earlier SQL issue — fixed in `bbb2222`");
-    // This-round entry must NOT appear in resolved log (already shown in "Fixed prior findings")
+    // This-round entry must NOT appear in resolved log (already shown in "Fixed this round")
     const historySection = markdown.slice(markdown.indexOf("🗂 Resolved over this PR"));
     expect(historySection).not.toContain("Old auth issue");
   });
 
   test("orphan fixed ID (no classification record) is also excluded from resolved log", () => {
     // An ID in fixedFindingIds with no matching classification record is an orphan — it renders
-    // as a fallback row in "Fixed prior findings" but must still be deduped from the resolved log.
+    // as a fallback row in "Fixed this round" but must still be deduped from the resolved log.
     const summary = makeSummary({
       findings: [],
       reReview: {
@@ -2047,7 +2047,7 @@ describe("#332 — resolved log dedup against this round's fixed/withheld", () =
     });
     const markdown = formatReviewSummaryMarkdown(summary);
 
-    // Orphan renders as fallback row in "Fixed prior findings"
+    // Orphan renders as fallback row in "Fixed this round"
     expect(markdown).toContain("✅ `fnd_orphan`");
     // Must NOT appear again in resolved log
     expect(markdown).not.toContain("🗂 Resolved over this PR");
