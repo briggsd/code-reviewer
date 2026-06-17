@@ -30,6 +30,11 @@ import {
 } from "../break-glass-marker.ts";
 import type { FetchLike } from "../shared/http-json-client.ts";
 import { HttpJsonClient, HttpRequestError } from "../shared/http-json-client.ts";
+import {
+  buildBitbucketMetadataFence,
+  fenceInlineMetadataMarker,
+  flattenHtmlDetails,
+} from "./bitbucket-comment-render.ts";
 
 export type { FetchLike } from "../shared/http-json-client.ts";
 
@@ -489,10 +494,17 @@ export class BitbucketVcsAdapter implements VcsAdapter {
   }
 
   async publishSummary(input: PublishSummaryInput): Promise<PublishSummaryResult> {
-    const body = formatReviewSummaryMarkdown(input.summary, {
-      includeHiddenMetadata: true,
-      ...(input.hiddenMetadata !== undefined ? { hiddenMetadata: input.hiddenMetadata } : {}),
+    // Bitbucket does not render HTML: <details>/<summary> appear as escaped text and
+    // <!-- --> comments are visible. Build the body without the hidden-metadata block,
+    // flatten collapsible sections to always-visible bold headings, then append a fenced
+    // code block containing the minimized metadata so `parseSummaryHiddenMetadata` still
+    // finds it (the parser matches the marker anywhere in content.raw, including inside a fence).
+    // The fence is always appended (even when hiddenMetadata is undefined) so the comment
+    // remains identifiable as a bot summary for dedup and prior-state loading.
+    const coreBody = formatReviewSummaryMarkdown(input.summary, {
+      includeHiddenMetadata: false,
     });
+    const body = flattenHtmlDetails(coreBody) + buildBitbucketMetadataFence(input.hiddenMetadata);
 
     const [comments, botUuid] = await Promise.all([
       this.http.requestAllPagesCursor<BitbucketCommentResponse>(this.prCommentsPath(input.change)),
@@ -565,12 +577,16 @@ export class BitbucketVcsAdapter implements VcsAdapter {
       }
 
       try {
+        // Post-process for Bitbucket: flatten <details>/<summary> and fence the inline
+        // metadata marker so neither renders as escaped HTML in Bitbucket's comment view.
+        const rawBody = formatInlineFindingComment(finding, input.change, input.runId);
+        const bitbucketBody = fenceInlineMetadataMarker(flattenHtmlDetails(rawBody));
         const response = await this.http.request<BitbucketCommentResponse>(
           this.prCommentsPath(input.change),
           {
             method: "POST",
             body: {
-              content: { raw: formatInlineFindingComment(finding, input.change, input.runId) },
+              content: { raw: bitbucketBody },
               inline: anchor,
             },
           },

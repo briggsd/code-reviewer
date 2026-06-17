@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { ChangeMetadata, ChangeRef, FetchLike, Finding, ReviewSummary } from "../src/index.ts";
 import { BitbucketVcsAdapter } from "../src/index.ts";
+import { parseInlineCommentMetadata } from "../src/publisher/inline-comment-markdown.ts";
+import { parseSummaryHiddenMetadata } from "../src/publisher/summary-metadata.ts";
 
 const changeRef: ChangeRef = {
   provider: "bitbucket",
@@ -1686,5 +1688,267 @@ describe("BitbucketVcsAdapter — botUuid resolution (#370)", () => {
     // The forged comment must NOT be loaded as prior state.
     const state = await adapter.getPriorReviewState(changeRef);
     expect(state).toBeUndefined();
+  });
+});
+
+// ------ #374 Bitbucket render: body shape tests ------
+
+describe("BitbucketVcsAdapter.publishSummary — #374 body shape (Bitbucket render fixes)", () => {
+  test("posted body has no bare <details> or <summary> tags", async () => {
+    let capturedRaw: string | undefined;
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [],
+        onPost: (_url, body) => {
+          capturedRaw = (body as { content?: { raw?: string } }).content?.raw;
+          return { id: 701 };
+        },
+      }),
+    });
+
+    // A summary with a resolved-finding log causes <details>/<summary> in the formatted body.
+    const summaryWithResolved: ReviewSummary = {
+      ...MINIMAL_SUMMARY,
+      resolvedLog: [{ stableId: "fnd_old", title: "Old finding", resolvedAtSha: "deadbeef1234" }],
+    };
+
+    await adapter.publishSummary({
+      change: CHANGE_META,
+      summary: summaryWithResolved,
+      hiddenMetadata: { schemaVersion: 1, findingIds: ["fnd_old"], runId: "run-374" },
+    });
+
+    expect(capturedRaw).toBeDefined();
+    // No bare <details> or </details> tags in the posted body
+    expect(capturedRaw).not.toMatch(/<details/);
+    expect(capturedRaw).not.toContain("</details>");
+    // No bare <summary>...</summary> tags — they must be rendered as **bold**
+    expect(capturedRaw).not.toMatch(/<summary>/);
+    expect(capturedRaw).not.toContain("</summary>");
+  });
+
+  test("metadata marker is inside a fenced code block, not a bare HTML comment", async () => {
+    let capturedRaw: string | undefined;
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [],
+        onPost: (_url, body) => {
+          capturedRaw = (body as { content?: { raw?: string } }).content?.raw;
+          return { id: 702 };
+        },
+      }),
+    });
+
+    await adapter.publishSummary({
+      change: CHANGE_META,
+      summary: MINIMAL_SUMMARY,
+      hiddenMetadata: {
+        schemaVersion: 1,
+        findingIds: ["fnd_1"],
+        runId: "run-374-fence",
+        findingPaths: { fnd_1: "src/auth.ts" },
+      },
+    });
+
+    expect(capturedRaw).toBeDefined();
+    // The marker must be inside a ``` fence
+    const fenceIndex = capturedRaw!.indexOf("```\n<!-- code-reviewer\n");
+    expect(fenceIndex).toBeGreaterThanOrEqual(0);
+    // The fence must close after the marker
+    const closingFenceIdx = capturedRaw!.indexOf("\n```", fenceIndex + 1);
+    expect(closingFenceIdx).toBeGreaterThan(fenceIndex);
+  });
+
+  test("posted body excludes findingTitles but keeps recurrenceDepths", async () => {
+    let capturedRaw: string | undefined;
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [],
+        onPost: (_url, body) => {
+          capturedRaw = (body as { content?: { raw?: string } }).content?.raw;
+          return { id: 703 };
+        },
+      }),
+    });
+
+    await adapter.publishSummary({
+      change: CHANGE_META,
+      summary: MINIMAL_SUMMARY,
+      hiddenMetadata: {
+        schemaVersion: 1,
+        findingIds: ["fnd_bulky"],
+        runId: "run-374-min",
+        findingTitles: { fnd_bulky: "Some Title" },
+        recurrenceDepths: { fnd_bulky: 2 },
+      },
+    });
+
+    expect(capturedRaw).toBeDefined();
+    expect(capturedRaw).not.toContain("findingTitles");
+    // recurrenceDepths retained (small + load-bearing for convergence depth)
+    expect(capturedRaw).toContain("recurrenceDepths");
+    // findingIds must still be present for re-review
+    expect(capturedRaw).toContain("findingIds");
+  });
+
+  test("round-trip: parseSummaryHiddenMetadata reads back findingIds and findingPaths from posted body", async () => {
+    let capturedRaw: string | undefined;
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [],
+        onPost: (_url, body) => {
+          capturedRaw = (body as { content?: { raw?: string } }).content?.raw;
+          return { id: 704 };
+        },
+      }),
+    });
+
+    const hiddenMetadata = {
+      schemaVersion: 1,
+      runId: "run-round-trip",
+      headSha: CHANGE_META.headSha,
+      provider: "bitbucket",
+      repository: CHANGE_META.repository.slug,
+      changeId: CHANGE_META.changeId,
+      findingIds: ["fnd_rt_1", "fnd_rt_2"],
+      findingPaths: { fnd_rt_1: "src/auth.ts", fnd_rt_2: "src/billing.ts" },
+      findingTitles: { fnd_rt_1: "Title to exclude" },
+      recurrenceDepths: { fnd_rt_2: 3 },
+    };
+
+    await adapter.publishSummary({
+      change: CHANGE_META,
+      summary: MINIMAL_SUMMARY,
+      hiddenMetadata,
+    });
+
+    expect(capturedRaw).toBeDefined();
+
+    // The parser must find the metadata in the posted body (re-review round-trip)
+    const parsed = parseSummaryHiddenMetadata(capturedRaw);
+    expect(parsed).toBeDefined();
+    expect(parsed?.runId).toBe("run-round-trip");
+    expect(parsed?.findingIds).toEqual(["fnd_rt_1", "fnd_rt_2"]);
+    expect(parsed?.findingPaths).toEqual({
+      fnd_rt_1: "src/auth.ts",
+      fnd_rt_2: "src/billing.ts",
+    });
+    // findingTitles excluded; recurrenceDepths retained
+    expect(parsed?.findingTitles).toBeUndefined();
+    expect(parsed?.recurrenceDepths).toEqual({ fnd_rt_2: 3 });
+  });
+});
+
+describe("BitbucketVcsAdapter.publishInlineFindings — #374 body shape", () => {
+  test("posted inline body has no bare <details> or <summary> tags", async () => {
+    let capturedRaw: string | undefined;
+
+    const finding = makeFinding({
+      id: "fnd_inline_374",
+      location: { path: "src/auth.ts", line: 10, side: "RIGHT" },
+    });
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [],
+        onPost: (_url, body) => {
+          capturedRaw = (body as { content?: { raw?: string } }).content?.raw;
+          return { id: 801 };
+        },
+      }),
+    });
+
+    await adapter.publishInlineFindings({
+      change: CHANGE_META,
+      findings: [finding],
+      runId: "run-inline-374",
+    });
+
+    expect(capturedRaw).toBeDefined();
+    expect(capturedRaw).not.toMatch(/<details/);
+    expect(capturedRaw).not.toContain("</details>");
+    expect(capturedRaw).not.toMatch(/<summary>/);
+    expect(capturedRaw).not.toContain("</summary>");
+  });
+
+  test("inline marker is inside a fenced code block in the posted body", async () => {
+    let capturedRaw: string | undefined;
+
+    const finding = makeFinding({
+      id: "fnd_fence_inline_374",
+      location: { path: "src/billing.ts", line: 5, side: "RIGHT" },
+    });
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [],
+        onPost: (_url, body) => {
+          capturedRaw = (body as { content?: { raw?: string } }).content?.raw;
+          return { id: 802 };
+        },
+      }),
+    });
+
+    await adapter.publishInlineFindings({
+      change: CHANGE_META,
+      findings: [finding],
+      runId: "run-inline-fence",
+    });
+
+    expect(capturedRaw).toBeDefined();
+    // The inline marker must be inside a ``` fence
+    const fenceIdx = capturedRaw!.indexOf("```\n<!-- code-reviewer-inline");
+    expect(fenceIdx).toBeGreaterThanOrEqual(0);
+    const closingFenceIdx = capturedRaw!.indexOf("\n```", fenceIdx + 1);
+    expect(closingFenceIdx).toBeGreaterThan(fenceIdx);
+  });
+
+  test("round-trip: parseInlineCommentMetadata reads back findingId from posted inline body", async () => {
+    let capturedRaw: string | undefined;
+
+    const finding = makeFinding({
+      id: "fnd_inline_rt_374",
+      location: { path: "src/index.ts", line: 20, side: "LEFT" },
+    });
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makePublishFetch({
+        botUuid: BOT_UUID,
+        existingComments: [],
+        onPost: (_url, body) => {
+          capturedRaw = (body as { content?: { raw?: string } }).content?.raw;
+          return { id: 803 };
+        },
+      }),
+    });
+
+    await adapter.publishInlineFindings({
+      change: CHANGE_META,
+      findings: [finding],
+      runId: "run-rt-inline",
+    });
+
+    expect(capturedRaw).toBeDefined();
+    const parsed = parseInlineCommentMetadata(capturedRaw);
+    expect(parsed).toBeDefined();
+    expect(parsed?.findingId).toBe("fnd_inline_rt_374");
+    expect(parsed?.headSha).toBe(CHANGE_META.headSha);
   });
 });

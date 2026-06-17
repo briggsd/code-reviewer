@@ -142,6 +142,10 @@ An adopter who never accepts fork PRs can collapse both steps into one by adding
 
 The Pi CLI requires Node >= 22.19. The `oven/bun:1.3` image ships no Node, so switching to `--runtime pi` on the publish step requires using a Node base image and installing bun on top — the same constraint as the [GitLab Pi path](#enabling-the-pi-runtime). Switch the publish step's `image` to `node:22-bookworm-slim`, add `npm install -g bun` before the bun install, and add `npm install -g --ignore-scripts @earendil-works/pi-coding-agent@<version>`. Set your provider API key (e.g. `ANTHROPIC_API_KEY`) as a secured repository variable and expose it only in the publish step.
 
+### Comment rendering on Bitbucket
+
+Bitbucket Cloud does not process raw HTML in Markdown, so the adapter adjusts the comment format before posting. Collapsible `<details>`/`<summary>` sections are rendered as always-visible bold headings rather than collapsed blocks. The machine-readable re-review state that GitHub and GitLab hide inside an HTML comment appears at the bottom of the review summary as a small fenced code block — this is intentional and expected. The block is compact: it omits prior-finding titles (the bulky human-readable strings), which are not needed for re-review classification but would make the visible block large; the small recurrence-depth data is retained. If you see placeholder labels like "Prior finding fnd_…" in a re-review summary on Bitbucket, that is expected — finding titles are not persisted in the Bitbucket metadata block.
+
 ## Enabling the Pi runtime
 
 The `dummy` runtime (default) needs no model access. To run a real model-backed review, switch to `--runtime pi`. This requires:
