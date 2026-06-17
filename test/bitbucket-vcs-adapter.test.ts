@@ -1470,3 +1470,221 @@ describe("BitbucketVcsAdapter.getChangedPathsSince", () => {
     expect(anyCalled).toBe(false);
   });
 });
+
+// ------ #370 botUuid resolution tests ------
+
+describe("BitbucketVcsAdapter — botUuid resolution (#370)", () => {
+  // Core regression test for #370: configured botUuid + failing GET /user → prior state still loads.
+  // Repository/Workspace Access Tokens cause GET /user to 401; operators set AI_REVIEW_BITBUCKET_BOT_UUID.
+  test("configured botUuid bypasses GET /user: prior state loads even when /user throws", async () => {
+    const configuredUuid = "{configured-bot-uuid}";
+    const body = makeBotCommentBody("run-config-uuid", "head-config", ["fnd_configured_1"]);
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "repo-access-token",
+      botUuid: configuredUuid,
+      fetch: async (input) => {
+        const url = String(input);
+        // GET /user must never be called or always fail — either way prior state must load.
+        if (url === "https://api.bitbucket.org/2.0/user") {
+          throw new Error("GET /user is not supported for Repository Access Tokens");
+        }
+        if (url.includes("/comments")) {
+          return new Response(
+            JSON.stringify({
+              values: [{ id: 101, content: { raw: body }, user: { uuid: configuredUuid } }],
+              next: undefined,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response("unexpected", { status: 404 });
+      },
+    });
+
+    const state = await adapter.getPriorReviewState(changeRef);
+
+    expect(state).toBeDefined();
+    expect(state?.previousRunId).toBe("run-config-uuid");
+    expect(state?.previousHeadSha).toBe("head-config");
+    expect(state?.findings.map((f) => f.stableId)).toEqual(["fnd_configured_1"]);
+  });
+
+  // publishSummary PUTs (not POSTs) when a configured botUuid identifies the existing comment
+  // and GET /user is unavailable.
+  test("configured botUuid: publishSummary PUTs the existing comment even when /user is unavailable", async () => {
+    const configuredUuid = "{configured-bot-uuid}";
+    const existingBody = makeBotCommentBody("prior-run-config", "old-head", []);
+    let capturedMethod: string | undefined;
+    let capturedPutUrl: string | undefined;
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "repo-access-token",
+      botUuid: configuredUuid,
+      fetch: async (input, init) => {
+        const url = String(input);
+        const method = init?.method?.toUpperCase() ?? "GET";
+
+        if (url === "https://api.bitbucket.org/2.0/user") {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+        }
+        if (url.includes("/comments") && method === "GET") {
+          return new Response(
+            JSON.stringify({
+              values: [{ id: 555, content: { raw: existingBody }, user: { uuid: configuredUuid } }],
+              next: undefined,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (url.includes("/comments") && method === "PUT") {
+          capturedMethod = "PUT";
+          capturedPutUrl = url;
+          return new Response(JSON.stringify({ id: 555 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.includes("/comments") && method === "POST") {
+          capturedMethod = "POST";
+          return new Response(JSON.stringify({ id: 999 }), {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("unexpected", { status: 404 });
+      },
+    });
+
+    const result = await adapter.publishSummary({ change: CHANGE_META, summary: MINIMAL_SUMMARY });
+
+    // Must PUT the existing comment, not POST a new one.
+    expect(capturedMethod).toBe("PUT");
+    expect(capturedPutUrl).toContain("/comments/555");
+    expect(result.summaryCommentId).toBe("555");
+  });
+
+  // Learn-from-publish fallback: botUuid unset + /user fails → after publishSummary posts a new
+  // comment whose response user.uuid = X, a subsequent publishSummary finds and PUTs the prior one.
+  test("learn-from-publish fallback: uuid learned from first POST used by subsequent publishSummary", async () => {
+    const learnedUuid = "{learned-bot-uuid}";
+
+    // First run result body (what the bot previously posted). We need to discover it via the
+    // learnedUuid — but the adapter doesn't know the UUID until it posts the first comment.
+    // This test simulates TWO sequential publishSummary calls on the same adapter instance:
+    //   Call 1: /user 401, no existing comment → POST → response has user.uuid = learnedUuid
+    //   Call 2: /user 401, now learnedUuid is cached → finds the prior comment → PUT
+
+    let callCount = 0;
+    // After the first POST we return the posted comment in subsequent comment-list responses.
+    let postedCommentBody: string | undefined;
+    let secondCallMethod: string | undefined;
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "repo-access-token",
+      // No botUuid configured — triggers the learn-from-publish path.
+      fetch: async (input, init) => {
+        const url = String(input);
+        const method = init?.method?.toUpperCase() ?? "GET";
+
+        if (url === "https://api.bitbucket.org/2.0/user") {
+          // Always fail — access token.
+          return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+        }
+
+        if (url.includes("/comments") && method === "GET") {
+          // First call: empty list. Second call: return the comment posted in the first call.
+          if (postedCommentBody === undefined) {
+            return new Response(JSON.stringify({ values: [], next: undefined }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          return new Response(
+            JSON.stringify({
+              values: [
+                {
+                  id: 701,
+                  content: { raw: postedCommentBody },
+                  user: { uuid: learnedUuid },
+                },
+              ],
+              next: undefined,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        if (url.includes("/comments") && method === "POST") {
+          callCount += 1;
+          // Simulate the body of what was posted (a summary with metadata block).
+          const parsedBody = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as {
+            content?: { raw?: string };
+          };
+          postedCommentBody = parsedBody.content?.raw;
+          // Response carries user.uuid — Bitbucket tells us who authored the comment.
+          return new Response(JSON.stringify({ id: 701, user: { uuid: learnedUuid } }), {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        if (url.includes("/comments") && method === "PUT") {
+          secondCallMethod = "PUT";
+          return new Response(JSON.stringify({ id: 701, user: { uuid: learnedUuid } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        return new Response("unexpected", { status: 404 });
+      },
+    });
+
+    // First publish: no existing comment → POST. UUID is learned from response.
+    const result1 = await adapter.publishSummary({ change: CHANGE_META, summary: MINIMAL_SUMMARY });
+    expect(result1.summaryCommentId).toBe("701");
+    expect(callCount).toBe(1);
+
+    // Second publish on the same adapter: now learnedBotUuid is set, finds the prior comment → PUT.
+    const result2 = await adapter.publishSummary({ change: CHANGE_META, summary: MINIMAL_SUMMARY });
+    expect(result2.summaryCommentId).toBe("701");
+    expect(secondCallMethod).toBe("PUT");
+  });
+
+  // Forge guard still works with a configured botUuid: a comment with the marker but a
+  // different user.uuid must NOT be loaded as prior state (#84/#263 regression guard).
+  test("forge guard preserved with configured botUuid: different user.uuid is rejected", async () => {
+    const configuredUuid = "{configured-bot-uuid}";
+    const forgedBody = makeBotCommentBody("forged-run", "evil-head", ["fnd_forged"]);
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "repo-access-token",
+      botUuid: configuredUuid,
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.includes("/comments")) {
+          return new Response(
+            JSON.stringify({
+              values: [
+                // Forged comment: has the summary marker, but authored by an attacker, not the bot.
+                {
+                  id: 999,
+                  content: { raw: forgedBody },
+                  user: { uuid: "{attacker-uuid}" },
+                },
+              ],
+              next: undefined,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response("unexpected", { status: 404 });
+      },
+    });
+
+    // The forged comment must NOT be loaded as prior state.
+    const state = await adapter.getPriorReviewState(changeRef);
+    expect(state).toBeUndefined();
+  });
+});

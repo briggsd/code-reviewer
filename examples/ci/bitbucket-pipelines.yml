@@ -11,14 +11,26 @@
 #   https://example.com/releases/briggsd-code-reviewer-0.2.0.tgz   # tarball URL
 #   @briggsd/code-reviewer@0.2.0                                      # npm registry
 #
-# Required Pipelines variable (Settings > Repository variables)
-# -------------------------------------------------------------
+# Required Pipelines variables (Settings > Repository variables)
+# --------------------------------------------------------------
 # AI_REVIEW_BITBUCKET_TOKEN — a Bitbucket repository or workspace access token
-#   with pull request read access (dry-run step) and comment/write access
-#   (publish step). Configure it as a SECURED variable so it is not exposed
-#   to pipelines triggered by pull requests from forked repositories.
+#   with the following scopes:
+#     pullrequest:write — post and update PR comments; read PR metadata
+#     repository        — read source files for conventions checks
+#   Configure it as a SECURED variable so it is not exposed to pipelines
+#   triggered by pull requests from forked repositories.
 #   App Passwords and HTTP Basic auth are NOT supported; use a Bearer
 #   repository/workspace access token only.
+#
+# AI_REVIEW_BITBUCKET_BOT_UUID — the UUID of the bot account that owns
+#   AI_REVIEW_BITBUCKET_TOKEN (e.g. {xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}).
+#   Find it in the Bitbucket UI under the access token's settings.
+#   Required for reliable re-review and single-comment dedup when using a
+#   Repository or Workspace Access Token: GET /user is user-token-only, so
+#   without this the adapter must learn its UUID from the first comment it
+#   posts, making the first read of each run unable to match the prior comment.
+#   Set this variable. For user-bound tokens (App Passwords/OAuth), it is
+#   optional but still recommended.
 #
 # Fork safety model
 # -----------------

@@ -38,6 +38,12 @@ export interface BitbucketVcsAdapterOptions {
   apiBaseUrl?: string;
   userAgent?: string;
   fetch?: FetchLike;
+  /** Bot account UUID for Repository/Workspace Access Tokens. When set, the adapter uses this
+   * directly and skips GET /user (which is only supported for user-bound tokens). Without this,
+   * the adapter falls back to learning the UUID from the first publish response it receives, and
+   * only then to GET /user. Set AI_REVIEW_BITBUCKET_BOT_UUID for reliable re-review and
+   * single-comment updates when using a Repository or Workspace Access Token. */
+  botUuid?: string;
 }
 
 // Bitbucket Cloud REST API 2.0 response interfaces
@@ -139,17 +145,26 @@ export class BitbucketVcsAdapter implements VcsAdapter {
   private readonly fetchImpl: FetchLike;
   private readonly http: HttpJsonClient;
 
-  // Memoized promise for the bot's own UUID — resolved once per adapter instance.
-  // Undefined means the identity could not be fetched; safe-on-failure: an unresolved
-  // identity causes prior-state loading to return undefined (no prior state) rather than
-  // trusting author-blind metadata (which is the unsafe direction — see #84).
-  private botUuidPromise: Promise<string | undefined> | undefined;
+  // Operator-supplied bot UUID (from AI_REVIEW_BITBUCKET_BOT_UUID). When set, GET /user is
+  // never called. Required for reliable operation with Repository/Workspace Access Tokens because
+  // Bitbucket's GET /user endpoint only works for user-bound tokens (App Passwords/OAuth).
+  private readonly configuredBotUuid: string | undefined;
+
+  // UUID learned from the first successful publish response (comment.user.uuid). Populated after
+  // publishSummary or publishInlineFindings posts or updates a comment; cached on the instance.
+  private learnedBotUuid: string | undefined;
+
+  // Memoized promise for the GET /user fallback path. Only created when neither configuredBotUuid
+  // nor learnedBotUuid is set. Safe-on-failure: an unresolved identity causes prior-state loading
+  // to return undefined (no prior state) rather than trusting author-blind metadata (#84).
+  private getUserUuidPromise: Promise<string | undefined> | undefined;
 
   constructor(options: BitbucketVcsAdapterOptions = {}) {
     this.token = options.token;
     this.apiBaseUrl = (options.apiBaseUrl ?? "https://api.bitbucket.org/2.0").replace(/\/$/, "");
     this.userAgent = options.userAgent ?? "code-reviewer";
     this.fetchImpl = options.fetch ?? fetch;
+    this.configuredBotUuid = options.botUuid;
     this.http = new HttpJsonClient({
       baseUrl: this.apiBaseUrl,
       fetchImpl: this.fetchImpl,
@@ -158,12 +173,22 @@ export class BitbucketVcsAdapter implements VcsAdapter {
     });
   }
 
-  // Resolves the UUID of the authenticated token's user via GET /user.
-  // Best-effort: any non-2xx response or network error yields undefined — a uuid-identity
-  // hiccup must never fail a review operation. Memoized so repeated calls in one cycle are free.
+  // Resolves the bot's UUID with three-level precedence:
+  //   1. Operator-configured (AI_REVIEW_BITBUCKET_BOT_UUID) — never calls GET /user.
+  //   2. Learned from a prior publish response in this run — still skips GET /user.
+  //   3. GET /user fallback — works for user-bound tokens, degrades to undefined for access tokens.
+  // Safe-on-failure: undefined causes prior-state loading to return undefined rather than
+  // trusting author-blind metadata (the unsafe direction — see #84/#263).
   private resolveBotUuid(): Promise<string | undefined> {
-    if (this.botUuidPromise === undefined) {
-      this.botUuidPromise = (async () => {
+    if (this.configuredBotUuid !== undefined) {
+      return Promise.resolve(this.configuredBotUuid);
+    }
+    if (this.learnedBotUuid !== undefined) {
+      return Promise.resolve(this.learnedBotUuid);
+    }
+    // Fall through to GET /user only when neither configured nor learned uuid is available.
+    if (this.getUserUuidPromise === undefined) {
+      this.getUserUuidPromise = (async () => {
         try {
           const response = await this.fetchImpl(`${this.apiBaseUrl}/user`, {
             headers: this.headers(),
@@ -178,7 +203,17 @@ export class BitbucketVcsAdapter implements VcsAdapter {
         }
       })();
     }
-    return this.botUuidPromise;
+    return this.getUserUuidPromise;
+  }
+
+  // Captures the bot's UUID from a comment response returned by Bitbucket after a successful POST
+  // or PUT. Bitbucket always sets comment.user to the authenticated account that authored the
+  // comment, so this is the bot's real identity — more reliable than GET /user for access tokens.
+  // Idempotent: only records the first non-undefined uuid seen.
+  private recordBotIdentity(comment: BitbucketCommentResponse): void {
+    if (this.learnedBotUuid === undefined && typeof comment.user?.uuid === "string") {
+      this.learnedBotUuid = comment.user.uuid;
+    }
   }
 
   async getChange(ref: ChangeRef): Promise<ChangeMetadata> {
@@ -483,6 +518,10 @@ export class BitbucketVcsAdapter implements VcsAdapter {
             },
           );
 
+    // Learn the bot's UUID from the response so subsequent resolveBotUuid() calls in this run
+    // can identify bot-authored comments without needing GET /user (which fails for access tokens).
+    this.recordBotIdentity(response);
+
     return {
       provider: "bitbucket",
       summaryCommentId: String(response.id),
@@ -536,6 +575,8 @@ export class BitbucketVcsAdapter implements VcsAdapter {
             },
           },
         );
+        // Learn the bot's UUID from this inline comment response (same as publishSummary).
+        this.recordBotIdentity(response);
         outcomes.push({
           ...(finding.id !== undefined ? { findingId: finding.id } : {}),
           disposition: "posted",

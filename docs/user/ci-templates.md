@@ -116,9 +116,17 @@ Both steps need `AI_REVIEW_BITBUCKET_TOKEN`, and because it must be secured (see
 
 ### Required variables
 
-`AI_REVIEW_BITBUCKET_TOKEN` — a Bitbucket repository or workspace access token with pull request read access for the dry-run step and comment/write access for the publish step. Configure it under **Repository settings > Repository variables** and mark it **Secured**. App Passwords and HTTP Basic auth are not supported; use a Bearer repository/workspace access token.
+`AI_REVIEW_BITBUCKET_TOKEN` — a Bitbucket repository or workspace access token. The token needs `pullrequest:write` scope (post and update comments, and read PR metadata) and `repository` scope (read source files for conventions checks). Configure it under **Repository settings > Repository variables** and mark it **Secured**. App Passwords and HTTP Basic auth are not supported; use a Bearer repository/workspace access token.
+
+`AI_REVIEW_BITBUCKET_BOT_UUID` — the UUID of the bot account that owns `AI_REVIEW_BITBUCKET_TOKEN`. Find it in the Bitbucket UI under the access token's settings (it looks like `{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}`). **Required for reliable re-review and single-comment updates when using a Repository or Workspace Access Token**, because Bitbucket's `GET /user` endpoint does not work for non-user tokens. Without this variable, the adapter falls back to learning its UUID from the first comment it posts in a run, but the first read of that run cannot match the prior comment yet — so re-review tracking and summary-comment dedup are unreliable on the initial pass. Set this variable.
+
+The `GET /user` fallback only resolves the bot UUID for user-bound OAuth credentials, not the repository/workspace access tokens this tool uses — so set `AI_REVIEW_BITBUCKET_BOT_UUID` for any access-token setup. (App Passwords are not supported; see above.)
 
 Set `AI_REVIEW_PACKAGE` to an immutable tarball URL or exact registry version. Configure it as a plain (non-secured) repository variable or inline in the template.
+
+### Break-glass limitation
+
+The break-glass override feature reads workspace-level permission data (`GET /workspaces/{workspace}/permissions/repositories/{slug}`), which a Repository Access Token cannot reach (repository tokens cannot interact with workspace-level endpoints). With a Repository Access Token, break-glass degrades safely to "no override active" — reviews proceed normally; the gate just never activates the trusted-override path. To use break-glass, use a Workspace Access Token with appropriate access, or accept that it will not activate with a repo-scoped token.
 
 ### Why two steps? (fork-safety design)
 

@@ -490,7 +490,13 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
       ? new GitHubVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) })
       : provider === "gitlab"
         ? new GitLabVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) })
-        : new BitbucketVcsAdapter({ token, ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}) });
+        : new BitbucketVcsAdapter({
+            token,
+            ...(apiBaseUrl !== undefined ? { apiBaseUrl } : {}),
+            ...(process.env["AI_REVIEW_BITBUCKET_BOT_UUID"] !== undefined
+              ? { botUuid: process.env["AI_REVIEW_BITBUCKET_BOT_UUID"] }
+              : {}),
+          });
   const [metadata, diff, priorState, breakGlassOverride] = await Promise.all([
     adapter.getChange(ref),
     adapter.getDiff(ref),

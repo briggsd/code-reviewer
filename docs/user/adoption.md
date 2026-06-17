@@ -43,7 +43,7 @@ jobs:
 
 Use the full raw CLI template in `examples/ci/github-actions-ai-review.yml` or the wrapper template in `examples/ci/github-actions-ai-review-action.yml` for the separate guarded publish job. The wrapper is documented in [GitHub Action wrapper](github-action-wrapper.md).
 
-For Bitbucket Pipelines, use `--provider bitbucket` with `AI_REVIEW_BITBUCKET_TOKEN` (a Bearer repository or workspace access token; App Passwords and Basic auth are not supported). The Bitbucket template at `examples/ci/bitbucket-pipelines.yml` wires `BITBUCKET_REPO_FULL_NAME` to `--repo`, `BITBUCKET_PR_ID` to `--change-id`, and `BITBUCKET_COMMIT` to `--head-sha`.
+For Bitbucket Pipelines, use `--provider bitbucket` with `AI_REVIEW_BITBUCKET_TOKEN` (a Bearer repository or workspace access token; App Passwords and Basic auth are not supported). The Bitbucket template at `examples/ci/bitbucket-pipelines.yml` wires `BITBUCKET_REPO_FULL_NAME` to `--repo`, `BITBUCKET_PR_ID` to `--change-id`, and `BITBUCKET_COMMIT` to `--head-sha`. When using a Repository or Workspace Access Token, also set `AI_REVIEW_BITBUCKET_BOT_UUID` to the bot account's UUID (find it in the Bitbucket UI under the token's settings): Bitbucket's `GET /user` endpoint does not work for non-user tokens, so without this variable re-review tracking and summary-comment dedup are unreliable. See [CI templates — Bitbucket Pipelines](ci-templates.md#bitbucket-pipelines) for the full variable list and break-glass limitation.
 
 > **The summary comment's visible Markdown is not a stable interface.** Its layout changed
 > in #33 (grouped by reviewer, collapsed details) and may change again. Tooling that needs
