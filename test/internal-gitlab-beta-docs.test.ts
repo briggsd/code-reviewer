@@ -17,7 +17,7 @@ describe("Internal/self-managed GitLab beta onboarding documentation", () => {
     expect(guide).toContain("Internal/self-managed GitLab beta onboarding");
     expect(guide).toContain("immutable internal tarball URL");
     expect(guide).toContain("private: true");
-    expect(guide).toContain("UNLICENSED");
+    expect(guide).toContain("Apache-2.0");
     expect(guide).toContain("AI_REVIEW_PACKAGE");
     expect(guide).toContain("AI_REVIEW_GITLAB_API_BASE_URL");
     expect(guide).toContain("GITLAB_TOKEN_READ");

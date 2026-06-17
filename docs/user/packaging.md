@@ -1,6 +1,6 @@
 # Packaging
 
-The prototype distribution target is a Bun-backed npm tarball. Registry publishing is intentionally blocked for now by `private: true` and `license: "UNLICENSED"` until the final package name, access policy, and license are decided. For the internal/self-managed GitLab beta, tarball/release-asset distribution is the supported adoption path; public npm is not part of the beta channel.
+The prototype distribution target is a Bun-backed npm tarball. The project is licensed Apache-2.0. Registry publishing is intentionally blocked for now by `private: true` until the final package name and access policy are decided. For the internal/self-managed GitLab beta, tarball/release-asset distribution is the supported adoption path; public npm is not part of the beta channel.
 
 The package exposes a single CLI bin:
 
@@ -31,14 +31,13 @@ Current package identity:
 - version: `0.1.0`
 - bin: `ai-code-review` → `./src/cli.ts`
 - repository: `https://github.com/briggsd/ai-code-review-factory`
-- license/access stance: private and `UNLICENSED` until a release decision is made
+- license/access stance: Apache-2.0 licensed; package stays `private: true` until a registry-publish decision is made
 
 Before public registry publish, decide:
 
 1. whether the package name remains `ai-code-review-factory` or moves to a scoped/final name,
-2. whether the license changes from `UNLICENSED`,
-3. whether `private: true` should be removed,
-4. whether `publishConfig.access` should be set for scoped public packages.
+2. whether `private: true` should be removed,
+3. whether `publishConfig.access` should be set for scoped public packages.
 
 ## Install source strategy
 

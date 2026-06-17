@@ -1,6 +1,6 @@
 # Internal/self-managed GitLab beta onboarding
 
-Use this guide to onboard the first internal/self-managed GitLab beta repositories. The beta channel is intentionally internal-only: install the packaged CLI from an immutable internal tarball URL, keep the package `private: true` and `UNLICENSED`, and do not depend on public npm.
+Use this guide to onboard the first internal/self-managed GitLab beta repositories. The beta channel is intentionally internal-only: install the packaged CLI from an immutable internal tarball URL, keep the package `private: true` (the project is Apache-2.0 licensed), and do not depend on public npm.
 
 ## Prerequisites
 

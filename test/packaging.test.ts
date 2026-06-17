@@ -57,7 +57,7 @@ describe("package distribution metadata", () => {
     expect(packaging).toContain("Registry publishing is intentionally blocked");
     expect(packaging).toContain("public npm is not part of the beta channel");
     expect(packaging).toContain("private: true");
-    expect(packaging).toContain('license: "UNLICENSED"');
+    expect(packaging).toContain("licensed Apache-2.0");
     expect(releaseReadiness).toContain("Registry publish is currently blocked");
     expect(releaseReadiness).toContain("do not require public npm");
   });
