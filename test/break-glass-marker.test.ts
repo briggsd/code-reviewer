@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  BITBUCKET_TRUSTED_PERMISSIONS,
   breakGlassMatchesHead,
   GITHUB_TRUSTED_ASSOCIATIONS,
   GITLAB_MIN_TRUSTED_ACCESS_LEVEL,
+  mapBitbucketPermission,
   mapGitLabAccessLevel,
 } from "../src/vcs/break-glass-marker.ts";
 
@@ -158,5 +160,37 @@ describe("mapGitLabAccessLevel", () => {
 
   test("35 (between Developer and Maintainer) → COLLABORATOR", () => {
     expect(mapGitLabAccessLevel(35)).toBe("COLLABORATOR");
+  });
+});
+
+describe("BITBUCKET_TRUSTED_PERMISSIONS", () => {
+  test("'admin' is trusted", () => {
+    expect(BITBUCKET_TRUSTED_PERMISSIONS.has("admin")).toBe(true);
+  });
+
+  test("'write' is trusted", () => {
+    expect(BITBUCKET_TRUSTED_PERMISSIONS.has("write")).toBe(true);
+  });
+
+  test("'read' is NOT trusted (load-bearing security exclusion)", () => {
+    expect(BITBUCKET_TRUSTED_PERMISSIONS.has("read")).toBe(false);
+  });
+
+  test("empty string is NOT trusted", () => {
+    expect(BITBUCKET_TRUSTED_PERMISSIONS.has("")).toBe(false);
+  });
+});
+
+describe("mapBitbucketPermission", () => {
+  test("'admin' → 'OWNER'", () => {
+    expect(mapBitbucketPermission("admin")).toBe("OWNER");
+  });
+
+  test("'write' → 'COLLABORATOR'", () => {
+    expect(mapBitbucketPermission("write")).toBe("COLLABORATOR");
+  });
+
+  test("unknown string → 'COLLABORATOR' (safe default)", () => {
+    expect(mapBitbucketPermission("unknown")).toBe("COLLABORATOR");
   });
 });

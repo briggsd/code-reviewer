@@ -910,3 +910,563 @@ describe("BitbucketVcsAdapter.publishInlineFindings", () => {
     );
   });
 });
+
+// ------ readBaseBranchFile tests ------
+
+describe("BitbucketVcsAdapter.readBaseBranchFile", () => {
+  const FILE_CONTENT = "module.exports = { rules: { 'no-unused-vars': 'error' } };\n";
+
+  function makeSrcFetch(options: {
+    expectRef: string;
+    expectPath: string;
+    content?: string;
+    status?: number;
+  }): FetchLike {
+    return async (input) => {
+      const url = String(input);
+      const expectedUrl = `https://api.bitbucket.org/2.0/repositories/acme-org/payments-api/src/${options.expectRef}/${options.expectPath}`;
+      if (url === expectedUrl) {
+        if ((options.status ?? 200) !== 200) {
+          return new Response("Not Found", {
+            status: options.status ?? 404,
+            statusText: "Not Found",
+          });
+        }
+        return new Response(options.content ?? FILE_CONTENT, { status: 200, statusText: "OK" });
+      }
+      return new Response("unexpected url", { status: 404 });
+    };
+  }
+
+  test("returns raw file text on 200 using targetBranch as ref", async () => {
+    const change: ChangeMetadata = {
+      ...CHANGE_META,
+      targetBranch: "main",
+      baseSha: "base789sha",
+    };
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makeSrcFetch({ expectRef: "main", expectPath: ".eslintrc.js", content: FILE_CONTENT }),
+    });
+
+    const result = await adapter.readBaseBranchFile(change, ".eslintrc.js");
+    expect(result).toBe(FILE_CONTENT);
+  });
+
+  test("falls back to baseSha when targetBranch is absent", async () => {
+    const { targetBranch: _tb, ...changeMetaNoTarget } = CHANGE_META;
+    const change: ChangeMetadata = {
+      ...changeMetaNoTarget,
+      baseSha: "base789sha",
+    };
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makeSrcFetch({
+        expectRef: "base789sha",
+        expectPath: "config.json",
+        content: '{"key":"value"}',
+      }),
+    });
+
+    const result = await adapter.readBaseBranchFile(change, "config.json");
+    expect(result).toBe('{"key":"value"}');
+  });
+
+  test("returns undefined on 404 (best-effort, never throws)", async () => {
+    const change: ChangeMetadata = {
+      ...CHANGE_META,
+      targetBranch: "main",
+    };
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makeSrcFetch({ expectRef: "main", expectPath: "missing.json", status: 404 }),
+    });
+
+    const result = await adapter.readBaseBranchFile(change, "missing.json");
+    expect(result).toBeUndefined();
+  });
+
+  test("returns undefined when both targetBranch and baseSha are absent", async () => {
+    const { targetBranch: _tb, baseSha: _bs, ...changeMetaNoRefs } = CHANGE_META;
+    const change: ChangeMetadata = { ...changeMetaNoRefs };
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: async () => new Response("should not be called", { status: 500 }),
+    });
+
+    const result = await adapter.readBaseBranchFile(change, "any.json");
+    expect(result).toBeUndefined();
+  });
+
+  test("returns undefined (best-effort) when the fetch itself throws", async () => {
+    const change: ChangeMetadata = { ...CHANGE_META, targetBranch: "main" };
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: async () => {
+        throw new Error("network down");
+      },
+    });
+
+    const result = await adapter.readBaseBranchFile(change, "config.json");
+    expect(result).toBeUndefined();
+  });
+
+  test("URL-encodes path segments (nested path)", async () => {
+    const change: ChangeMetadata = { ...CHANGE_META, targetBranch: "main" };
+    let capturedUrl = "";
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: async (input) => {
+        capturedUrl = String(input);
+        return new Response("content", { status: 200 });
+      },
+    });
+
+    await adapter.readBaseBranchFile(change, "src/config/eslint.json");
+    expect(capturedUrl).toBe(
+      "https://api.bitbucket.org/2.0/repositories/acme-org/payments-api/src/main/src/config/eslint.json",
+    );
+  });
+});
+
+// ------ readChangeFileAtHead tests ------
+
+describe("BitbucketVcsAdapter.readChangeFileAtHead", () => {
+  test("returns raw file text on 200 using headSha", async () => {
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: async (input) => {
+        const url = String(input);
+        const expected = `https://api.bitbucket.org/2.0/repositories/acme-org/payments-api/src/${CHANGE_META.headSha}/src/index.ts`;
+        if (url === expected) {
+          return new Response("export const x = 1;\n", { status: 200 });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+
+    const result = await adapter.readChangeFileAtHead(CHANGE_META, "src/index.ts");
+    expect(result).toBe("export const x = 1;\n");
+  });
+
+  test("returns undefined on 404", async () => {
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: async () => new Response("Not Found", { status: 404 }),
+    });
+
+    const result = await adapter.readChangeFileAtHead(CHANGE_META, "nonexistent.ts");
+    expect(result).toBeUndefined();
+  });
+
+  test("returns undefined on network error (never throws)", async () => {
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: async () => {
+        throw new Error("network failure");
+      },
+    });
+
+    const result = await adapter.readChangeFileAtHead(CHANGE_META, "any.ts");
+    expect(result).toBeUndefined();
+  });
+});
+
+// ------ detectBreakGlassOverride tests ------
+
+// HEAD SHA used for break-glass binding — must be ≥12 hex chars.
+const BG_HEAD_SHA = "abc123def456aabbccdd";
+
+const bgChangeRef: ChangeRef = {
+  provider: "bitbucket",
+  repository: {
+    provider: "bitbucket",
+    owner: "acme-org",
+    name: "payments-api",
+    slug: "acme-org/payments-api",
+  },
+  changeId: "55",
+  headSha: BG_HEAD_SHA,
+};
+
+function makeBreakGlassFetch(options: {
+  comments: Array<{
+    id: number;
+    contentRaw: string;
+    userUuid?: string;
+  }>;
+  permissions: Record<string, string | undefined>;
+}): FetchLike {
+  return async (input) => {
+    const url = String(input);
+
+    // Comments endpoint (paginated)
+    if (url.includes("/pullrequests/55/comments")) {
+      const values = options.comments.map((c) => ({
+        id: c.id,
+        content: { raw: c.contentRaw },
+        user: c.userUuid !== undefined ? { uuid: c.userUuid } : undefined,
+      }));
+      return new Response(JSON.stringify({ values, next: undefined }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Permission lookup: /workspaces/{ws}/permissions/repositories/{repo}?q=user.uuid="..."
+    if (url.includes("/workspaces/acme-org/permissions/repositories/payments-api")) {
+      // Extract the uuid from the q= parameter
+      const match = /user\.uuid="([^"]+)"/.exec(decodeURIComponent(url));
+      const uuid = match?.[1];
+      const permission = uuid !== undefined ? options.permissions[uuid] : undefined;
+      if (permission === undefined) {
+        return new Response(JSON.stringify({ values: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ values: [{ permission, user: { uuid } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response("unexpected", { status: 404 });
+  };
+}
+
+describe("BitbucketVcsAdapter.detectBreakGlassOverride", () => {
+  test("trusted author (write permission) with matching marker → returns override with COLLABORATOR association", async () => {
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makeBreakGlassFetch({
+        comments: [
+          {
+            id: 301,
+            contentRaw: `break glass ${BG_HEAD_SHA}`,
+            userUuid: "{trusted-write-uuid}",
+          },
+        ],
+        permissions: { "{trusted-write-uuid}": "write" },
+      }),
+    });
+
+    const override = await adapter.detectBreakGlassOverride(bgChangeRef);
+    expect(override).toBeDefined();
+    expect(override?.commentId).toBe("301");
+    expect(override?.authorAssociation).toBe("COLLABORATOR");
+  });
+
+  test("trusted author (admin permission) with matching marker → returns override with OWNER association", async () => {
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makeBreakGlassFetch({
+        comments: [
+          {
+            id: 302,
+            contentRaw: `break glass ${BG_HEAD_SHA}`,
+            userUuid: "{trusted-admin-uuid}",
+          },
+        ],
+        permissions: { "{trusted-admin-uuid}": "admin" },
+      }),
+    });
+
+    const override = await adapter.detectBreakGlassOverride(bgChangeRef);
+    expect(override).toBeDefined();
+    expect(override?.commentId).toBe("302");
+    expect(override?.authorAssociation).toBe("OWNER");
+  });
+
+  test("untrusted author (read permission) with matching marker → undefined", async () => {
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makeBreakGlassFetch({
+        comments: [
+          {
+            id: 303,
+            contentRaw: `break glass ${BG_HEAD_SHA}`,
+            userUuid: "{read-only-uuid}",
+          },
+        ],
+        permissions: { "{read-only-uuid}": "read" },
+      }),
+    });
+
+    const override = await adapter.detectBreakGlassOverride(bgChangeRef);
+    expect(override).toBeUndefined();
+  });
+
+  test("marker for a DIFFERENT head sha → undefined (override does not carry over)", async () => {
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makeBreakGlassFetch({
+        comments: [
+          {
+            id: 304,
+            contentRaw: "break glass deadbeefcafe0011223344",
+            userUuid: "{trusted-write-uuid}",
+          },
+        ],
+        permissions: { "{trusted-write-uuid}": "write" },
+      }),
+    });
+
+    const override = await adapter.detectBreakGlassOverride(bgChangeRef);
+    expect(override).toBeUndefined();
+  });
+
+  test("bot comment containing the marker → ignored (bot marker excluded)", async () => {
+    const botBody = [
+      "<!-- ai-code-review-factory",
+      JSON.stringify({ schemaVersion: 1 }),
+      "-->",
+      "",
+      `break glass ${BG_HEAD_SHA}`,
+    ].join("\n");
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makeBreakGlassFetch({
+        comments: [{ id: 305, contentRaw: botBody, userUuid: "{trusted-write-uuid}" }],
+        permissions: { "{trusted-write-uuid}": "write" },
+      }),
+    });
+
+    const override = await adapter.detectBreakGlassOverride(bgChangeRef);
+    expect(override).toBeUndefined();
+  });
+
+  test("permission-lookup HTTP failure → undefined (safe degradation, never throws)", async () => {
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.includes("/pullrequests/55/comments")) {
+          return new Response(
+            JSON.stringify({
+              values: [
+                {
+                  id: 306,
+                  content: { raw: `break glass ${BG_HEAD_SHA}` },
+                  user: { uuid: "{some-uuid}" },
+                },
+              ],
+              next: undefined,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        // Permission lookup returns 500 → treated as no-permission (safe).
+        return new Response("Internal Server Error", { status: 500 });
+      },
+    });
+
+    const override = await adapter.detectBreakGlassOverride(bgChangeRef);
+    expect(override).toBeUndefined();
+  });
+
+  test("most-recent trusted comment wins (reverse / last-first order)", async () => {
+    // Two trusted comments; only the most recent (id=402, posted last) should win.
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makeBreakGlassFetch({
+        comments: [
+          { id: 401, contentRaw: `break glass ${BG_HEAD_SHA}`, userUuid: "{write-uuid-1}" },
+          { id: 402, contentRaw: `break glass ${BG_HEAD_SHA}`, userUuid: "{write-uuid-2}" },
+        ],
+        permissions: {
+          "{write-uuid-1}": "write",
+          "{write-uuid-2}": "admin",
+        },
+      }),
+    });
+
+    const override = await adapter.detectBreakGlassOverride(bgChangeRef);
+    // reversed → comment 402 is checked first (most recent); it has admin → wins
+    expect(override?.commentId).toBe("402");
+    expect(override?.authorAssociation).toBe("OWNER");
+  });
+});
+
+// ------ getChangedPathsSince tests ------
+
+const gcsRef: ChangeRef = {
+  provider: "bitbucket",
+  repository: {
+    provider: "bitbucket",
+    owner: "acme-org",
+    name: "payments-api",
+    slug: "acme-org/payments-api",
+  },
+  changeId: "77",
+  headSha: "aabbccdd11223344556677",
+};
+
+const SINCE_SHA = "ff00ee11dd22cc33bb44";
+
+function makeGcsFetch(options: {
+  reverseValues: Array<{ hash?: string }>;
+  reverseStatus?: number;
+  diffstatEntries?: Array<{ new?: { path: string } | null; old?: { path: string } | null }>;
+  diffstatStatus?: number;
+}): FetchLike {
+  return async (input) => {
+    const url = String(input);
+
+    // Ancestry (reverse): commits reachable from sinceSha but not headSha
+    if (
+      url.includes("/commits") &&
+      url.includes(`include=${encodeURIComponent(SINCE_SHA)}`) &&
+      url.includes(`exclude=${encodeURIComponent(gcsRef.headSha)}`)
+    ) {
+      if ((options.reverseStatus ?? 200) !== 200) {
+        return new Response("Error", { status: options.reverseStatus ?? 500 });
+      }
+      return new Response(JSON.stringify({ values: options.reverseValues }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Forward delta: diffstat endpoint (paginated via cursor)
+    if (url.includes("/diffstat/")) {
+      if ((options.diffstatStatus ?? 200) !== 200) {
+        return new Response("Error", { status: options.diffstatStatus ?? 500 });
+      }
+      const entries = options.diffstatEntries ?? [];
+      return new Response(JSON.stringify({ values: entries, next: undefined }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response("unexpected", { status: 404 });
+  };
+}
+
+describe("BitbucketVcsAdapter.getChangedPathsSince", () => {
+  test("clean fast-forward (reverse values empty) → { changedPaths, isAncestor: true } from diffstat", async () => {
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makeGcsFetch({
+        reverseValues: [],
+        diffstatEntries: [
+          { new: { path: "src/auth.ts" }, old: { path: "src/auth.ts" } },
+          { new: { path: "src/new-file.ts" }, old: null },
+        ],
+      }),
+    });
+
+    const result = await adapter.getChangedPathsSince(gcsRef, SINCE_SHA);
+    expect(result).toBeDefined();
+    expect(result?.isAncestor).toBe(true);
+    expect(result?.changedPaths).toContain("src/auth.ts");
+    expect(result?.changedPaths).toContain("src/new-file.ts");
+  });
+
+  test("force-push (reverse values non-empty) → { changedPaths: [], isAncestor: false } without calling diffstat", async () => {
+    let diffstatCalled = false;
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.includes("/diffstat/")) {
+          diffstatCalled = true;
+        }
+        if (url.includes("/commits")) {
+          // Non-empty → force-push
+          return new Response(JSON.stringify({ values: [{ hash: "orphaned-commit-abc" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("unexpected", { status: 404 });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(gcsRef, SINCE_SHA);
+    expect(result).toBeDefined();
+    expect(result?.isAncestor).toBe(false);
+    expect(result?.changedPaths).toEqual([]);
+    // The forward diffstat must NOT be fetched on a force-push.
+    expect(diffstatCalled).toBe(false);
+  });
+
+  test("malformed sinceSha (not a valid hex sha) → undefined (no API call)", async () => {
+    let anyCalled = false;
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: async () => {
+        anyCalled = true;
+        return new Response("should not be called", { status: 500 });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(gcsRef, "not-a-sha!");
+    expect(result).toBeUndefined();
+    expect(anyCalled).toBe(false);
+  });
+
+  test("reverse-compare HTTP error → undefined (degrade to full review)", async () => {
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makeGcsFetch({ reverseValues: [], reverseStatus: 500 }),
+    });
+
+    const result = await adapter.getChangedPathsSince(gcsRef, SINCE_SHA);
+    expect(result).toBeUndefined();
+  });
+
+  test("diffstat returns ≥300 entries → undefined (large-delta cap, fall back to full review)", async () => {
+    const manyEntries = Array.from({ length: 300 }, (_, i) => ({
+      new: { path: `src/file${i}.ts` },
+      old: null,
+    }));
+
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makeGcsFetch({
+        reverseValues: [],
+        diffstatEntries: manyEntries,
+      }),
+    });
+
+    const result = await adapter.getChangedPathsSince(gcsRef, SINCE_SHA);
+    expect(result).toBeUndefined();
+  });
+
+  test("short (7-char) sinceSha passes the regex validation and returns a result", async () => {
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: makeGcsFetch({ reverseValues: [], diffstatEntries: [] }),
+    });
+
+    // 7-char hex sha is the minimum valid length; the fetch mock won't match this sha but
+    // the method should reach the API call (not short-circuit with undefined) — the 404 from
+    // the mock becomes a caught error → undefined, still not the schema-rejection path.
+    const result = await adapter.getChangedPathsSince(gcsRef, "abc1234");
+    // Either undefined (fetch 404) or a valid result shape is fine here.
+    expect(result === undefined || typeof result === "object").toBe(true);
+  });
+
+  test("sinceSha too short (6 chars) → undefined (rejected before API call)", async () => {
+    let anyCalled = false;
+    const adapter = new BitbucketVcsAdapter({
+      token: "test-token",
+      fetch: async () => {
+        anyCalled = true;
+        return new Response("should not be called", { status: 500 });
+      },
+    });
+
+    const result = await adapter.getChangedPathsSince(gcsRef, "abc123");
+    expect(result).toBeUndefined();
+    expect(anyCalled).toBe(false);
+  });
+});

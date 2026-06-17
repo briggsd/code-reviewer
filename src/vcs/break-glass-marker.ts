@@ -96,3 +96,26 @@ export function mapGitLabAccessLevel(level: number): string {
   }
   return "COLLABORATOR";
 }
+
+/**
+ * Bitbucket Cloud repository permission strings that are trusted for break-glass overrides.
+ * `"read"` (and absent) are intentionally excluded — a read-only collaborator does not have
+ * write access to the repository and must not be able to bypass CI gates. This mirrors the
+ * GitHub CONTRIBUTOR/NONE and GitLab Guest/Reporter exclusions: the set of excluded roles is
+ * a load-bearing security decision, not an accident.
+ */
+export const BITBUCKET_TRUSTED_PERMISSIONS = new Set(["admin", "write"]);
+
+/**
+ * Map a Bitbucket Cloud repository permission string to a coarse role string suitable for
+ * `BreakGlassOverride.authorAssociation`.  Only `"admin"` and `"write"` reach this function
+ * (callers gate on `BITBUCKET_TRUSTED_PERMISSIONS` first), but we handle the full surface for
+ * safety.  Mirrors `mapGitLabAccessLevel` in shape.
+ */
+export function mapBitbucketPermission(permission: string): string {
+  if (permission === "admin") {
+    return "OWNER";
+  }
+  // "write" and anything unexpected — treat as collaborator-level trust.
+  return "COLLABORATOR";
+}

@@ -1,4 +1,6 @@
 import type {
+  BreakGlassOverride,
+  ChangedPathsSince,
   ChangeMetadata,
   ChangeRef,
   DiffSummary,
@@ -21,6 +23,11 @@ import {
   parseSummaryHiddenMetadata,
 } from "../../publisher/summary-metadata.ts";
 import { parseUnifiedDiff } from "../../shared/unified-diff.ts";
+import {
+  BITBUCKET_TRUSTED_PERMISSIONS,
+  breakGlassMatchesHead,
+  mapBitbucketPermission,
+} from "../break-glass-marker.ts";
 import type { FetchLike } from "../shared/http-json-client.ts";
 import { HttpJsonClient, HttpRequestError } from "../shared/http-json-client.ts";
 
@@ -103,6 +110,24 @@ interface BitbucketCommentResponse {
     from?: number;
     to?: number;
   };
+}
+
+// Repository permission entry returned by
+// GET /workspaces/{ws}/permissions/repositories/{slug}?q=user.uuid="..."
+interface BitbucketRepoPermissionEntry {
+  permission?: string;
+}
+
+// One entry from the diffstat paginated response.
+// `new` / `old` hold path objects when the file exists on that side.
+interface BitbucketDiffstatEntry {
+  new?: { path?: string } | null;
+  old?: { path?: string } | null;
+}
+
+// Commit list response from /commits (used for ancestry check).
+interface BitbucketCommitsResponse {
+  values?: Array<{ hash?: string }>;
 }
 
 export class BitbucketVcsAdapter implements VcsAdapter {
@@ -252,6 +277,180 @@ export class BitbucketVcsAdapter implements VcsAdapter {
     const metadata = parseSummaryHiddenMetadata(existing?.content?.raw);
 
     return metadata === undefined ? undefined : createPriorReviewStateFromMetadata(metadata, ref);
+  }
+
+  async readBaseBranchFile(change: ChangeMetadata, path: string): Promise<string | undefined> {
+    try {
+      // Prefer the target-branch tip (the protected branch P2 trusts). `baseSha` is a committed base
+      // ancestor — not PR-authored, so still trust-safe — used only when no branch name is available;
+      // it may be slightly behind the branch tip.
+      const baseRef = change.targetBranch ?? change.baseSha;
+      if (baseRef === undefined) {
+        return undefined;
+      }
+
+      const [workspace, repoSlug] = splitSlug(change.repository.slug);
+      // Bitbucket's src endpoint returns RAW file content (text/plain), not a base64-JSON blob.
+      // Each path segment is URL-encoded independently so slashes remain as path separators.
+      const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+      const url = `${this.apiBaseUrl}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/src/${encodeURIComponent(baseRef)}/${encodedPath}`;
+      const response = await this.fetchImpl(url, { headers: this.headers() });
+
+      // Best-effort read: any non-2xx (404 absent, 5xx transient, 401/403 auth) yields undefined so a
+      // conventions-read hiccup degrades to "no base conventions" rather than failing the whole review.
+      if (!response.ok) {
+        return undefined;
+      }
+
+      return await response.text();
+    } catch {
+      // Best-effort: a fetch/body error must never fail the review (mirror readChangeFileAtHead).
+      return undefined;
+    }
+  }
+
+  async readChangeFileAtHead(change: ChangeMetadata, path: string): Promise<string | undefined> {
+    try {
+      const [workspace, repoSlug] = splitSlug(change.repository.slug);
+      const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+      const url = `${this.apiBaseUrl}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/src/${encodeURIComponent(change.headSha)}/${encodedPath}`;
+      const response = await this.fetchImpl(url, { headers: this.headers() });
+      if (!response.ok) {
+        return undefined;
+      }
+
+      return response.text();
+    } catch {
+      // Best-effort deterministic grounding: head-file read failures never fail the review.
+      return undefined;
+    }
+  }
+
+  async detectBreakGlassOverride(ref: ChangeRef): Promise<BreakGlassOverride | undefined> {
+    try {
+      const comments = await this.http.requestAllPagesCursor<BitbucketCommentResponse>(
+        this.prCommentsPath(ref),
+      );
+      // Candidates: non-bot comments whose leading line is `break glass <head-sha>` for THIS head
+      // commit. We exclude comments that contain our bot marker to avoid the bot's own summary
+      // triggering an override. Iterate most-recent-first so the first qualifying author wins.
+      const candidates = comments
+        .filter(
+          (comment) =>
+            comment.content?.raw?.includes("<!-- ai-code-review-factory") !== true &&
+            breakGlassMatchesHead(comment.content?.raw, ref.headSha),
+        )
+        .reverse();
+
+      for (const comment of candidates) {
+        const userUuid = comment.user?.uuid;
+        if (userUuid === undefined) {
+          continue;
+        }
+        const permission = await this.bitbucketRepoPermission(ref.repository.slug, userUuid);
+        if (permission !== undefined && BITBUCKET_TRUSTED_PERMISSIONS.has(permission)) {
+          return {
+            commentId: String(comment.id),
+            authorAssociation: mapBitbucketPermission(permission),
+          };
+        }
+        // Untrusted permission ("read" / absent) or lookup failure → this author does not activate
+        // the override; continue searching for an earlier trusted commenter (most-recent-first order
+        // means an earlier comment in the original list appears later in the reversed candidates).
+      }
+
+      return undefined;
+    } catch {
+      // Best-effort: a detection hiccup must never throw — the canonical CI gate is unaffected.
+      return undefined;
+    }
+  }
+
+  // Fetch the repository permission for a specific user UUID.
+  // Returns the permission string ("admin" | "write" | "read") or undefined when the user is
+  // not a member or any fetch error occurs. Best-effort: a lookup failure means "not trusted".
+  private async bitbucketRepoPermission(
+    slug: string,
+    userUuid: string,
+  ): Promise<string | undefined> {
+    try {
+      const [workspace, repoSlug] = splitSlug(slug);
+      // The permission endpoint accepts a FIQL `q` filter on user.uuid. The uuid includes
+      // curly braces for Bitbucket's account-id format, so it must be URL-encoded in the query.
+      const url = `${this.apiBaseUrl}/workspaces/${encodeURIComponent(workspace)}/permissions/repositories/${encodeURIComponent(repoSlug)}?q=user.uuid="${encodeURIComponent(userUuid)}"`;
+      const response = await this.fetchImpl(url, { headers: this.headers() });
+      if (!response.ok) {
+        return undefined;
+      }
+      const data = (await response.json()) as { values?: BitbucketRepoPermissionEntry[] };
+      const first = data.values?.[0];
+      return typeof first?.permission === "string" ? first.permission : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async getChangedPathsSince(
+    ref: ChangeRef,
+    sinceSha: string,
+  ): Promise<ChangedPathsSince | undefined> {
+    try {
+      // sinceSha originates from prior-review metadata (untrusted reviewed-repo content).
+      // Require a commit-SHA shape before interpolating it into the API path — a malformed
+      // value would only error anyway; rejecting it avoids a wasted call (→ full-review fallback).
+      if (!/^[0-9a-f]{7,64}$/i.test(sinceSha)) {
+        return undefined;
+      }
+
+      const [workspace, repoSlug] = splitSlug(ref.repository.slug);
+      const repoBase = `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}`;
+
+      // Bitbucket has no GitHub-style three-dot compare with an `isAncestor` status field, so
+      // ancestry is DERIVED via a two-step approach (mirrors the GitLab adapter).
+      //
+      // REVERSE (ancestry check): GET /commits?include={sinceSha}&exclude={headSha} returns
+      // commits reachable from sinceSha but NOT from headSha.  On a clean fast-forward that set
+      // is empty (sinceSha IS reachable from head, so all its ancestors are excluded) → isAncestor.
+      // A force-push / rebase leaves sinceSha-only commits → non-empty → NOT an ancestor.
+      // An error or unexpected shape → treat as NOT ancestor (the safe, full-review direction).
+      const reverseUrl = `${this.apiBaseUrl}${repoBase}/commits?include=${encodeURIComponent(sinceSha)}&exclude=${encodeURIComponent(ref.headSha)}`;
+      const reverseResponse = await this.fetchImpl(reverseUrl, { headers: this.headers() });
+      if (!reverseResponse.ok) {
+        return undefined;
+      }
+      const reverseData = (await reverseResponse.json()) as BitbucketCommitsResponse;
+      // Confirm emptiness: only an empty values array (no reachable-from-since-only commits)
+      // confirms a clean fast-forward. A non-array or non-empty array → not ancestor.
+      const isAncestor = Array.isArray(reverseData.values) && reverseData.values.length === 0;
+
+      if (!isAncestor) {
+        // Force-push / rebase (or unconfirmable ancestry): return empty changedPaths so a caller
+        // that narrows on them without checking isAncestor reviews nothing (the safe direction)
+        // rather than a misleading partial set. The flag is still returned so the runner records
+        // `base_changed` (distinct from the `delta_unavailable` that an undefined result yields).
+        return { changedPaths: [], isAncestor: false };
+      }
+
+      // FORWARD (delta): GET /diffstat/{headSha}..{sinceSha} (note: head..since → paths changed
+      // moving from the since-commit's perspective to head, i.e. the net delta since that commit).
+      const diffstatPath = `${repoBase}/diffstat/${encodeURIComponent(ref.headSha)}..${encodeURIComponent(sinceSha)}`;
+      const entries = await this.http.requestAllPagesCursor<BitbucketDiffstatEntry>(diffstatPath);
+
+      // Mirror the GitHub / GitLab 300-file cap: a very large delta is no cheaper to review
+      // incrementally and risks truncation → fall back to full review (correctness over savings).
+      if (entries.length >= 300) {
+        return undefined;
+      }
+
+      const changedPaths = entries
+        .map((entry) => entry.new?.path ?? entry.old?.path ?? "")
+        .filter((p) => p.length > 0);
+
+      return { changedPaths, isAncestor: true };
+    } catch {
+      // Best-effort: any error (network, 404, auth) degrades to full review, never throws.
+      return undefined;
+    }
   }
 
   async publishSummary(input: PublishSummaryInput): Promise<PublishSummaryResult> {
