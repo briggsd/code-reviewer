@@ -2,7 +2,7 @@ export type JsonPrimitive = string | number | boolean | null;
 
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
-export type ProviderKind = "github" | "gitlab" | "local";
+export type ProviderKind = "bitbucket" | "github" | "gitlab" | "local";
 
 export type SafetyMode =
   | "trusted"
