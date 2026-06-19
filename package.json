@@ -35,6 +35,8 @@
     "telemetry:quality": "bun run scripts/telemetry-quality-report.ts",
     "telemetry:ingest": "bun run scripts/telemetry-ingest.ts",
     "telemetry:backfill-loki": "bun run scripts/telemetry-backfill-loki.ts",
+    "pack:compile": "bun run scripts/package-compile.ts",
+    "compile:smoke": "bun run scripts/compile-smoke.ts",
     "pack:smoke": "bun run scripts/package-smoke.ts",
     "smoke:external-package": "bun run scripts/external-package-smoke.ts",
     "smoke:pi": "bun run scripts/pi-live-smoke.ts",

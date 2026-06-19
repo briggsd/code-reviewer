@@ -63,10 +63,11 @@ bun run complexity:check   # blocking cognitive-complexity ratchet vs complexity
 bun run workflows:check    # blocking workflow hygiene gate: every upload-artifact step must have retention-days (BLOCKING in CI's check job + gate)
 bun run knip           # unused files/exports/deps (BLOCKING in CI's check job + gate, #158)
 bun run dup            # jscpd copy-paste detection over src/ (advisory)
+bun run pack:compile          # compile standalone binaries (bun build --compile) for the unix target matrix into dist/ (cross-targets download runtimes)
 ```
 
 Smoke scripts (opt-in, network/model-gated — default tests are fake/no-network):
-`pack:smoke`, `smoke:external-package`, `smoke:pi` (needs `AI_REVIEW_LIVE_PI=1`),
+`pack:smoke`, `smoke:external-package`, `compile:smoke`, `smoke:pi` (needs `AI_REVIEW_LIVE_PI=1`),
 `smoke:gitlab` (`AI_REVIEW_LIVE_GITLAB=1`), `smoke:action-wrapper`.
 
 ## Repo map
