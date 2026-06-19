@@ -67,8 +67,9 @@ bun run pack:compile          # compile standalone binaries (bun build --compile
 ```
 
 Smoke scripts (opt-in, network/model-gated — default tests are fake/no-network):
-`pack:smoke`, `smoke:external-package`, `compile:smoke`, `smoke:pi` (needs `AI_REVIEW_LIVE_PI=1`),
-`smoke:gitlab` (`AI_REVIEW_LIVE_GITLAB=1`), `smoke:action-wrapper`.
+`pack:smoke`, `smoke:external-package`, `smoke:pi` (needs `AI_REVIEW_LIVE_PI=1`),
+`smoke:gitlab` (`AI_REVIEW_LIVE_GITLAB=1`), `smoke:action-wrapper`. Offline compile smoke
+(no network or credentials, host-target only): `compile:smoke`.
 
 ## Repo map
 
