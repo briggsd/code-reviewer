@@ -411,6 +411,40 @@ describe("includeUntracked", () => {
     expect(calls.map((c) => c.join(" "))).toContain("reset -- src/new-untracked.ts");
   });
 
+  test("dual failure (diff throws AND reset throws) preserves the original cause", async () => {
+    const calls: string[][] = [];
+    const runner: GitRunner = async (args) => {
+      calls.push([...args]);
+      const key = args.join(" ");
+      if (key === "ls-files --others --exclude-standard -z") {
+        return "src/new-untracked.ts\0";
+      }
+      if (key === "add -N -- src/new-untracked.ts") {
+        return "";
+      }
+      if (key === "reset -- src/new-untracked.ts") {
+        throw new Error("index.lock held");
+      }
+      throw new Error("git diff failed");
+    };
+
+    // Both body (diff) and restore (reset) fail. The thrown error must SIGNAL the restore
+    // failure but RETAIN the original diff error as the cause — never mask it.
+    let caught: unknown;
+    try {
+      await loadGitDiffChange({ base: "main", includeUntracked: true }, runner);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toContain("could not be restored");
+    expect((caught as Error).message).toContain("index.lock held");
+    expect((caught as Error).cause).toBeInstanceOf(Error);
+    expect(((caught as Error).cause as Error).message).toBe("git diff failed");
+    // Restore was attempted despite the body failure.
+    expect(calls.map((c) => c.join(" "))).toContain("reset -- src/new-untracked.ts");
+  });
+
   test("flag off (default) — no ls-files, add, or reset calls", async () => {
     const { runner, calls } = recordingGit({
       "diff --no-color main": MODIFIED,

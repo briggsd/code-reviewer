@@ -40,9 +40,11 @@ export interface GitDiffChange {
 
 // Run `body` with untracked-non-ignored files momentarily marked intent-to-add so `git diff`
 // includes them, then restore the index to exactly what was found. When `includeUntracked` is
-// false (or nothing is untracked) it just runs `body` — no git mutation. Index restore runs in
-// `finally`, so it fires even if `body` throws, and is NOT swallowed: a restore failure surfaces
-// loudly rather than silently leaving the operator's index mutated (the regression this guards).
+// false (or nothing is untracked) it just runs `body` — no git mutation. The index restore always
+// runs (success and failure paths) and a restore failure is NOT swallowed: it surfaces loudly
+// rather than silently leaving the operator's index mutated (the regression this guards). On the
+// failure path the original `body` error is preserved as the actionable cause — a restore failure
+// is reported alongside it (wrapped, with `cause`), never in place of it.
 async function withUntrackedSnapshot<T>(
   run: GitRunner,
   includeUntracked: boolean,
@@ -52,7 +54,8 @@ async function withUntrackedSnapshot<T>(
     return body();
   }
   // NUL-separated so filenames with spaces/quotes/unicode stay literal (never quote-decoded).
-  // --exclude-standard respects .gitignore, so build/scratch junk (node_modules/, dist/) is excluded.
+  // --exclude-standard honours the project's .gitignore (+ .git/info/exclude, global gitignore),
+  // so files the repo already ignores (e.g. a gitignored node_modules/, dist/) stay out of the review.
   const raw = await run(["ls-files", "--others", "--exclude-standard", "-z"]);
   const untracked = raw.split("\0").filter((p) => p.length > 0);
   if (untracked.length === 0) {
@@ -62,14 +65,28 @@ async function withUntrackedSnapshot<T>(
   // content to the index. `--` separates paths from options (a filename starting with '-' can't be
   // parsed as a git option — the same argument-injection guard as the --base check).
   await run(["add", "-N", "--", ...untracked]);
+  // Restore = remove only the intent-to-add entries we created. For genuinely-untracked files (no
+  // prior index entry) this returns them to untracked and never touches the operator's other staged
+  // changes (only our paths are named).
+  const restore = () => run(["reset", "--", ...untracked]);
+  let result: T;
   try {
-    return await body();
-  } finally {
-    // Remove only the intent-to-add entries we created. For genuinely-untracked files (no prior
-    // index entry) this returns them to untracked and never touches the operator's other staged
-    // changes (only our paths are named).
-    await run(["reset", "--", ...untracked]);
+    result = await body();
+  } catch (bodyError) {
+    // Body failed — still restore, but never let a restore failure mask the root cause.
+    try {
+      await restore();
+    } catch (restoreError) {
+      throw new Error(
+        `local diff failed and the working index could not be restored — ${untracked.length} intent-to-add entry(ies) remain; run \`git reset\` to clear them. Restore error: ${String(restoreError)}`,
+        { cause: bodyError },
+      );
+    }
+    throw bodyError;
   }
+  // Body succeeded — a restore failure is now the only (and actionable) error: surface it loudly.
+  await restore();
+  return result;
 }
 
 export async function loadGitDiffChange(
