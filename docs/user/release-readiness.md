@@ -25,39 +25,51 @@ Expected results:
 ## Version and artifact
 
 - Choose the package version in `package.json`.
-- Registry publish is currently blocked until the package name, license, and access policy are finalized; see [Packaging](packaging.md) and [Release artifacts](release-artifacts.md).
+- Registry publish is enabled via the tag-push CI job, which runs `npm publish` with provenance after `bun run check` and `pack:smoke` pass; see [Packaging](packaging.md) and [Release artifacts](release-artifacts.md).
 - Confirm the package `files` allowlist ships adopter-facing docs under `docs/user/` and still excludes `docs/developer/`, `.github/`, `test/`, local run artifacts, and handoff notes.
 - Run `npm pack --dry-run --json` if you need to inspect the full file list manually.
 - Run `bun run smoke:external-package` with live provider env vars before handing a package source to another repository.
-- Keep `AI_REVIEW_PACKAGE` in CI templates pinned to an immutable internal tarball URL, exact package version, or full Git commit SHA for internal smoke only. For the internal/self-managed GitLab beta, prefer a versioned internal tarball URL and do not require public npm.
+- Keep `AI_REVIEW_PACKAGE` in CI templates pinned to an immutable internal tarball URL, exact package version, or full Git commit SHA for internal smoke only. For the internal/self-managed GitLab beta, prefer a versioned internal tarball URL produced by the manual release artifact workflow.
 - Do not use mutable install sources such as `main`, floating tags, or `latest` in adopter CI.
 
 ## Cutting a tagged GitHub Release
 
-The supported beta distribution is a **GitHub Release** carrying the tarball and quality stamp.
-There is **no registry publish** this round: `private: true` stays in `package.json` and no `npm
-publish` / registry login exists in any workflow. That deferral is intentional — registry
-semantics (final name/scope, access policy, provenance) are not yet finalized; see
-[Release artifacts](release-artifacts.md).
+**Prerequisite (one-time):** the npm package must already exist and this workflow must be
+registered as its **trusted publisher** on npmjs (package → Settings → Trusted Publisher → GitHub
+Actions: repo `briggsd/code-reviewer`, workflow `release-package.yml`). Because a trusted publisher
+is configured on an existing package's settings page, the **first-ever publish is done manually**
+(`npm login` + `npm publish --access public`) to create the package; every tagged release after
+that publishes automatically via CI. No npm token is stored in the repo — CI authenticates with
+short-lived OIDC. If the trusted publisher is not configured, the `npm-publish` job fails; the
+`release` (GitHub Release) job is independent and still succeeds.
 
-**The tag-push path is publish-only and secret-free.** A `v*` tag push builds the tarball (no
-provider secrets) and attaches it to a GitHub Release. The secret-consuming live holdout quality
-gate runs **only on `workflow_dispatch`** (the validation step below) — it is no longer reachable
-from a tag push, so pushing a `v*` tag can never consume the three provider API keys (#297).
+The supported distribution is a **GitHub Release** carrying the tarball AND a publish to the
+**public npm registry**. A `v*` tag push triggers both: `npm publish` (with provenance, via
+trusted-publishing OIDC) of the `pack`-validated tarball, plus `gh release create` to attach the
+tarball to a GitHub Release.
+
+**No provider API keys — and no stored npm token — are consumed on the tag path (#297 preserved).**
+npm auth is a short-lived OIDC token, not a long-lived credential. Provider secrets (Anthropic,
+OpenAI, Google) remain confined to the dispatch-only holdout quality gate and are never reachable
+from a tag push.
+
+The secret-consuming live holdout quality gate runs **only on `workflow_dispatch`** (the validation
+step below) — it is not reachable from a tag push, so pushing a `v*` tag can never consume
+provider API keys (#297).
 
 A **tag ruleset** is still worth configuring as the **who-can-release** control. GitHub deprecated
 the classic "tag protection rules" feature in favor of repository **rulesets** (Settings → Rules →
 Rulesets → new **tag** ruleset). Configure it with target tag pattern `v*`, the **Restrict
 creations** rule (optionally **Restrict deletions** / **Restrict updates** too), and a bypass list
-limited to the release maintainers. It is no longer the secret-exposure control — that is enforced
-by the workflow, which keeps secrets on the dispatch-only validation job.
+limited to the release maintainers. It enforces *who* can trigger a publish; the #297 provider-key
+invariant is enforced by the workflow itself.
 
 **SOP-bypass risk:** without this ruleset, any collaborator with write access can push a `v*` tag
-directly and the workflow will publish a GitHub Release that **never passed the live holdout
-quality gate** (the gate runs only on the dispatch path, step 4). This is the accepted trade-off of
-the publish-only tag design from #297: the tag path is intentionally secret-free and does not
-re-run the gate, so the ruleset is the only thing gating *who* can trigger a publish. Treat the tag
-ruleset as a release-process control, not a safety control.
+directly and the workflow will publish a GitHub Release and npm package that **never passed the live
+holdout quality gate** (the gate runs only on the dispatch path, step 4). This is the accepted
+trade-off of the publish-only tag design from #297: the tag path does not re-run the gate, so the
+ruleset is the only thing gating *who* can trigger a publish. Treat the tag ruleset as a
+release-process control, not a safety control.
 
 Releases are version-tag driven. The version convention is a `vX.Y.Z` git tag matching the
 `package.json` `version`. The supported flow is **two steps: dispatch to validate, then tag to
@@ -89,26 +101,41 @@ publish.** To cut a release:
    git push origin vX.Y.Z
    ```
 
-6. **Workflow publishes (no secrets).** The `v*` tag push triggers the workflow's secret-free
-   path: the `pack` job builds the `npm pack` tarball, then a tag-only `release` job creates a
-   GitHub Release for the tag with the tarball attached via `gh release create`. That `release`
-   job is the only one granted `contents: write`; the `pack` job stays `contents: read`. The
-   holdout gate does **not** run on this path — quality was validated in step 4.
+6. **Workflow publishes.** The `v*` tag push triggers the workflow: the `pack` job first guards
+   that the tag matches `package.json` `version` (failing fast on a mismatch, which blocks both
+   publishes), then builds the `npm pack` tarball. A tag-only `release` job creates a GitHub
+   Release with that tarball attached via `gh release create`, and a tag-only `npm-publish` job
+   downloads the same validated tarball and runs `npm publish dist/*.tgz --provenance --access
+   public` via trusted-publishing OIDC to publish to the public npm registry. The `release` and
+   `npm-publish` jobs both depend on `pack` but run independently of each other. The holdout gate
+   does **not** run on this path — quality was validated in step 4.
 
-Adopters then pin `AI_REVIEW_PACKAGE` to the immutable Release asset URL — never a mutable
-branch, floating tag, or `latest`.
+Adopters can then install the exact published version (`bun add @briggsd/code-reviewer@X.Y.Z`) or
+pin `AI_REVIEW_PACKAGE` to the immutable Release asset URL — never a mutable branch, floating tag,
+or `latest`.
+
+**Partial-publish recovery.** The `release` and `npm-publish` jobs are independent, so one can
+succeed while the other fails (e.g. a GitHub Release is created but the npm publish errors). The
+tag is already consumed, so do **not** re-tag. Instead:
+
+- **`npm-publish` failed, `release` succeeded:** re-run just the failed `npm-publish` job from the
+  Actions UI — it re-downloads the same `pack`-validated tarball artifact (kept 14 days) and
+  republishes via OIDC. If the artifact has expired, publish that exact version manually from a
+  clean checkout of the tag (`git checkout vX.Y.Z && npm publish --access public`).
+- **`release` failed, `npm-publish` succeeded:** the npm version is immutable and already public;
+  create the missing GitHub Release manually with `gh release create vX.Y.Z` against the same tag.
 
 ## Channel decision
 
 Current supported channel:
 
-- **Bun-backed npm tarball/package** — install with `bun add --global "$AI_REVIEW_PACKAGE"`, run `code-reviewer`. For the internal/self-managed GitLab beta, use an immutable internal tarball URL produced from `npm pack` and hosted as an internal release asset or generic package file. Before registry publish in any environment, use an immutable tarball URL produced by the manual release artifact workflow, or a full Git commit SHA for internal smoke.
+- **Bun-backed npm tarball/package** — install with `bun add @briggsd/code-reviewer` (general adopters) or `bun add --global "$AI_REVIEW_PACKAGE"` for pinned/internal sources. Run `code-reviewer`. For the internal/self-managed GitLab beta, use an immutable internal tarball URL produced from `npm pack` and hosted as an internal release asset or generic package file.
 
 Install-source priority:
 
-1. Immutable internal tarball URL for the internal/self-managed GitLab beta.
-2. Immutable tarball URL before public registry publish in other environments.
-3. Exact registry package version after publish.
+1. Exact npm package version after publish (e.g. `bun add @briggsd/code-reviewer@X.Y.Z`).
+2. Immutable internal tarball URL for the internal/self-managed GitLab beta.
+3. Immutable tarball URL for air-gapped or non-registry environments.
 4. Full Git commit SHA for internal smoke only.
 
 Deferred channels:
@@ -167,6 +194,7 @@ Do not release if any of these are true:
 
 - `bun run check` fails.
 - `bun run pack:smoke` fails.
+- The npm trusted publisher is not configured (or the package does not yet exist) when cutting a tagged release — the `npm-publish` job will fail.
 - Package contents include developer docs, milestone history, tests, workflow internals, local artifacts, or handoff notes.
 - CI templates require `bun run src/cli.ts` from the runner repository.
 - Fork PR/MR docs imply write tokens or model secrets are available to untrusted code.

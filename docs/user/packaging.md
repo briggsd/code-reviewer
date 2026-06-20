@@ -1,6 +1,18 @@
 # Packaging
 
-The prototype distribution target is a Bun-backed npm tarball. The project is licensed Apache-2.0. Registry publishing is intentionally blocked for now by `private: true` until the final package name and access policy are decided. For the internal/self-managed GitLab beta, tarball/release-asset distribution is the supported adoption path; public npm is not part of the beta channel.
+The package is published to the public npm registry as `@briggsd/code-reviewer`, licensed Apache-2.0. It is bun-native: the CLI runs TypeScript directly through Bun with no build step, so any environment that runs the bin must have [Bun](https://bun.sh) `>=1.3.0` installed.
+
+Install with:
+
+```bash
+bun add @briggsd/code-reviewer
+```
+
+Or install globally:
+
+```bash
+bun add --global @briggsd/code-reviewer
+```
 
 The package exposes a single CLI bin:
 
@@ -8,44 +20,40 @@ The package exposes a single CLI bin:
 code-reviewer
 ```
 
-The bin points at `src/cli.ts` and uses a Bun shebang, so runtime environments must install Bun before invoking the package. CI templates install the package with:
+The bin points at `src/cli.ts` and uses a Bun shebang. CI templates install the package with:
 
 ```bash
 bun add --global "$AI_REVIEW_PACKAGE"
 code-reviewer run ...
 ```
 
-Until the package is published under its final name, set `AI_REVIEW_PACKAGE` to the exact immutable tarball source CI should install. For an internal GitLab beta, use a versioned self-managed GitLab release asset or generic package file URL, not `latest`, `main`, or an unpinned branch.
+For internal or air-gapped environments, set `AI_REVIEW_PACKAGE` to the exact immutable tarball source CI should install. For an internal GitLab beta, use a versioned self-managed GitLab release asset or generic package file URL, not `latest`, `main`, or an unpinned branch.
 
 Example internal beta source:
 
 ```yaml
-AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/code-reviewer/-/releases/v0.1.0/downloads/briggsd-code-reviewer-0.1.0.tgz
+AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/code-reviewer/-/releases/vX.Y.Z/downloads/briggsd-code-reviewer-X.Y.Z.tgz
 ```
 
-## Package identity and publish blockers
+## Package identity and publish config
 
 Current package identity:
 
 - npm package name: `@briggsd/code-reviewer`
-- version: `0.1.0`
+- version: `0.3.0`
 - bin: `code-reviewer` → `./src/cli.ts`
 - repository: `https://github.com/briggsd/code-reviewer`
-- license/access stance: Apache-2.0 licensed; package stays `private: true` until a registry-publish decision is made
+- license: Apache-2.0 licensed; scoped public via `publishConfig.access: public`
 
-Before public registry publish, decide:
-
-1. whether the package name remains `@briggsd/code-reviewer` or changes,
-2. whether `private: true` should be removed,
-3. whether `publishConfig.access` should be set for scoped public packages.
+The package is published with npm provenance from the tag-push CI job via **trusted publishing** (OIDC — no stored npm token; `npm publish --provenance --access public`). The `private` field is absent from `package.json`; `publishConfig.access` is set to `"public"` to ensure the scoped package publishes publicly.
 
 ## Install source strategy
 
-Current supported adoption source:
+Supported adoption sources in priority order:
 
-1. **Preferred for the internal/self-managed GitLab beta:** an immutable internal npm tarball URL, such as a versioned self-managed GitLab release asset or generic package file produced from `npm pack`.
-2. **Preferred before public registry publish in other environments:** an immutable npm tarball URL, for example a release asset produced from `npm pack`.
-3. **Preferred after registry publish:** an exact package version such as `@briggsd/code-reviewer@0.1.0`.
+1. **Preferred for general adopters:** an exact npm package version, installed with `bun add @briggsd/code-reviewer@0.3.0` (pin the version; drop the `@0.3.0` only to track latest).
+2. **Preferred for the internal/self-managed GitLab beta:** an immutable internal npm tarball URL, such as a versioned self-managed GitLab release asset or generic package file produced from `npm pack`.
+3. **Immutable tarball URL:** a release asset produced from `npm pack`, for environments that need a pinned artifact outside the registry.
 4. **Internal smoke only:** a Git source pinned to a full Git commit SHA. Do not pin adopter CI to mutable branches or floating tags.
 
 Do not use mutable install sources such as `main`, `latest`, or an unpinned Git branch for adopter CI. The package source should be reproducible from the CI logs, and the installed CLI should be treated as the reviewed repository's review toolchain, not as source checked out from the PR/MR under review.
@@ -103,7 +111,6 @@ Only adopter-facing documentation is shipped: `docs/user/` is included, while `d
 
 ## Not yet done
 
-- Published npm package name/license/access policy.
 - Container image wrapper.
 - GitHub Action wrapper.
 - GitLab component wrapper.
