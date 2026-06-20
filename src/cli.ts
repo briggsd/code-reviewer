@@ -5,6 +5,7 @@ import { finalizeCiExit } from "./cli/ci-exit.ts";
 import { ReviewProgressReporter } from "./cli/review-progress-reporter.ts";
 import {
   applyGitDiffDefault,
+  formatLocalRunHealthHeader,
   parseDisabledProviders,
   parseReviewersOption,
   parseRunPublishOptions,
@@ -387,6 +388,9 @@ async function runCommand(args: string[]): Promise<void> {
     }
 
     if (outputFormat === "markdown") {
+      for (const line of formatLocalRunHealthHeader(result.summary)) {
+        console.log(line);
+      }
       console.log(formatReviewSummaryMarkdown(result.summary));
     } else {
       console.log(JSON.stringify(result.summary, null, 2));
