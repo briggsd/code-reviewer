@@ -451,6 +451,7 @@ async function loadReviewSource(args: string[]): Promise<ReviewSource> {
       {
         ...(base !== undefined ? { base } : {}),
         ...(changeId !== undefined ? { changeId } : {}),
+        ...(hasFlag(args, "--include-untracked") ? { includeUntracked: true } : {}),
       },
       gitRunner,
     );
@@ -732,7 +733,7 @@ function printHelp(): void {
     "      [--reviewers <path>]   Operator-supplied reviewer definitions module (explicit load; applies to all run forms; merge-by-role/operator-wins, or full-replace via { definitions, replace:true })",
   );
   console.log(
-    "  run --git-diff [--base <ref>] [--change-id <id>] [--config <path>] [--seed-fixture <path>]",
+    "  run --git-diff [--base <ref>] [--change-id <id>] [--include-untracked] [--config <path>] [--seed-fixture <path>]",
   );
   console.log(
     "      [--runtime dummy|pi] [--output-dir <path>] [--format json|markdown] [--ci-exit] [--redact-trace] [--reviewers <path>]",
@@ -744,8 +745,9 @@ function printHelp(): void {
   console.log(
     "                                       --base default HEAD = uncommitted changes only; pass --base <branch>",
   );
+  console.log("                                       for committed branch work.");
   console.log(
-    "                                       for committed branch work. Untracked files need `git add -N` first.",
+    "                                       --include-untracked also reviews new untracked files (excludes .gitignored paths; index restored).",
   );
   console.log("  run --provider github|gitlab --repo <owner/name> --change-id <id>");
   console.log(

@@ -327,3 +327,115 @@ describe("loadGitDiffChange", () => {
     expect(diff.files).toHaveLength(1);
   });
 });
+
+describe("includeUntracked", () => {
+  // A recording runner: pushes every args array into `calls`, then dispatches on the
+  // joined key. Throws for any key not in `responses`.
+  function recordingGit(responses: Record<string, string>): {
+    runner: GitRunner;
+    calls: string[][];
+  } {
+    const calls: string[][] = [];
+    const runner: GitRunner = async (args) => {
+      calls.push([...args]);
+      const key = args.join(" ");
+      if (!(key in responses)) {
+        throw new Error(`unexpected git call: ${key}`);
+      }
+      return responses[key] as string;
+    };
+    return { runner, calls };
+  }
+
+  // Base responses shared by tests that need a successful full run.
+  const baseResponses: Record<string, string> = {
+    "rev-parse HEAD": "headsha123\n",
+    "rev-parse main": "basesha456\n",
+    "rev-parse --abbrev-ref HEAD": "feature/x\n",
+    "config user.name": "Ada Lovelace\n",
+    "config user.email": "ada@example.com\n",
+    "remote get-url origin": "git@github.com:acme/widgets.git\n",
+    "rev-parse --show-toplevel": "/home/ada/widgets\n",
+  };
+
+  test("untracked file included + index restored", async () => {
+    const { runner, calls } = recordingGit({
+      "ls-files --others --exclude-standard -z": "src/new-untracked.ts\0",
+      "add -N -- src/new-untracked.ts": "",
+      "diff --no-color main": `${MODIFIED}${ADDED}`,
+      "reset -- src/new-untracked.ts": "",
+      ...baseResponses,
+    });
+
+    const { diff } = await loadGitDiffChange({ base: "main", includeUntracked: true }, runner);
+
+    // The new file (ADDED = src/new.ts) is in the diff files.
+    expect(diff.files.map((f) => f.path)).toContain("src/new.ts");
+
+    const joinedCalls = calls.map((c) => c.join(" "));
+    const addIdx = joinedCalls.indexOf("add -N -- src/new-untracked.ts");
+    const diffIdx = joinedCalls.findIndex((c) => c.startsWith("diff --no-color"));
+    const resetIdx = joinedCalls.indexOf("reset -- src/new-untracked.ts");
+
+    expect(addIdx).toBeGreaterThanOrEqual(0);
+    expect(diffIdx).toBeGreaterThanOrEqual(0);
+    expect(resetIdx).toBeGreaterThanOrEqual(0);
+    expect(addIdx).toBeLessThan(diffIdx);
+    expect(resetIdx).toBeGreaterThan(diffIdx);
+  });
+
+  test("index restored even when the diff throws (load-bearing regression guard)", async () => {
+    const calls: string[][] = [];
+    const runner: GitRunner = async (args) => {
+      calls.push([...args]);
+      const key = args.join(" ");
+      if (key === "ls-files --others --exclude-standard -z") {
+        return "src/new-untracked.ts\0";
+      }
+      if (key === "add -N -- src/new-untracked.ts") {
+        return "";
+      }
+      if (key === "reset -- src/new-untracked.ts") {
+        return "";
+      }
+      // diff --no-color main (and all other git metadata calls) throw — simulating
+      // a transient failure after add -N has already mutated the index.
+      throw new Error("git diff failed");
+    };
+
+    await expect(
+      loadGitDiffChange({ base: "main", includeUntracked: true }, runner),
+    ).rejects.toThrow("git diff failed");
+
+    // The finally block must have fired: reset was still called even though diff threw.
+    expect(calls.map((c) => c.join(" "))).toContain("reset -- src/new-untracked.ts");
+  });
+
+  test("flag off (default) — no ls-files, add, or reset calls", async () => {
+    const { runner, calls } = recordingGit({
+      "diff --no-color main": MODIFIED,
+      ...baseResponses,
+    });
+
+    await loadGitDiffChange({ base: "main" }, runner);
+
+    const joinedCalls = calls.map((c) => c.join(" "));
+    expect(joinedCalls.some((c) => c.startsWith("ls-files"))).toBe(false);
+    expect(joinedCalls.some((c) => c.startsWith("add"))).toBe(false);
+    expect(joinedCalls.some((c) => c.startsWith("reset"))).toBe(false);
+  });
+
+  test("no untracked files — no add/reset calls even with flag set", async () => {
+    const { runner, calls } = recordingGit({
+      "ls-files --others --exclude-standard -z": "",
+      "diff --no-color main": MODIFIED,
+      ...baseResponses,
+    });
+
+    await loadGitDiffChange({ base: "main", includeUntracked: true }, runner);
+
+    const joinedCalls = calls.map((c) => c.join(" "));
+    expect(joinedCalls.some((c) => c.startsWith("add"))).toBe(false);
+    expect(joinedCalls.some((c) => c.startsWith("reset"))).toBe(false);
+  });
+});

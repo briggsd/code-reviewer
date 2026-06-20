@@ -15,6 +15,13 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
 
 ### Added
 
+- `--git-diff` runs now accept `--include-untracked` to include untracked, non-gitignored files in
+  the local review. When set, each untracked file is momentarily marked intent-to-add (`git add -N`)
+  so `git diff` renders it as all-additions, then the index is restored to exactly the state found
+  (the `reset` runs in `finally` and is never swallowed). Build/scratch junk is excluded via
+  `--exclude-standard`. Default behavior is unchanged — untracked files remain invisible without the
+  flag. (#382, M034)
+
 - Bitbucket Cloud is now a supported VCS provider. Pass `--provider bitbucket` with a Bearer
   access token in `AI_REVIEW_BITBUCKET_TOKEN` (or `BITBUCKET_TOKEN`) — a Bitbucket Cloud
   repository or workspace access token; App Passwords / Basic auth are not supported — to run a
