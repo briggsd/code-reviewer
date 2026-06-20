@@ -22,6 +22,13 @@ describe("release artifact workflow", () => {
     // Actions are SHA-pinned repo-wide (#96); the trailing comment preserves the version tag.
     expect(workflow).toMatch(/actions\/upload-artifact@[0-9a-f]{40} # v4/);
     expect(workflow).toContain("npm publish dist/*.tgz --provenance --access public");
+    // The pack job fails fast when the pushed vX.Y.Z tag does not match package.json `version`,
+    // blocking BOTH publish jobs (they `needs: pack`) — the safeguard against a mislabeled
+    // GitHub Release and an immutable, un-revertible npm publish. Lock it against silent removal.
+    expect(workflow).toContain("Guard tag matches package.json version");
+    expect(workflow).toContain('if [ "$TAG" != "$PKG" ]; then');
+    // The OIDC-privileged publish job pins the npm CLI (not @latest) per the pinning discipline.
+    expect(workflow).toContain("npm install -g npm@11.5.1");
 
     // Four jobs: pack (both triggers, no secrets), holdout-gate (dispatch-only, secrets),
     // release (tag-only, publishes the tarball), npm-publish (tag-only, publishes to npm).

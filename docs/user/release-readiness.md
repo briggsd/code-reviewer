@@ -114,6 +114,17 @@ Adopters can then install the exact published version (`bun add @briggsd/code-re
 pin `AI_REVIEW_PACKAGE` to the immutable Release asset URL — never a mutable branch, floating tag,
 or `latest`.
 
+**Partial-publish recovery.** The `release` and `npm-publish` jobs are independent, so one can
+succeed while the other fails (e.g. a GitHub Release is created but the npm publish errors). The
+tag is already consumed, so do **not** re-tag. Instead:
+
+- **`npm-publish` failed, `release` succeeded:** re-run just the failed `npm-publish` job from the
+  Actions UI — it re-downloads the same `pack`-validated tarball artifact (kept 14 days) and
+  republishes via OIDC. If the artifact has expired, publish that exact version manually from a
+  clean checkout of the tag (`git checkout vX.Y.Z && npm publish --access public`).
+- **`release` failed, `npm-publish` succeeded:** the npm version is immutable and already public;
+  create the missing GitHub Release manually with `gh release create vX.Y.Z` against the same tag.
+
 ## Channel decision
 
 Current supported channel:
