@@ -129,6 +129,9 @@ from your local config — which is exactly how you can test policy rules locall
 - `conventions`: array of prose strings telling the reviewer about this repo's expected exceptions
   (e.g. "scripts/* are maintainer-run tools; don't apply an untrusted-input threat model"). Rendered
   as inert, sanitized untrusted data in the reviewer/coordinator prompts (never as instructions).
+  Conventions are prompt-injected guidance that *shapes* what reviewers generate — they steer
+  reviewers away from flagging the named exceptions, but are not a hard parse-level filter, so treat
+  them as advisory rather than a guaranteed suppression.
   **In the GitHub provider path these are read from the base/target branch, not the PR head** (a PR
   cannot grant itself an exception); see `../developer/reviewer-conventions.md`. Bounded: ≤50 entries, ≤500
   chars each.

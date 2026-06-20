@@ -5,6 +5,7 @@ import { finalizeCiExit } from "./cli/ci-exit.ts";
 import { ReviewProgressReporter } from "./cli/review-progress-reporter.ts";
 import {
   applyGitDiffDefault,
+  formatConventionsHint,
   formatLocalRunHealthHeader,
   parseDisabledProviders,
   parseReviewersOption,
@@ -172,6 +173,11 @@ type ReviewSource =
 
 async function runCommand(args: string[]): Promise<void> {
   const source = await loadReviewSource(args);
+  if (hasFlag(args, "--git-diff")) {
+    for (const line of formatConventionsHint(source.config)) {
+      console.error(line); // stderr — a nudge, never stdout (which carries review output)
+    }
+  }
   const outputDirectory = applyGitDiffDefault(readFlag(args, "--output-dir"), args, ".ai-review");
   const runtimeName = applyGitDiffDefault(readFlag(args, "--runtime"), args, "dummy");
   const jobKind = readFlag(args, "--job-kind");
