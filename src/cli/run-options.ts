@@ -11,9 +11,9 @@ export function formatConventionsHint(config: ReviewConfig): string[] {
   if ((config.conventions?.length ?? 0) > 0) return [];
   return [
     "[ai-review] No project conventions configured. If the reviewer keeps flagging something " +
-      'intentional in this repo, add a "conventions" array to .ai-review.json to suppress ' +
-      "repo-specific noise — see docs/user/configuration.md (conventions are advisory: they " +
-      "shape review generation, not a hard guarantee).",
+      'intentional in this repo, add a "conventions" array to .ai-review.json to steer ' +
+      "reviewers away from flagging repo-specific exceptions — see docs/user/configuration.md " +
+      "(conventions are advisory: they shape review generation, not a hard guarantee).",
   ];
 }
 
