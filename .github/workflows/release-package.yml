@@ -223,9 +223,12 @@ jobs:
       - name: Publish to npm via trusted publishing
         # Trusted publishing requires npm CLI >= 11.5.1, so upgrade the runner's npm first —
         # pinned (not @latest) to keep this OIDC-privileged job consistent with the workflow's
-        # SHA-pinning discipline. Provenance is generated automatically under trusted publishing;
+        # SHA-pinning discipline. `sudo` is required: the runner's global prefix (/usr/local) is
+        # root-owned, so a plain `npm install -g` fails with EACCES writing bin/man links. The
+        # publish itself runs WITHOUT sudo so it inherits the Actions OIDC env (id-token) for
+        # trusted-publishing auth. Provenance is generated automatically under trusted publishing;
         # --provenance is passed explicitly to keep it guaranteed. publishConfig.access=public in
         # the manifest plus --access public keep the scoped package public.
         run: |
-          npm install -g npm@11.5.1
+          sudo npm install -g npm@11.5.1
           npm publish dist/*.tgz --provenance --access public

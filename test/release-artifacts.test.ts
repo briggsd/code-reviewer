@@ -27,8 +27,9 @@ describe("release artifact workflow", () => {
     // GitHub Release and an immutable, un-revertible npm publish. Lock it against silent removal.
     expect(workflow).toContain("Guard tag matches package.json version");
     expect(workflow).toContain('if [ "$TAG" != "$PKG" ]; then');
-    // The OIDC-privileged publish job pins the npm CLI (not @latest) per the pinning discipline.
-    expect(workflow).toContain("npm install -g npm@11.5.1");
+    // The OIDC-privileged publish job pins the npm CLI (not @latest) per the pinning discipline,
+    // and upgrades it with sudo (the runner's global prefix is root-owned; plain -g hits EACCES).
+    expect(workflow).toContain("sudo npm install -g npm@11.5.1");
 
     // Four jobs: pack (both triggers, no secrets), holdout-gate (dispatch-only, secrets),
     // release (tag-only, publishes the tarball), npm-publish (tag-only, publishes to npm).
