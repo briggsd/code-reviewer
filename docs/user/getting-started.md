@@ -58,6 +58,20 @@ Most projects should start with the built-in reviewers and defaults. Add
 when you have a concrete reason. Config arrays replace the built-in defaults, so
 read [Project configuration](configuration.md) before overriding them.
 
+If the reviewer keeps flagging something intentional in this repo — a maintainer-run
+script, a deliberate pattern, a known exception — add a `conventions` array to
+`.ai-review.json` to tell the reviewers about it. For example:
+
+```json
+{
+  "conventions": ["scripts/* are maintainer-run tools; don't apply an untrusted-input threat model"]
+}
+```
+
+Conventions shape what reviewers generate rather than filtering output after the fact, so treat
+them as advisory rather than a guaranteed suppression. See the [`conventions` field
+reference](configuration.md#fields) for bounds and trust notes.
+
 ## 3. Wire CI
 
 Start from the template for your platform:

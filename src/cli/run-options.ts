@@ -1,4 +1,21 @@
-import type { ReviewSummary } from "../contracts/review.ts";
+import type { ReviewConfig, ReviewSummary } from "../contracts/review.ts";
+
+/**
+ * One-line nudge pointing local operators at `conventions` (#383, M034). Returned when the
+ * effective config carries no conventions — covers BOTH "no .ai-review.json" (default config
+ * has none) and "a config file without a conventions array". Empty array = no nudge. Printed to
+ * stderr by the --git-diff local path only (see cli.ts) — it must never touch stdout (which
+ * carries the markdown/JSON review output). Docs/discoverability only; reads config, mutates nothing.
+ */
+export function formatConventionsHint(config: ReviewConfig): string[] {
+  if ((config.conventions?.length ?? 0) > 0) return [];
+  return [
+    "[ai-review] No project conventions configured. If the reviewer keeps flagging something " +
+      'intentional in this repo, add a "conventions" array to .ai-review.json to suppress ' +
+      "repo-specific noise — see docs/user/configuration.md (conventions are advisory: they " +
+      "shape review generation, not a hard guarantee).",
+  ];
+}
 
 /**
  * Build the local-run health + findings-count header lines printed to stdout above the
