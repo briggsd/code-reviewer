@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 
 describe("GitHub Action wrapper", () => {
   test("is a thin composite wrapper around the packaged CLI", async () => {
@@ -8,7 +8,7 @@ describe("GitHub Action wrapper", () => {
     expect(action).toContain("using: composite");
     expect(action).toContain("oven-sh/setup-bun@v2");
     expect(action).toContain('bun add --global "$AI_REVIEW_PACKAGE"');
-    expect(action).toContain("default: @briggsd/code-reviewer@0.1.0");
+    expect(action).toContain('default: "@briggsd/code-reviewer@0.3.1"');
     expect(action).toContain('code-reviewer "${args[@]}"');
     expect(action).toContain("fixture:");
     expect(action).toContain('--fixture "$AI_REVIEW_FIXTURE"');
@@ -32,5 +32,32 @@ describe("GitHub Action wrapper", () => {
     expect(action).toContain("args+=(--publish-summary)");
     expect(action).toContain("args+=(--publish-inline)");
     expect(action).toContain('default: "false"');
+  });
+
+  test("manifest scalar values do not start with an unquoted YAML indicator", async () => {
+    // Regression lock for the v0.3.0 action-wrapper bug: a plain YAML scalar starting with a
+    // reserved indicator is invalid, so GitHub fails to LOAD the manifest before any input
+    // override can apply. The string `.toContain` assertions above never caught it because they
+    // never inspect the value's first character.
+    //
+    // This is a deliberate heuristic, NOT a full YAML parse — it stays independent of the
+    // CI-pinned Bun's YAML support (`Bun.YAML` has had cross-version issues). It flags a value
+    // (after a `:` or a `-` list marker) whose first character is one of the indicators that are
+    // invalid as a plain-scalar start AND never legitimately begin a value in these manifests:
+    //   @  `  *  &  !  %
+    // `|`/`>` (block scalars), `"`/`'` (quotes), and `[`/`{` (flow collections) are valid starts
+    // and are intentionally NOT flagged; a quoted value (`default: "@..."`) starts with `"`.
+    const ciFiles = (await readdir("examples/ci")).filter((f) => f.endsWith(".yml"));
+    const files = ["action.yml", ...ciFiles.map((f) => `examples/ci/${f}`)];
+    const offenders: string[] = [];
+    for (const file of files) {
+      const lines = (await readFile(file, "utf8")).split("\n");
+      lines.forEach((line, i) => {
+        if (/(:\s+|^\s*-\s+)[@`*&!%]/.test(line)) {
+          offenders.push(`${file}:${i + 1}: ${line.trim()}`);
+        }
+      });
+    }
+    expect(offenders).toEqual([]);
   });
 });

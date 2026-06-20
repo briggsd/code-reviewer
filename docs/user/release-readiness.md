@@ -75,7 +75,11 @@ Releases are version-tag driven. The version convention is a `vX.Y.Z` git tag ma
 `package.json` `version`. The supported flow is **two steps: dispatch to validate, then tag to
 publish.** To cut a release:
 
-1. **Bump the version.** Set `package.json` `version` to the new `X.Y.Z`.
+1. **Bump the version.** Set `package.json` `version` to the new `X.Y.Z`, and update the concrete
+   version pins that must track it: the `package-source` default in `action.yml`, the
+   `AI_REVIEW_PACKAGE` default in `examples/ci/github-actions-ai-review.yml`, and the version
+   references in `docs/user/packaging.md`. (A pin left on an unpublished version makes the action
+   wrapper install a 404.)
 2. **Update the changelog.** In [`CHANGELOG.md`](../../CHANGELOG.md), promote the `## [Unreleased]`
    entries into a new `## [X.Y.Z]` section and refresh the comparison links at the bottom.
 3. **Land the bump** on the default branch (normal PR + merge).

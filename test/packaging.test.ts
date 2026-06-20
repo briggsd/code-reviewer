@@ -46,7 +46,7 @@ describe("package distribution metadata", () => {
     const releaseReadiness = await readFile("docs/user/release-readiness.md", "utf8");
 
     expect(manifest.name).toBe("@briggsd/code-reviewer");
-    expect(manifest.version).toBe("0.3.0");
+    expect(manifest.version).toBe("0.3.1");
     expect(manifest.private).toBeUndefined();
     expect(manifest.publishConfig?.access).toBe("public");
     expect(manifest.license).toBe("Apache-2.0");
