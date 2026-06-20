@@ -25,6 +25,13 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
   and backward-compatible; `run.json` consumers doing exhaustive matching on the `provider` field
   should treat it as open-ended. (#361, M033)
 
+- Local `--git-diff` runs now print a one-line run-health header above the markdown tail:
+  `[ai-review] Run health: degraded=false (0 reviewers failed) · N grounded / M withheld`. It
+  makes the grounded findings (in `summary.json`) vs withheld low-confidence findings (rendered
+  but non-blocking) count explicit, and states reviewer-failure health affirmatively on clean
+  runs. Appears only in `--output markdown` mode (the default); the `--output json` stdout is
+  unchanged, so scripted consumers are unaffected. (#380, #381, M034)
+
 ### Fixed
 
 - Re-review summaries now recover real finding titles from hidden summary metadata into placeholder

@@ -1,3 +1,22 @@
+import type { ReviewSummary } from "../contracts/review.ts";
+
+/**
+ * Build the local-run health + findings-count header lines printed to stdout above the
+ * markdown tail (#380/#381, M034). Presentation only — reads the summary, mutates nothing.
+ * `degraded` absent = clean (NEVER populate it; summary-markdown renders a banner when it is set).
+ * Counts only (no finding text) — M008-safe and human-facing local echo.
+ */
+export function formatLocalRunHealthHeader(summary: ReviewSummary): string[] {
+  const grounded = summary.findings.length;
+  const withheld = summary.groundingWithheld?.length ?? 0;
+  const failed = summary.degraded?.failedReviewerCount ?? 0;
+  const degradedStr =
+    summary.degraded === undefined
+      ? "degraded=false (0 reviewers failed)"
+      : `degraded=true (${failed} reviewers failed)`;
+  return [`[ai-review] Run health: ${degradedStr} · ${grounded} grounded / ${withheld} withheld`];
+}
+
 /**
  * Apply the --git-diff smart default for a flag that has a conventional fallback.
  * When the flag was explicitly set, its value wins. When --git-diff is present and
