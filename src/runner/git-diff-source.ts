@@ -24,6 +24,11 @@ export interface GitDiffSourceOptions {
   changeId?: string;
   // Injected in tests to avoid filesystem I/O. Reads a repo-relative working-tree path.
   readWorkingTreeFile?: WorkingTreeFileReader;
+  // Opt-in: momentarily `add -N`s untracked-non-ignored files for the diff snapshot,
+  // then restores the index. Default behavior is unchanged — untracked files stay invisible
+  // unless this flag is set. Uses `--exclude-standard` so build/scratch junk (node_modules/,
+  // dist/) is never pulled into the review.
+  includeUntracked?: boolean;
 }
 
 export interface GitDiffChange {
@@ -31,6 +36,57 @@ export interface GitDiffChange {
   diff: DiffSummary;
   /** Working-tree file bodies for deterministic grounding only; omitted from prompt artifacts. */
   changedFileContents?: Record<string, string>;
+}
+
+// Run `body` with untracked-non-ignored files momentarily marked intent-to-add so `git diff`
+// includes them, then restore the index to exactly what was found. When `includeUntracked` is
+// false (or nothing is untracked) it just runs `body` — no git mutation. The index restore always
+// runs (success and failure paths) and a restore failure is NOT swallowed: it surfaces loudly
+// rather than silently leaving the operator's index mutated (the regression this guards). On the
+// failure path the original `body` error is preserved as the actionable cause — a restore failure
+// is reported alongside it (wrapped, with `cause`), never in place of it.
+async function withUntrackedSnapshot<T>(
+  run: GitRunner,
+  includeUntracked: boolean,
+  body: () => Promise<T>,
+): Promise<T> {
+  if (!includeUntracked) {
+    return body();
+  }
+  // NUL-separated so filenames with spaces/quotes/unicode stay literal (never quote-decoded).
+  // --exclude-standard honours the project's .gitignore (+ .git/info/exclude, global gitignore),
+  // so files the repo already ignores (e.g. a gitignored node_modules/, dist/) stay out of the review.
+  const raw = await run(["ls-files", "--others", "--exclude-standard", "-z"]);
+  const untracked = raw.split("\0").filter((p) => p.length > 0);
+  if (untracked.length === 0) {
+    return body();
+  }
+  // intent-to-add: makes `git diff` render each new file as all-additions without writing blob
+  // content to the index. `--` separates paths from options (a filename starting with '-' can't be
+  // parsed as a git option — the same argument-injection guard as the --base check).
+  await run(["add", "-N", "--", ...untracked]);
+  // Restore = remove only the intent-to-add entries we created. For genuinely-untracked files (no
+  // prior index entry) this returns them to untracked and never touches the operator's other staged
+  // changes (only our paths are named).
+  const restore = () => run(["reset", "--", ...untracked]);
+  let result: T;
+  try {
+    result = await body();
+  } catch (bodyError) {
+    // Body failed — still restore, but never let a restore failure mask the root cause.
+    try {
+      await restore();
+    } catch (restoreError) {
+      throw new Error(
+        `local diff failed and the working index could not be restored — ${untracked.length} intent-to-add entry(ies) remain; run \`git reset\` to clear them. Restore error: ${String(restoreError)}`,
+        { cause: bodyError },
+      );
+    }
+    throw bodyError;
+  }
+  // Body succeeded — a restore failure is now the only (and actionable) error: surface it loudly.
+  await restore();
+  return result;
 }
 
 export async function loadGitDiffChange(
@@ -45,17 +101,21 @@ export async function loadGitDiffChange(
     throw new Error(`invalid --base ref: ${base} (must not start with "-")`);
   }
 
+  // Snapshot untracked files into the diff (opt-in) while restoring the index afterward; the
+  // index-restore guarantee lives in withUntrackedSnapshot, keeping this function flat.
   const [rawDiff, headSha, baseSha, branch, authorName, authorEmail, remoteUrl, topLevel] =
-    await Promise.all([
-      run(["diff", "--no-color", base]),
-      runValue(run, ["rev-parse", "HEAD"]),
-      runValue(run, ["rev-parse", base]),
-      runValue(run, ["rev-parse", "--abbrev-ref", "HEAD"]),
-      runValue(run, ["config", "user.name"]),
-      runValue(run, ["config", "user.email"]),
-      runValue(run, ["remote", "get-url", "origin"]),
-      runValue(run, ["rev-parse", "--show-toplevel"]),
-    ]);
+    await withUntrackedSnapshot(run, options.includeUntracked === true, () =>
+      Promise.all([
+        run(["diff", "--no-color", base]),
+        runValue(run, ["rev-parse", "HEAD"]),
+        runValue(run, ["rev-parse", base]),
+        runValue(run, ["rev-parse", "--abbrev-ref", "HEAD"]),
+        runValue(run, ["config", "user.name"]),
+        runValue(run, ["config", "user.email"]),
+        runValue(run, ["remote", "get-url", "origin"]),
+        runValue(run, ["rev-parse", "--show-toplevel"]),
+      ]),
+    );
 
   const files = parseUnifiedDiff(rawDiff);
   const diff: DiffSummary = {

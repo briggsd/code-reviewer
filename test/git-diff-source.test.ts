@@ -327,3 +327,202 @@ describe("loadGitDiffChange", () => {
     expect(diff.files).toHaveLength(1);
   });
 });
+
+describe("includeUntracked", () => {
+  // A recording runner: pushes every args array into `calls`, then dispatches on the
+  // joined key. Throws for any key not in `responses`.
+  function recordingGit(responses: Record<string, string>): {
+    runner: GitRunner;
+    calls: string[][];
+  } {
+    const calls: string[][] = [];
+    const runner: GitRunner = async (args) => {
+      calls.push([...args]);
+      const key = args.join(" ");
+      if (!(key in responses)) {
+        throw new Error(`unexpected git call: ${key}`);
+      }
+      return responses[key] as string;
+    };
+    return { runner, calls };
+  }
+
+  // Base responses shared by tests that need a successful full run.
+  const baseResponses: Record<string, string> = {
+    "rev-parse HEAD": "headsha123\n",
+    "rev-parse main": "basesha456\n",
+    "rev-parse --abbrev-ref HEAD": "feature/x\n",
+    "config user.name": "Ada Lovelace\n",
+    "config user.email": "ada@example.com\n",
+    "remote get-url origin": "git@github.com:acme/widgets.git\n",
+    "rev-parse --show-toplevel": "/home/ada/widgets\n",
+  };
+
+  test("untracked file included + index restored", async () => {
+    const { runner, calls } = recordingGit({
+      "ls-files --others --exclude-standard -z": "src/new-untracked.ts\0",
+      "add -N -- src/new-untracked.ts": "",
+      "diff --no-color main": `${MODIFIED}${ADDED}`,
+      "reset -- src/new-untracked.ts": "",
+      ...baseResponses,
+    });
+
+    const { diff } = await loadGitDiffChange({ base: "main", includeUntracked: true }, runner);
+
+    // The new file (ADDED = src/new.ts) is in the diff files.
+    expect(diff.files.map((f) => f.path)).toContain("src/new.ts");
+
+    const joinedCalls = calls.map((c) => c.join(" "));
+    const addIdx = joinedCalls.indexOf("add -N -- src/new-untracked.ts");
+    const diffIdx = joinedCalls.findIndex((c) => c.startsWith("diff --no-color"));
+    const resetIdx = joinedCalls.indexOf("reset -- src/new-untracked.ts");
+
+    expect(addIdx).toBeGreaterThanOrEqual(0);
+    expect(diffIdx).toBeGreaterThanOrEqual(0);
+    expect(resetIdx).toBeGreaterThanOrEqual(0);
+    expect(addIdx).toBeLessThan(diffIdx);
+    expect(resetIdx).toBeGreaterThan(diffIdx);
+  });
+
+  test("index restored even when the diff throws (load-bearing regression guard)", async () => {
+    const calls: string[][] = [];
+    const runner: GitRunner = async (args) => {
+      calls.push([...args]);
+      const key = args.join(" ");
+      if (key === "ls-files --others --exclude-standard -z") {
+        return "src/new-untracked.ts\0";
+      }
+      if (key === "add -N -- src/new-untracked.ts") {
+        return "";
+      }
+      if (key === "reset -- src/new-untracked.ts") {
+        return "";
+      }
+      // diff --no-color main (and all other git metadata calls) throw — simulating
+      // a transient failure after add -N has already mutated the index.
+      throw new Error("git diff failed");
+    };
+
+    await expect(
+      loadGitDiffChange({ base: "main", includeUntracked: true }, runner),
+    ).rejects.toThrow("git diff failed");
+
+    // The finally block must have fired: reset was still called even though diff threw.
+    expect(calls.map((c) => c.join(" "))).toContain("reset -- src/new-untracked.ts");
+  });
+
+  test("dual failure (diff throws AND reset throws) preserves the original cause", async () => {
+    const calls: string[][] = [];
+    const runner: GitRunner = async (args) => {
+      calls.push([...args]);
+      const key = args.join(" ");
+      if (key === "ls-files --others --exclude-standard -z") {
+        return "src/new-untracked.ts\0";
+      }
+      if (key === "add -N -- src/new-untracked.ts") {
+        return "";
+      }
+      if (key === "reset -- src/new-untracked.ts") {
+        throw new Error("index.lock held");
+      }
+      throw new Error("git diff failed");
+    };
+
+    // Both body (diff) and restore (reset) fail. The thrown error must SIGNAL the restore
+    // failure but RETAIN the original diff error as the cause — never mask it.
+    let caught: unknown;
+    try {
+      await loadGitDiffChange({ base: "main", includeUntracked: true }, runner);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toContain("could not be restored");
+    expect((caught as Error).message).toContain("index.lock held");
+    expect((caught as Error).cause).toBeInstanceOf(Error);
+    expect(((caught as Error).cause as Error).message).toBe("git diff failed");
+    // Restore was attempted despite the body failure.
+    expect(calls.map((c) => c.join(" "))).toContain("reset -- src/new-untracked.ts");
+  });
+
+  test("flag off (default) — no ls-files, add, or reset calls", async () => {
+    const { runner, calls } = recordingGit({
+      "diff --no-color main": MODIFIED,
+      ...baseResponses,
+    });
+
+    await loadGitDiffChange({ base: "main" }, runner);
+
+    const joinedCalls = calls.map((c) => c.join(" "));
+    expect(joinedCalls.some((c) => c.startsWith("ls-files"))).toBe(false);
+    expect(joinedCalls.some((c) => c.startsWith("add"))).toBe(false);
+    expect(joinedCalls.some((c) => c.startsWith("reset"))).toBe(false);
+  });
+
+  test("no untracked files — no add/reset calls even with flag set", async () => {
+    const { runner, calls } = recordingGit({
+      "ls-files --others --exclude-standard -z": "",
+      "diff --no-color main": MODIFIED,
+      ...baseResponses,
+    });
+
+    await loadGitDiffChange({ base: "main", includeUntracked: true }, runner);
+
+    const joinedCalls = calls.map((c) => c.join(" "));
+    expect(joinedCalls.some((c) => c.startsWith("add"))).toBe(false);
+    expect(joinedCalls.some((c) => c.startsWith("reset"))).toBe(false);
+  });
+
+  // Integration: the mock tests above prove the command sequence; this one proves the real git
+  // effect — an untracked file actually lands in the diff, a gitignored one does not, and the
+  // operator's index is genuinely restored (the invariant a mock can't verify).
+  test("real git: untracked file enters the diff, gitignored excluded, index restored", async () => {
+    const root = await mkdtemp(join(tmpdir(), "acrf-untracked-"));
+    // A real GitRunner scoped to the temp repo — mirrors the production runner (throws on non-zero).
+    const realGit: GitRunner = async (args) => {
+      const proc = Bun.spawn(["git", ...args], {
+        cwd: root,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
+      });
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      if (exitCode !== 0) {
+        throw new Error(`git ${args.join(" ")} failed: ${stderr.trim()}`);
+      }
+      return stdout;
+    };
+
+    try {
+      await realGit(["init", "-q"]);
+      await realGit(["config", "user.email", "test@example.com"]);
+      await realGit(["config", "user.name", "Test"]);
+      await realGit(["config", "commit.gpgsign", "false"]);
+      await writeFile(join(root, ".gitignore"), "ignored.txt\n", "utf8");
+      await writeFile(join(root, "committed.ts"), "export const a = 1;\n", "utf8");
+      await realGit(["add", ".gitignore", "committed.ts"]);
+      await realGit(["commit", "-q", "-m", "initial"]);
+      // A genuinely-untracked, non-ignored file (the case the flag exists for) + an ignored one.
+      await writeFile(join(root, "new-untracked.ts"), "export const fresh = true;\n", "utf8");
+      await writeFile(join(root, "ignored.txt"), "should not be reviewed\n", "utf8");
+
+      const { diff } = await loadGitDiffChange({ base: "HEAD", includeUntracked: true }, realGit);
+
+      const paths = diff.files.map((f) => f.path);
+      expect(paths).toContain("new-untracked.ts");
+      expect(paths).not.toContain("ignored.txt");
+
+      // The load-bearing invariant against a REAL index: the file is still merely untracked
+      // ("?? "), not left intent-added ("A  ") — i.e. the index was restored to what we found.
+      const status = await realGit(["status", "--porcelain"]);
+      expect(status).toContain("?? new-untracked.ts");
+      expect(status).not.toContain("A  new-untracked.ts");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
