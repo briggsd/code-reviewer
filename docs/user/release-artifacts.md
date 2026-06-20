@@ -1,13 +1,13 @@
 # Release artifacts
 
-This project currently supports immutable tarball release artifacts, not registry publishing. Registry publishing remains blocked until package name, license, and access policy are finalized. For the internal/self-managed GitLab beta, the release channel is an internal pinned tarball URL; public npm is intentionally out of scope.
+A tagged release publishes the package to the **public npm registry** (via trusted publishing) and attaches an **immutable tarball** to a GitHub Release. For the internal/self-managed GitLab beta — or any environment that cannot reach public npm — the pinned tarball URL remains a supported alternative.
 
 ## Release workflow
 
-`.github/workflows/release-package.yml` builds an npm tarball artifact from the trusted checkout. It runs on two triggers, with two distinct paths split across three jobs:
+`.github/workflows/release-package.yml` builds an npm tarball artifact from the trusted checkout. It runs on two triggers, with two distinct paths split across four jobs:
 
 - **`workflow_dispatch`** — maintainer pre-release validation: the `pack` job builds the tarball and a dispatch-only `holdout-gate` job runs the secret-consuming live holdout quality gate. No GitHub Release is created. This is where provider secrets are used.
-- **Push of a `v*` tag** — the **publish-only, secret-free** path: the `pack` job builds the tarball and a tag-only `release` job attaches it to a **GitHub Release** for the tag (see [Release readiness](release-readiness.md) for the dispatch-then-tag SOP). The holdout gate does **not** run on a tag push, so **no provider secrets are consumed by a tag push** (#297).
+- **Push of a `v*` tag** — the publish path: the `pack` job builds the tarball, then a tag-only `release` job attaches it to a **GitHub Release** and a tag-only `npm-publish` job publishes it to the **public npm registry** (see [Release readiness](release-readiness.md) for the dispatch-then-tag SOP). The holdout gate does **not** run on a tag push, so **no provider secrets are consumed by a tag push** (#297); npm auth is short-lived OIDC, not a stored token.
 
 **Provider secrets are dispatch-only.** The live holdout quality gate performs real model calls, so at least one
 of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_GENERATIVE_AI_API_KEY` must be configured as a
@@ -40,29 +40,27 @@ markers, and per-criterion pass-rate results. It is produced by the dispatch-onl
 job and uploaded as a standalone validation artifact. See `../developer/evals.md` for the stamp schema,
 v1-to-v2 migration note, and the `--stamp` flag documentation.
 
-On a `v*` tag push, a separate tag-only `release` job creates a GitHub Release for the tag and attaches the tarball via `gh release create` (a CLI run-step, not a third-party action, so no SHA pin is needed). The release runs only after the `pack` build job succeeds. It does **not** attach a quality stamp — no stamp is generated on the publish-only tag path; quality is validated separately via a `workflow_dispatch` run before tagging (see [Release readiness](release-readiness.md)).
+On a `v*` tag push, a separate tag-only `release` job creates a GitHub Release for the tag and attaches the tarball via `gh release create` (a CLI run-step, not a third-party action, so no SHA pin is needed). The release runs only after the `pack` build job succeeds. It does **not** attach a quality stamp — no stamp is generated on the tag path; quality is validated separately via a `workflow_dispatch` run before tagging (see [Release readiness](release-readiness.md)).
 
-The `pack` build job is least-privilege (`contents: read`); `contents: write` is confined to the tag-only `release` job, which uses the built-in `GITHUB_TOKEN`. A separate `npm-publish` job (`id-token: write`) publishes to the public npm registry using `NPM_TOKEN`.
+The `pack` build job is least-privilege (`contents: read`); `contents: write` is confined to the tag-only `release` job, which uses the built-in `GITHUB_TOKEN`. A separate tag-only `npm-publish` job (`id-token: write`) downloads the `pack`-validated tarball and publishes it to the public npm registry via **trusted publishing** (short-lived OIDC — no stored npm token).
 
 ## How adopters should pin it
 
-After a maintainer downloads or attaches the generated tarball to an internal release, adopters should set `AI_REVIEW_PACKAGE` to an immutable URL for that tarball:
+General adopters install the exact published version from npm — `bun add @briggsd/code-reviewer@X.Y.Z` — or pin `AI_REVIEW_PACKAGE` to that version. For environments that cannot reach public npm (a self-managed GitLab beta, air-gapped CI), set `AI_REVIEW_PACKAGE` to an immutable URL for the tarball instead:
 
 ```yaml
 env:
-  AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/code-reviewer/-/releases/v0.1.0/downloads/briggsd-code-reviewer-0.1.0.tgz
+  AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/code-reviewer/-/releases/vX.Y.Z/downloads/briggsd-code-reviewer-X.Y.Z.tgz
 ```
 
 For a self-managed GitLab beta, host the tarball as an internal release asset or generic package file reachable by beta CI runners. Keep the URL versioned and immutable, and record the tarball filename plus source commit SHA in the beta rollout notes. Do not use mutable branches, floating tags, or `latest` for adopter CI. The installed review toolchain must be reproducible from CI logs.
 
-## When registry publishing becomes unblocked
+## Registry publishing
 
-Before publishing to npm, decide:
+The package publishes to the public npm registry as `@briggsd/code-reviewer` on every `v*` tag push, with these settings:
 
-- final package name or scope,
-- license,
-- public/private access policy,
-- whether `publishConfig.access` is required,
-- provenance/signing expectations.
+- scope access: public (`publishConfig.access: "public"`),
+- provenance: generated automatically under trusted publishing,
+- auth: GitHub Actions OIDC (trusted publisher), no stored npm token.
 
-Until then, release artifacts are tarballs only.
+The first-ever publish was done manually to create the package and register the trusted publisher; see [Release readiness](release-readiness.md) for the one-time setup and the per-release SOP.

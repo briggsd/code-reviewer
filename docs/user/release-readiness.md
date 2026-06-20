@@ -34,18 +34,24 @@ Expected results:
 
 ## Cutting a tagged GitHub Release
 
-**Prerequisite:** an `NPM_TOKEN` repo secret (npm automation token with publish rights to the
-`@briggsd` scope) must be configured before tagging. If it is unset, the `npm-publish` job fails;
-the `release` (GitHub Release) job is independent and still succeeds, but the npm registry publish
-will not happen.
+**Prerequisite (one-time):** the npm package must already exist and this workflow must be
+registered as its **trusted publisher** on npmjs (package → Settings → Trusted Publisher → GitHub
+Actions: repo `briggsd/code-reviewer`, workflow `release-package.yml`). Because a trusted publisher
+is configured on an existing package's settings page, the **first-ever publish is done manually**
+(`npm login` + `npm publish --access public`) to create the package; every tagged release after
+that publishes automatically via CI. No npm token is stored in the repo — CI authenticates with
+short-lived OIDC. If the trusted publisher is not configured, the `npm-publish` job fails; the
+`release` (GitHub Release) job is independent and still succeeds.
 
 The supported distribution is a **GitHub Release** carrying the tarball AND a publish to the
-**public npm registry**. A `v*` tag push now triggers both: `npm publish` (with provenance) using
-`NPM_TOKEN`, plus `gh release create` to attach the tarball to a GitHub Release.
+**public npm registry**. A `v*` tag push triggers both: `npm publish` (with provenance, via
+trusted-publishing OIDC) of the `pack`-validated tarball, plus `gh release create` to attach the
+tarball to a GitHub Release.
 
-**No provider API keys are consumed on the tag path (#297 preserved).** `NPM_TOKEN` is a publish
-credential, not a provider API key. Provider secrets (Anthropic, OpenAI, Google) remain confined to
-the dispatch-only holdout quality gate and are never reachable from a tag push.
+**No provider API keys — and no stored npm token — are consumed on the tag path (#297 preserved).**
+npm auth is a short-lived OIDC token, not a long-lived credential. Provider secrets (Anthropic,
+OpenAI, Google) remain confined to the dispatch-only holdout quality gate and are never reachable
+from a tag push.
 
 The secret-consuming live holdout quality gate runs **only on `workflow_dispatch`** (the validation
 step below) — it is not reachable from a tag push, so pushing a `v*` tag can never consume
@@ -95,10 +101,12 @@ publish.** To cut a release:
    git push origin vX.Y.Z
    ```
 
-6. **Workflow publishes.** The `v*` tag push triggers the workflow: the `pack` job builds the
-   `npm pack` tarball, then a tag-only `release` job creates a GitHub Release with the tarball
-   attached via `gh release create`, and a tag-only `npm-publish` job runs `npm publish
-   --provenance --access public` to publish to the public npm registry. The `release` and
+6. **Workflow publishes.** The `v*` tag push triggers the workflow: the `pack` job first guards
+   that the tag matches `package.json` `version` (failing fast on a mismatch, which blocks both
+   publishes), then builds the `npm pack` tarball. A tag-only `release` job creates a GitHub
+   Release with that tarball attached via `gh release create`, and a tag-only `npm-publish` job
+   downloads the same validated tarball and runs `npm publish dist/*.tgz --provenance --access
+   public` via trusted-publishing OIDC to publish to the public npm registry. The `release` and
    `npm-publish` jobs both depend on `pack` but run independently of each other. The holdout gate
    does **not** run on this path — quality was validated in step 4.
 
@@ -175,7 +183,7 @@ Do not release if any of these are true:
 
 - `bun run check` fails.
 - `bun run pack:smoke` fails.
-- `NPM_TOKEN` is unset when cutting a tagged release (the `npm-publish` job will fail).
+- The npm trusted publisher is not configured (or the package does not yet exist) when cutting a tagged release — the `npm-publish` job will fail.
 - Package contents include developer docs, milestone history, tests, workflow internals, local artifacts, or handoff notes.
 - CI templates require `bun run src/cli.ts` from the runner repository.
 - Fork PR/MR docs imply write tokens or model secrets are available to untrusted code.

@@ -32,7 +32,7 @@ For internal or air-gapped environments, set `AI_REVIEW_PACKAGE` to the exact im
 Example internal beta source:
 
 ```yaml
-AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/code-reviewer/-/releases/v0.1.0/downloads/briggsd-code-reviewer-0.1.0.tgz
+AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/code-reviewer/-/releases/vX.Y.Z/downloads/briggsd-code-reviewer-X.Y.Z.tgz
 ```
 
 ## Package identity and publish config
@@ -45,13 +45,13 @@ Current package identity:
 - repository: `https://github.com/briggsd/code-reviewer`
 - license: Apache-2.0 licensed; scoped public via `publishConfig.access: public`
 
-The package is published with npm provenance from the tag-push CI job (`npm publish --provenance --access public`). The `private` field is absent from `package.json`; `publishConfig.access` is set to `"public"` to ensure the scoped package publishes publicly.
+The package is published with npm provenance from the tag-push CI job via **trusted publishing** (OIDC — no stored npm token; `npm publish --provenance --access public`). The `private` field is absent from `package.json`; `publishConfig.access` is set to `"public"` to ensure the scoped package publishes publicly.
 
 ## Install source strategy
 
 Supported adoption sources in priority order:
 
-1. **Preferred for general adopters:** an exact npm package version such as `@briggsd/code-reviewer@0.3.0`, installed with `bun add @briggsd/code-reviewer`.
+1. **Preferred for general adopters:** an exact npm package version, installed with `bun add @briggsd/code-reviewer@0.3.0` (pin the version; drop the `@0.3.0` only to track latest).
 2. **Preferred for the internal/self-managed GitLab beta:** an immutable internal npm tarball URL, such as a versioned self-managed GitLab release asset or generic package file produced from `npm pack`.
 3. **Immutable tarball URL:** a release asset produced from `npm pack`, for environments that need a pinned artifact outside the registry.
 4. **Internal smoke only:** a Git source pinned to a full Git commit SHA. Do not pin adopter CI to mutable branches or floating tags.

@@ -21,7 +21,7 @@ describe("release artifact workflow", () => {
     expect(workflow).toContain("npm pack --pack-destination dist");
     // Actions are SHA-pinned repo-wide (#96); the trailing comment preserves the version tag.
     expect(workflow).toMatch(/actions\/upload-artifact@[0-9a-f]{40} # v4/);
-    expect(workflow).toContain("npm publish --provenance --access public");
+    expect(workflow).toContain("npm publish dist/*.tgz --provenance --access public");
 
     // Four jobs: pack (both triggers, no secrets), holdout-gate (dispatch-only, secrets),
     // release (tag-only, publishes the tarball), npm-publish (tag-only, publishes to npm).
@@ -82,7 +82,7 @@ describe("release artifact workflow", () => {
     expect(guide).toContain("immutable URL");
     expect(guide).toContain("internal/self-managed GitLab beta");
     expect(guide).toContain(
-      "https://gitlab.example.com/<your-org>/dev-tools/code-reviewer/-/releases/v0.1.0/downloads/briggsd-code-reviewer-0.1.0.tgz",
+      "https://gitlab.example.com/<your-org>/dev-tools/code-reviewer/-/releases/vX.Y.Z/downloads/briggsd-code-reviewer-X.Y.Z.tgz",
     );
     expect(readiness).toContain("manual release artifact workflow");
   });
