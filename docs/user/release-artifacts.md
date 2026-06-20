@@ -42,7 +42,7 @@ v1-to-v2 migration note, and the `--stamp` flag documentation.
 
 On a `v*` tag push, a separate tag-only `release` job creates a GitHub Release for the tag and attaches the tarball via `gh release create` (a CLI run-step, not a third-party action, so no SHA pin is needed). The release runs only after the `pack` build job succeeds. It does **not** attach a quality stamp — no stamp is generated on the publish-only tag path; quality is validated separately via a `workflow_dispatch` run before tagging (see [Release readiness](release-readiness.md)).
 
-It does **not** publish to npm and adds no registry step; `private: true` stays in `package.json`. The `pack` build job is least-privilege (`contents: read`); `contents: write` is confined to the tag-only `release` job, which uses the built-in `GITHUB_TOKEN` and is the only place a write token is exercised.
+The `pack` build job is least-privilege (`contents: read`); `contents: write` is confined to the tag-only `release` job, which uses the built-in `GITHUB_TOKEN`. A separate `npm-publish` job (`id-token: write`) publishes to the public npm registry using `NPM_TOKEN`.
 
 ## How adopters should pin it
 

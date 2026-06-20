@@ -15,11 +15,12 @@ status is the merge gate; comments are just the human-facing UX.
 ## Project status
 
 This is a working prototype, not a finished product. It runs real reviews today (GitHub and
-GitLab adapters, Pi-backed models, CI templates, summary publishing, incremental re-review),
-but a few things are deliberately not done yet:
+GitLab adapters, Pi-backed models, CI templates, summary publishing, incremental re-review).
+Two things to know before you install:
 
-- **Not on a package registry.** `package.json` keeps `private: true`; there is no `npm publish`.
-  You install from a clone or a pinned internal package, not `npm i @briggsd/code-reviewer`.
+- **Published to npm.** Install with `bun add @briggsd/code-reviewer` (bun-native; requires Bun).
+  For internal CI or air-gapped environments, pin `AI_REVIEW_PACKAGE` to an immutable tarball or
+  exact package version instead of a mutable branch or `latest`.
 - **Bun is required to run it.** The CLI runs TypeScript directly through Bun with no build step,
   so any environment that runs the bin needs [Bun](https://bun.sh) `>=1.3.0`.
 

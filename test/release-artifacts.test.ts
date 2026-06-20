@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 
 describe("release artifact workflow", () => {
-  test("dispatch + tag triggers, builds an npm tarball, no registry publish", async () => {
+  test("dispatch + tag triggers, builds an npm tarball, publishes to npm registry on tag", async () => {
     const workflow = await readFile(".github/workflows/release-package.yml", "utf8");
     const guide = await readFile("docs/user/release-artifacts.md", "utf8");
     const readme = await readFile("README.md", "utf8");
@@ -21,10 +21,10 @@ describe("release artifact workflow", () => {
     expect(workflow).toContain("npm pack --pack-destination dist");
     // Actions are SHA-pinned repo-wide (#96); the trailing comment preserves the version tag.
     expect(workflow).toMatch(/actions\/upload-artifact@[0-9a-f]{40} # v4/);
-    expect(workflow).not.toContain("npm publish");
+    expect(workflow).toContain("npm publish --provenance --access public");
 
-    // Three jobs: pack (both triggers, no secrets), holdout-gate (dispatch-only, secrets),
-    // release (tag-only, publishes the tarball).
+    // Four jobs: pack (both triggers, no secrets), holdout-gate (dispatch-only, secrets),
+    // release (tag-only, publishes the tarball), npm-publish (tag-only, publishes to npm).
     expect(workflow).toContain("holdout-gate:");
     // The secret-consuming holdout gate runs ONLY on workflow_dispatch.
     expect(workflow).toContain("if: github.event_name == 'workflow_dispatch'");
@@ -77,7 +77,7 @@ describe("release artifact workflow", () => {
     }
 
     expect(readme).toContain("[Release artifacts](docs/user/release-artifacts.md)");
-    expect(guide).toContain("does **not** publish to npm");
+    expect(guide).toContain("npm-publish");
     expect(guide).toContain("contents: read");
     expect(guide).toContain("immutable URL");
     expect(guide).toContain("internal/self-managed GitLab beta");

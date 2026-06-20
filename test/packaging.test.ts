@@ -19,6 +19,7 @@ interface PackageJson {
   bin?: Record<string, string>;
   files?: string[];
   scripts?: Record<string, string>;
+  publishConfig?: { access?: string };
 }
 
 describe("package distribution metadata", () => {
@@ -46,7 +47,8 @@ describe("package distribution metadata", () => {
 
     expect(manifest.name).toBe("@briggsd/code-reviewer");
     expect(manifest.version).toBe("0.3.0");
-    expect(manifest.private).toBe(true);
+    expect(manifest.private).toBeUndefined();
+    expect(manifest.publishConfig?.access).toBe("public");
     expect(manifest.license).toBe("Apache-2.0");
     expect(manifest.homepage).toBe("https://github.com/briggsd/code-reviewer#readme");
     expect(manifest.repository).toEqual({
@@ -54,12 +56,11 @@ describe("package distribution metadata", () => {
       url: "git+https://github.com/briggsd/code-reviewer.git",
     });
     expect(manifest.bugs?.url).toBe("https://github.com/briggsd/code-reviewer/issues");
-    expect(packaging).toContain("Registry publishing is intentionally blocked");
-    expect(packaging).toContain("public npm is not part of the beta channel");
-    expect(packaging).toContain("private: true");
     expect(packaging).toContain("licensed Apache-2.0");
-    expect(releaseReadiness).toContain("Registry publish is currently blocked");
-    expect(releaseReadiness).toContain("do not require public npm");
+    expect(packaging).toContain("published to the public npm registry");
+    expect(packaging).toContain("bun add @briggsd/code-reviewer");
+    expect(releaseReadiness).toContain("Registry publish is enabled");
+    expect(releaseReadiness).toContain("npm publish");
   });
 
   test("documents external packaged install smoke", async () => {
@@ -111,13 +112,14 @@ describe("package distribution metadata", () => {
     );
   });
 
-  test("exports package root to src/public.ts and keeps private:true", async () => {
+  test("exports package root to src/public.ts and publishes with public access", async () => {
     const manifest = JSON.parse(await readFile("package.json", "utf8")) as PackageJson;
 
     // Package-metadata shape only; the public-surface resolve/file-existence lock
     // lives in test/public-api.test.ts (which also imports the exported symbols).
     expect(manifest.exports?.["."]).toBe("./src/public.ts");
-    expect(manifest.private).toBe(true);
+    expect(manifest.private).toBeUndefined();
+    expect(manifest.publishConfig?.access).toBe("public");
   });
 
   test("declares Apache-2.0 license with LICENSE + NOTICE at repo root", async () => {
@@ -125,11 +127,6 @@ describe("package distribution metadata", () => {
 
     expect(manifest.license).toBe("Apache-2.0");
     expect(manifest.author).toBe("The Code Reviewer Authors");
-
-    // private:true is a DELIBERATE registry-deferral guard: distribution this round is
-    // GitHub Releases + tarball, and `private:true` blocks only `npm publish`, not
-    // `npm pack`/install-by-URL. Do NOT "fix" this to false to enable publishing.
-    expect(manifest.private).toBe(true);
 
     const license = await readFile("LICENSE", "utf8");
     expect(license).toContain("Apache License");

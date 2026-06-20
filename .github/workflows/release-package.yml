@@ -2,8 +2,9 @@ name: Release package artifact
 
 on:
   # Two distinct paths share one workflow:
-  #   - push of a v* tag  -> publish-only: build the tarball (no secrets) and attach it to a GitHub
-  #     Release. NO provider secrets are consumed on this path (#297).
+  #   - push of a v* tag  -> publish path: build the tarball, attach it to a GitHub Release, and
+  #     publish to the public npm registry. No PROVIDER secrets are consumed on this path (#297) —
+  #     the tag path does consume NPM_TOKEN (a publish credential, not a provider API key).
   #   - workflow_dispatch -> maintainer pre-release validation: build the tarball AND run the
   #     secret-consuming live holdout quality gate (the only place provider API keys are used).
   # The secret-consuming gate is gated to workflow_dispatch only, so a v* tag push can NEVER trigger
@@ -179,3 +180,33 @@ jobs:
             --generate-notes \
             --verify-tag \
             dist/*.tgz
+
+  # Tag-only: publish the package to the public npm registry. Runs after `pack` so only a
+  # package that passed checks + pack:smoke is published. Consumes NPM_TOKEN — a PUBLISH
+  # credential, NOT a provider API key — so the #297 invariant (no PROVIDER secrets on the
+  # tag-push path; provider keys stay on the dispatch-only holdout gate) is preserved. The
+  # bun-native package ships raw TypeScript with zero build step; npm pack/publish respects
+  # the package.json `files` allowlist. id-token: write enables npm provenance attestation.
+  npm-publish:
+    name: Publish to npm
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: pack
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out trusted source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Publish to npm with provenance
+        # npm (preinstalled on the runner) is used directly for `--provenance`, which Bun's
+        # publish does not support. publishConfig.access=public in package.json makes the first
+        # publish of the scoped package public; --access public is passed belt-and-suspenders.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+          npm publish --provenance --access public

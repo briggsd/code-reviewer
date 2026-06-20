@@ -15,10 +15,11 @@ judgment-heavy review. GitHub, GitLab, model providers, and agent runtimes are a
 *published, multi-repo* package external parties adopt — so when planning, reason at the
 publish/adopter boundary (who configures via `.ai-review.json` vs trusted factory code; where
 quality/telemetry/secrets cross factory↔adopter; whether a gate belongs at a PR or at
-*publish*). The current artifact state is still prototype — `package.json` is `private:true`
-at v0.x and `release-package.yml` only emits a tarball artifact, not a registry publish — but
-that is the *not-yet*, not the goal. Reviewer definitions are a **shared asset every adopter
-inherits**: a regression in the factory's reviewers degrades all downstream repos on upgrade.
+*publish*). The package now publishes to the public npm registry via the tag-push CI job
+(`npm publish --provenance`); `private:true` is removed and `publishConfig.access` is set to
+`"public"`. The artifact state is still prototype at v0.x, but registry publish is wired.
+Reviewer definitions are a **shared asset every adopter inherits**: a regression in the
+factory's reviewers degrades all downstream repos on upgrade.
 
 Full design: **docs/developer/architecture.md**. Project purpose & status: **README.md**.
 
