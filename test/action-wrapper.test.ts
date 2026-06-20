@@ -34,20 +34,26 @@ describe("GitHub Action wrapper", () => {
     expect(action).toContain('default: "false"');
   });
 
-  test("manifests have no unquoted YAML reserved-indicator scalars", async () => {
+  test("manifest scalar values do not start with an unquoted YAML indicator", async () => {
     // Regression lock for the v0.3.0 action-wrapper bug: a plain YAML scalar starting with a
-    // reserved indicator (`@` or a backtick) is invalid, so GitHub fails to LOAD the manifest
-    // before any input override can apply. The string `.toContain` assertions above never caught
-    // it because they never parse the YAML. Scan the real manifests for a value (after `:` or a
-    // `-` list marker) that begins with an unquoted reserved indicator. A quoted value
-    // (`default: "@..."`) starts with `"`, so it is correctly NOT flagged.
+    // reserved indicator is invalid, so GitHub fails to LOAD the manifest before any input
+    // override can apply. The string `.toContain` assertions above never caught it because they
+    // never inspect the value's first character.
+    //
+    // This is a deliberate heuristic, NOT a full YAML parse — it stays independent of the
+    // CI-pinned Bun's YAML support (`Bun.YAML` has had cross-version issues). It flags a value
+    // (after a `:` or a `-` list marker) whose first character is one of the indicators that are
+    // invalid as a plain-scalar start AND never legitimately begin a value in these manifests:
+    //   @  `  *  &  !  %
+    // `|`/`>` (block scalars), `"`/`'` (quotes), and `[`/`{` (flow collections) are valid starts
+    // and are intentionally NOT flagged; a quoted value (`default: "@..."`) starts with `"`.
     const ciFiles = (await readdir("examples/ci")).filter((f) => f.endsWith(".yml"));
     const files = ["action.yml", ...ciFiles.map((f) => `examples/ci/${f}`)];
     const offenders: string[] = [];
     for (const file of files) {
       const lines = (await readFile(file, "utf8")).split("\n");
       lines.forEach((line, i) => {
-        if (/(:\s+|^\s*-\s+)[@`]/.test(line)) {
+        if (/(:\s+|^\s*-\s+)[@`*&!%]/.test(line)) {
           offenders.push(`${file}:${i + 1}: ${line.trim()}`);
         }
       });
