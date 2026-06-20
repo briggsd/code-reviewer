@@ -10,6 +10,13 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
 
 ## [Unreleased]
 
+### Fixed
+- GitHub Action wrapper (`action.yml`) and the `examples/ci/github-actions-ai-review.yml` template
+  failed to load: the `package-source` / `AI_REVIEW_PACKAGE` default was an unquoted YAML scalar
+  starting with `@` (a reserved indicator), which is invalid YAML, so the manifest could not be
+  parsed before any input override applied. The defaults are now quoted and pinned to a published
+  version, and a test scans every manifest for unquoted reserved-indicator scalars.
+
 ### Changed
 - Renamed the package to `@briggsd/code-reviewer` and the CLI bin to `code-reviewer`; the hidden review-summary metadata marker changed from `ai-code-review-factory` to `code-reviewer` (existing open PRs will get one fresh summary comment instead of an in-place update on the first review after upgrade).
 

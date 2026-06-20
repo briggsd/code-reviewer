@@ -6,7 +6,7 @@ inputs:
   package-source:
     description: Immutable package source passed to `bun add --global`.
     required: false
-    default: @briggsd/code-reviewer@0.1.0
+    default: "@briggsd/code-reviewer@0.3.1"
   fixture:
     description: Optional fixture path for local/action smoke mode. When set, provider/repo/change-id are ignored.
     required: false

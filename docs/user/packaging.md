@@ -40,7 +40,7 @@ AI_REVIEW_PACKAGE: https://gitlab.example.com/<your-org>/dev-tools/code-reviewer
 Current package identity:
 
 - npm package name: `@briggsd/code-reviewer`
-- version: `0.3.0`
+- version: `0.3.1`
 - bin: `code-reviewer` → `./src/cli.ts`
 - repository: `https://github.com/briggsd/code-reviewer`
 - license: Apache-2.0 licensed; scoped public via `publishConfig.access: public`
@@ -51,7 +51,7 @@ The package is published with npm provenance from the tag-push CI job via **trus
 
 Supported adoption sources in priority order:
 
-1. **Preferred for general adopters:** an exact npm package version, installed with `bun add @briggsd/code-reviewer@0.3.0` (pin the version; drop the `@0.3.0` only to track latest).
+1. **Preferred for general adopters:** an exact npm package version, installed with `bun add @briggsd/code-reviewer@0.3.1` (pin the version; drop the `@0.3.1` only to track latest).
 2. **Preferred for the internal/self-managed GitLab beta:** an immutable internal npm tarball URL, such as a versioned self-managed GitLab release asset or generic package file produced from `npm pack`.
 3. **Immutable tarball URL:** a release asset produced from `npm pack`, for environments that need a pinned artifact outside the registry.
 4. **Internal smoke only:** a Git source pinned to a full Git commit SHA. Do not pin adopter CI to mutable branches or floating tags.
