@@ -69,6 +69,7 @@ import {
 import { assignStableFindingIds, createStableFindingId } from "./stable-finding-id.ts";
 import { assessThinReview } from "./thin-review.ts";
 import { getTierProfile } from "./tier-profile.ts";
+import { computeWithheldDispositions } from "./withheld-disposition.ts";
 
 export interface RunReviewOptions {
   fixture: ReviewFixture;
@@ -440,7 +441,11 @@ async function fuseAndDecide(input: {
       body: `${createSummaryBody(context, grounding.grounded)}\n\n_${groundingDroppedCount} finding(s) shown at low confidence (kept, non-blocking): cited code was not found in the changed-file grounding corpus._`,
       // #207: down-weight rather than drop — each demoted finding is confidence:"low", shown in
       // the low-confidence block, excluded from gate/title/findingIds, never silently lost.
-      groundingWithheld: grounding.dropped.map((f) => ({ ...f, confidence: "low" as const })),
+      groundingWithheld: grounding.dropped.map((f) => ({
+        ...f,
+        confidence: "low" as const,
+        id: createStableFindingId(f),
+      })),
     });
     await emitTrace(options.traceSink, {
       type: "grounding.applied",
@@ -679,6 +684,8 @@ async function emitCompletedRunMetrics(input: {
   dispositions?: import("../contracts/review.ts").DispositionCounts;
   /** Residual-defect counts (#261): shipped findings that quality gates did not catch. Counts-only; absent when all zero. */
   residualDefects?: ResidualDefectCounts;
+  /** Withheld-finding disposition counts (#392). Counts-only; absent when no prior withheld findings. */
+  withheldDispositions?: import("./withheld-disposition.ts").WithheldDispositionCounts;
 }): Promise<void> {
   const {
     options,
@@ -702,6 +709,7 @@ async function emitCompletedRunMetrics(input: {
     clock,
     dispositions,
     residualDefects,
+    withheldDispositions,
   } = input;
   const completedAt = clock();
   const completedAtTimestamp = completedAt.toISOString();
@@ -784,6 +792,7 @@ async function emitCompletedRunMetrics(input: {
         : {}),
       ...(dispositions !== undefined ? { dispositions } : {}),
       ...(residualDefects !== undefined ? { residualDefects } : {}),
+      ...(withheldDispositions !== undefined ? { withheldDispositions } : {}),
     }),
   });
 
@@ -1104,6 +1113,24 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
     // Counts-only (M008): never carries finding text, titles, paths, or locations.
     const residualDefects = computeResidualDefects(fusedSummary.findings, context.diff);
 
+    // Derive withheld-finding disposition counts (#392): track grounding-withheld findings from
+    // the prior run across re-review rounds. Absent on first review or when there were no prior
+    // withheld findings. Counts-only — no finding bodies/titles/paths cross egress (M008).
+    const currentBlockingIds = new Set(
+      fusedSummary.findings.map((f) => f.id).filter((id): id is string => id !== undefined),
+    );
+    const currentWithheldIds = new Set(
+      (fusedSummary.groundingWithheld ?? [])
+        .map((f) => f.id)
+        .filter((id): id is string => id !== undefined),
+    );
+    const withheldDispositions = computeWithheldDispositions(
+      context.priorState?.withheldFindings ?? [],
+      currentBlockingIds,
+      currentWithheldIds,
+      reviewedPaths,
+    );
+
     await emitCompletedRunMetrics({
       options,
       context,
@@ -1125,6 +1152,7 @@ export async function runReview(options: RunReviewOptions): Promise<RunReviewRes
       ...(converged ? { converged } : {}),
       ...(dispositions !== undefined ? { dispositions } : {}),
       ...(residualDefects !== undefined ? { residualDefects } : {}),
+      ...(withheldDispositions !== undefined ? { withheldDispositions } : {}),
       clock,
     });
 

@@ -168,6 +168,20 @@ the analysis — the leak-rate denominator — so rates trend toward 0 as gates 
 `residualDefects.defectiveRunCount` is how many of those runs had ≥1 leak (emitted a block); it is
 always ≤ `runCount`.
 
+**Withheld-finding dispositions (#392):** completed `ai_review.run_metrics` re-review events with
+prior withheld findings include an optional counts-only `withheldDispositions` block. It tracks how
+grounding-withheld findings from the prior run were classified this round:
+
+- `promoted` — the withheld finding surfaced as a live blocking finding this round.
+- `stillWithheld` — the finding was grounding-withheld again this round (evidence still absent).
+- `resolved` — the finding's file was reviewed this round and the finding was neither promoted nor
+  withheld (evidence gone, file reviewed, finding resolved).
+- `carriedForward` — the finding's file was not reviewed this round (incremental narrow or file
+  not in the diff); disposition unknown.
+
+The block carries only integers (counts-only, M008). It is absent on first review, when there are
+no prior withheld findings, or when the prior comment was written by a pre-v9 runner.
+
 **Fusion efficacy (#258):** completed `ai_review.run_metrics` events with coordinator reviewer
 results include a counts-only `fusion` block:
 

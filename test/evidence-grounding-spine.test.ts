@@ -779,6 +779,173 @@ describe("evidence grounding spine integration", () => {
 });
 
 // ---------------------------------------------------------------------------
+// #392 — withheld findings get stableFindingId assigned
+// ---------------------------------------------------------------------------
+
+describe("#392 — groundingWithheld findings carry stableFindingId", () => {
+  test("each withheld finding in groundingWithheld has a fnd_... id assigned", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const telemetrySink = new RecordingTelemetrySink();
+
+    const fabricated1: Finding = {
+      reviewer: "security",
+      severity: "critical",
+      category: "auth",
+      title: "Fabricated finding A",
+      body: "body",
+      confidence: "high",
+      evidence: ["fabricated evidence"],
+      recommendation: "fix it",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["return db.accounts.deleteEverything();"],
+    };
+    const fabricated2: Finding = {
+      reviewer: "code_quality",
+      severity: "warning",
+      category: "correctness",
+      title: "Fabricated finding B",
+      body: "body",
+      confidence: "medium",
+      evidence: ["fabricated evidence 2"],
+      recommendation: "fix it too",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["db.dropTable('users');"],
+    };
+
+    // Self-guard: fabricated quotes must NOT be in the fixture diff
+    const fixturePatches = fixture.diff.files.map((f) => f.patch ?? "").join("\n");
+    expect(fixturePatches).not.toContain("deleteEverything");
+    expect(fixturePatches).not.toContain("dropTable");
+
+    fixture.fakeFindings = [fabricated1, fabricated2];
+
+    const result = await runReview({
+      fixture,
+      clock: createIncrementingClock("2026-06-21T00:00:00.000Z"),
+      telemetrySink,
+    });
+
+    const { summary } = result;
+
+    // (a) Both fabricated findings are withheld
+    expect(summary.groundingWithheld).toHaveLength(2);
+
+    // (b) Each withheld finding has a fnd_... stableFindingId
+    for (const withheld of summary.groundingWithheld ?? []) {
+      expect(withheld.id).toBeDefined();
+      expect(typeof withheld.id).toBe("string");
+      expect(withheld.id?.startsWith("fnd_")).toBe(true);
+    }
+
+    // (c) The ids are deterministic — match what createStableFindingId would produce
+    const expectedId1 = createStableFindingId(fabricated1);
+    const expectedId2 = createStableFindingId(fabricated2);
+    const withheldIds = (summary.groundingWithheld ?? []).map((f) => f.id);
+    expect(withheldIds).toContain(expectedId1);
+    expect(withheldIds).toContain(expectedId2);
+
+    // (d) No withheldDispositions emitted (no prior withheld state to compare)
+    const metrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
+    expect(metrics).toBeDefined();
+    expect(Object.hasOwn(metrics?.data ?? {}, "withheldDispositions")).toBe(false);
+  });
+
+  test("#392 re-review: withheldDispositions emitted in run_metrics when prior withheld findings tracked", async () => {
+    const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+    const telemetrySink = new RecordingTelemetrySink();
+
+    // A finding that will be withheld again this round (fabricated quotedCode → grounding drops it)
+    const stillWithheldFinding: Finding = {
+      reviewer: "security",
+      severity: "critical",
+      category: "auth",
+      title: "Still withheld this round",
+      body: "body",
+      confidence: "high",
+      evidence: ["fabricated evidence"],
+      recommendation: "fix it",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["return db.accounts.deleteEverything();"],
+    };
+    const stillWithheldId = createStableFindingId(stillWithheldFinding);
+
+    // A finding that WAS withheld in the prior run but is now resolved (file was reviewed, not raised)
+    const resolvedPriorWithheld: Finding = {
+      reviewer: "code_quality",
+      severity: "warning",
+      category: "correctness",
+      title: "Resolved withheld finding",
+      body: "body",
+      confidence: "high",
+      evidence: ["old fabricated evidence"],
+      recommendation: "fix it too",
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["db.dropTable('prior');"],
+    };
+    const resolvedPriorId = createStableFindingId(resolvedPriorWithheld);
+
+    // Self-guard: fabricated quotes not in the diff
+    const fixturePatches = fixture.diff.files.map((f) => f.patch ?? "").join("\n");
+    expect(fixturePatches).not.toContain("deleteEverything");
+    expect(fixturePatches).not.toContain("dropTable");
+
+    // Prior state has TWO withheld findings: one will still be withheld, one resolved
+    const { PriorFindingState: _unused, ...rest } = { PriorFindingState: null };
+    void rest; // suppress unused-var; just need the import
+    type PFS = import("../src/contracts/index.ts").PriorFindingState;
+    const withheldFindings: PFS[] = [
+      {
+        stableId: stillWithheldId,
+        finding: { ...stillWithheldFinding, id: stillWithheldId },
+        status: "open",
+        lastSeenHeadSha: "old-head",
+      },
+      {
+        stableId: resolvedPriorId,
+        finding: { ...resolvedPriorWithheld, id: resolvedPriorId },
+        status: "open",
+        lastSeenHeadSha: "old-head",
+      },
+    ];
+
+    // This round: only the stillWithheld finding is fakeFindings (drops again via grounding)
+    fixture.fakeFindings = [stillWithheldFinding];
+
+    const priorState: import("../src/contracts/index.ts").PriorReviewState = {
+      previousRunId: "prior-run",
+      previousHeadSha: "old-head",
+      findings: [], // no blocking prior findings
+      withheldFindings,
+    };
+
+    const result = await runReview({
+      fixture: { ...fixture, priorState },
+      clock: createIncrementingClock("2026-06-21T01:00:00.000Z"),
+      telemetrySink,
+    });
+
+    const { summary } = result;
+
+    // (a) The stillWithheld finding is grounding-withheld again
+    expect((summary.groundingWithheld ?? []).map((f) => f.id)).toContain(stillWithheldId);
+
+    // (b) run_metrics.withheldDispositions is emitted with correct counts
+    const metrics = telemetrySink.events.find((e) => e.type === "ai_review.run_metrics");
+    expect(metrics).toBeDefined();
+    const wd = metrics?.data?.withheldDispositions as
+      | { promoted: number; stillWithheld: number; resolved: number; carriedForward: number }
+      | undefined;
+    expect(wd).toBeDefined();
+    // stillWithheld finding was withheld again → stillWithheld: 1
+    expect(wd?.stillWithheld).toBe(1);
+    // resolvedPriorWithheld: file was reviewed (auth/accounts.ts is in the diff), not raised → resolved: 1
+    expect(wd?.resolved).toBe(1);
+    expect(wd?.promoted).toBe(0);
+    expect(wd?.carriedForward).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // #261 residual-defect counts regression tests
 // ---------------------------------------------------------------------------
 

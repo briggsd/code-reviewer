@@ -22,6 +22,15 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
 
 ### Added
 
+- Grounding-withheld findings are now tracked across re-review rounds (#392). Each withheld finding
+  receives a `stableFindingId` (same algorithm as blocking findings). The id, path, and reviewer
+  role are persisted in hidden summary metadata as `withheldFindingIds`, `withheldFindingPaths`, and
+  `withheldFindingReviewers` (schemaVersion bumped 8 → 9; additive, backward-compatible). On the
+  next re-review round, `PriorReviewState.withheldFindings` is reconstructed from metadata and
+  `run_metrics.withheldDispositions` emits counts-only disposition counts (`promoted`,
+  `stillWithheld`, `resolved`, `carriedForward`). Withheld finding titles are intentionally not
+  persisted (model-authored content, M008 egress boundary).
+
 - `--git-diff` runs now accept `--include-untracked` to include untracked, non-gitignored files in
   the local review. When set, each untracked file is momentarily marked intent-to-add (`git add -N`)
   so `git diff` renders it as all-additions, then the index is restored to exactly the state found
