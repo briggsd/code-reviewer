@@ -18,11 +18,13 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
   calibrate `telemetry:quality` thresholds (#391).
 
 ### Changed
-- `telemetry:quality` threshold `maxGroundingDropRate` raised 0.15 → 0.35, calibrated against a real
-  fleet sample (n=100): the run-level grounding-drop rate fires on by-design healthy demotion (#207)
-  while the meaningful finding-level `maxGroundingWithholdRate` stays the precision signal.
-  `maxReviewerFailureRate` kept at 0.10 (validated — recent post-fix rate 2%). Every
-  `DEFAULT_QUALITY_THRESHOLDS` default is now documented with its basis (#391).
+- `telemetry:quality` threshold `maxGroundingDropRate` raised 0.15 → 0.35, calibrated against a
+  100-run **factory-dogfood** sample (CI artifacts are all the factory repo; the adopter-only
+  baseline still needs the Loki fleet dataset — both calibrated thresholds are repo-agnostic):
+  the run-level grounding-drop rate fires on by-design healthy demotion (#207) while the meaningful
+  finding-level `maxGroundingWithholdRate` stays the precision signal. `maxReviewerFailureRate`
+  kept at 0.10 (validated — recent post-fix rate 2%). Every `DEFAULT_QUALITY_THRESHOLDS` default is
+  now documented with its basis (#391).
 
 ### Fixed
 - GitHub Action wrapper (`action.yml`) and the `examples/ci/github-actions-ai-review.yml` template
