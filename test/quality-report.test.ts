@@ -65,7 +65,7 @@ describe("buildQualityReport — overall breach logic", () => {
     const analysis = makeAnalysis({
       runCount: 10,
       rates: {
-        groundingDropRunRate: 0.2, // > 0.15 → breach
+        groundingDropRunRate: 0.4, // > 0.35 → breach
         locationBackfillRunRate: 0,
         acknowledgementRunRate: 0,
         thinReviewRate: 0,
@@ -77,15 +77,15 @@ describe("buildQualityReport — overall breach logic", () => {
     );
     expect(h).toBeDefined();
     expect(h?.direction).toBe("above");
-    expect(h?.value).toBeCloseTo(0.2, 5);
-    expect(h?.threshold).toBeCloseTo(0.15, 5);
+    expect(h?.value).toBeCloseTo(0.4, 5);
+    expect(h?.threshold).toBeCloseTo(0.35, 5);
     expect(h?.sampleSize).toBe(10);
   });
 
   test("groundingDropRate within threshold → no hypothesis", () => {
     const analysis = makeAnalysis({
       rates: {
-        groundingDropRunRate: 0.1, // < 0.15 → OK
+        groundingDropRunRate: 0.1, // < 0.35 → OK
         locationBackfillRunRate: 0,
         acknowledgementRunRate: 0,
         thinReviewRate: 0,
@@ -611,7 +611,7 @@ describe("buildQualityReport — runEvents-gated metrics", () => {
     const analysis = makeAnalysis({
       runCount: 10,
       rates: {
-        groundingDropRunRate: 0.25, // > 0.15 → breach
+        groundingDropRunRate: 0.4, // > 0.35 → breach
         locationBackfillRunRate: 0,
         acknowledgementRunRate: 0,
         thinReviewRate: 0,
@@ -930,7 +930,7 @@ describe("buildQualityReport — lowConfidence", () => {
     const analysis = makeAnalysis({
       runCount: 3, // < minSampleSize (5)
       rates: {
-        groundingDropRunRate: 0.7, // > 0.15 → breach
+        groundingDropRunRate: 0.7, // > 0.35 → breach
         locationBackfillRunRate: 0,
         acknowledgementRunRate: 0,
         thinReviewRate: 0,
@@ -947,7 +947,7 @@ describe("buildQualityReport — lowConfidence", () => {
     const analysis = makeAnalysis({
       runCount: 10,
       rates: {
-        groundingDropRunRate: 0.2, // > 0.15 → breach
+        groundingDropRunRate: 0.4, // > 0.35 → breach
         locationBackfillRunRate: 0,
         acknowledgementRunRate: 0,
         thinReviewRate: 0,
@@ -967,7 +967,7 @@ describe("buildQualityReport — threshold overrides", () => {
     const analysis = makeAnalysis({
       runCount: 10,
       rates: {
-        groundingDropRunRate: 0.12, // default 0.15 → OK; override 0.10 → breach
+        groundingDropRunRate: 0.12, // default 0.35 → OK; override 0.10 → breach
         locationBackfillRunRate: 0,
         acknowledgementRunRate: 0,
         thinReviewRate: 0,
@@ -992,7 +992,7 @@ describe("buildQualityReport — threshold overrides", () => {
     const analysis = makeAnalysis({
       runCount: 5,
       rates: {
-        groundingDropRunRate: 0.25,
+        groundingDropRunRate: 0.4,
         locationBackfillRunRate: 0,
         acknowledgementRunRate: 0,
         thinReviewRate: 0,
@@ -1056,7 +1056,7 @@ describe("buildQualityReport — sort order", () => {
         },
       },
       rates: {
-        groundingDropRunRate: 0.2, // > 0.15 → breach, magnitude=0.05, sampleSize=10 → high-conf
+        groundingDropRunRate: 0.4, // > 0.35 → breach, magnitude=0.05, sampleSize=10 → high-conf
         locationBackfillRunRate: 0,
         acknowledgementRunRate: 0,
         thinReviewRate: 0.3, // > 0.20 → breach, magnitude=0.10, sampleSize = full(3)+lite(7)=10 → high-conf
@@ -1112,7 +1112,7 @@ describe("buildQualityReport — sort order", () => {
 describe("buildQualityReport end-to-end via analyzeRunMetrics", () => {
   test("pipes synthetic events through analyzeRunMetrics then buildQualityReport", () => {
     // Synthetic events: 2 real runs, both full tier
-    // run-a has grounding block (groundingDropRunRate = 1.0 > 0.15 → breach)
+    // run-a has grounding block (groundingDropRunRate = 1.0 > 0.35 → breach)
     // both runs carry run_events with override + low completion
     const events: TelemetryEvent[] = [
       {
@@ -1188,7 +1188,7 @@ describe("buildQualityReport end-to-end via analyzeRunMetrics", () => {
     const report = buildQualityReport(analysis);
     expect(report.runCount).toBe(2);
 
-    // groundingDropRunRate = 1.0 (both runs have grounding block) → breach above 0.15
+    // groundingDropRunRate = 1.0 (both runs have grounding block) → breach above 0.35
     const groundingH = report.hypotheses.find((x) => x.metric === "groundingDropRate");
     expect(groundingH).toBeDefined();
     expect(groundingH?.direction).toBe("above");
@@ -1372,7 +1372,7 @@ describe("formatQualityReport", () => {
     const analysis = makeAnalysis({
       runCount: 10,
       rates: {
-        groundingDropRunRate: 0.25,
+        groundingDropRunRate: 0.4,
         locationBackfillRunRate: 0,
         acknowledgementRunRate: 0,
         thinReviewRate: 0,
@@ -1406,7 +1406,7 @@ describe("formatQualityReport", () => {
     const analysis = makeAnalysis({
       runCount: 3, // < minSampleSize(5) → low-confidence
       rates: {
-        groundingDropRunRate: 0.25,
+        groundingDropRunRate: 0.4,
         locationBackfillRunRate: 0,
         acknowledgementRunRate: 0,
         thinReviewRate: 0,
@@ -1421,7 +1421,7 @@ describe("formatQualityReport", () => {
     const analysis = makeAnalysis({
       runCount: 10,
       rates: {
-        groundingDropRunRate: 0.25, // above → >
+        groundingDropRunRate: 0.4, // above → >
         locationBackfillRunRate: 0,
         acknowledgementRunRate: 0,
         thinReviewRate: 0,
@@ -1450,7 +1450,7 @@ describe("formatQualityReport", () => {
     const analysis = makeAnalysis({
       runCount: 10,
       rates: {
-        groundingDropRunRate: 0.25,
+        groundingDropRunRate: 0.4,
         locationBackfillRunRate: 0,
         acknowledgementRunRate: 0,
         thinReviewRate: 0,
@@ -1617,7 +1617,7 @@ describe("buildQualityReport — groundingWithholdRate (#207)", () => {
     const analysis = makeAnalysis({
       runCount: 10,
       rates: {
-        groundingDropRunRate: 0.2, // > 0.15 → breach
+        groundingDropRunRate: 0.4, // > 0.35 → breach
         groundingWithholdFindingRate: 0.4, // > 0.30 → breach
       },
     });

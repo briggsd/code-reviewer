@@ -58,7 +58,7 @@ interface QualityHypothesis {
 }
 
 export interface QualityReportThresholds {
-  maxGroundingDropRate: number; // default 0.15
+  maxGroundingDropRate: number; // default 0.35 (calibrated #391)
   /** Finding-level grounding withhold rate (demoted ÷ produced); climbing-rate MAX threshold. default 0.30 */
   maxGroundingWithholdRate: number; // default 0.30
   /** File-level filtered-file rate (ignored ÷ total changed files); climbing-rate MAX threshold. default 0.50 */
@@ -94,27 +94,90 @@ export interface QualityReportThresholds {
   minSampleSize: number;
 }
 
+/**
+ * Default quality thresholds used by the hypothesis-queue report.
+ *
+ * BASIS AND PROVENANCE
+ * --------------------
+ * ALL values below are **provisional starting guesses introduced in #132** with no
+ * evidentiary basis from real fleet data. They were chosen to be "plausible-looking"
+ * rather than calibrated. Treat any threshold breach as a hypothesis worth
+ * investigating, not a confirmed problem.
+ *
+ * CALIBRATION (#391)
+ * ------------------
+ * Two thresholds were recalibrated against a real fleet sample (the 100 most-recent
+ * `ai_review.run_metrics` runs, 686 events, collected via `telemetry:analyze --runs 100`
+ * on 2026-06-21). NOTE: GitHub CI artifacts for this workflow are 100% factory dogfood
+ * (`--exclude-repository briggsd/code-reviewer` drops the entire stream), so these are
+ * dogfood-derived; both happen to be largely repo-agnostic. The true adopter-only
+ * baseline still needs the Loki fleet dataset (`--dataset`) once it accumulates.
+ *
+ *   - maxGroundingDropRate: RAISED 0.15 → 0.35. The run-level "any run with ≥1 grounding
+ *     demotion" rate is 18% (recent) / 28.9% (30d) and fires on by-design healthy behavior
+ *     (#207), while the meaningful finding-level signal maxGroundingWithholdRate (16.7%
+ *     observed) sits well within its 0.30. 0.35 keeps headroom above the observed range so
+ *     it still trips on a real grounding regression (e.g. a bug demoting most findings).
+ *   - maxReviewerFailureRate: KEPT 0.10, now VALIDATED. The issue's 11.2% breach was the
+ *     stale 30d window inflated by the factory repo + a schema_invalid failure mode that
+ *     dropped to zero after 2026-06-15. Recent post-fix rate is 2% (2/100) — within 0.10.
+ *
+ * Still PENDING calibration (no value change here):
+ *   - maxGroundingWithholdRate (0.30): healthy at 16.7% observed; revisit with adopter data.
+ *   - maxOverrideRate (0.10): no fleet data; pure guess.
+ *
+ * All other thresholds are #132 starting guesses and should be treated accordingly.
+ * Per-line notes call out the basis (or lack thereof) for each one:
+ */
 export const DEFAULT_QUALITY_THRESHOLDS: QualityReportThresholds = {
-  maxGroundingDropRate: 0.15,
+  // CALIBRATED #391 (2026-06-21, n=100 dogfood runs): raised 0.15 → 0.35. Run-level drop
+  // rate 18% recent / 28.9% (30d) fires on by-design healthy demotion (#207); the meaningful
+  // finding-level signal is maxGroundingWithholdRate (16.7%, within 0.30). 0.35 keeps headroom
+  // to still catch a real grounding regression. Adopter-only baseline still pending Loki data.
+  maxGroundingDropRate: 0.35,
+  // #132 guess. No observed adopter baseline; uninstrumented in many early runs.
   maxGroundingWithholdRate: 0.3,
+  // #132 guess. No fleet data; 50% is a conservative ceiling for "half the diff ignored".
   maxDiffFilterDropRate: 0.5,
+  // #132 guess. No fleet data.
   maxPatchAdmissionDegradedRate: 0.2,
+  // #132 guess. No fleet data.
   maxDeletionPruningRate: 0.3,
+  // #132 guess. No fleet data.
   maxProseFindingDropRate: 0.1,
+  // #132 guess. No fleet data.
   maxFusionDropRate: 0.3,
+  // #132 guess. No fleet data.
   maxThinReviewRate: 0.2,
+  // #132 guess. No fleet data. Calibration pending (#391) — override rate is likely
+  // highly repo-specific (low for adopters with mature review culture).
   maxOverrideRate: 0.1,
+  // #132 guess. No fleet data; 50% acceptance is a low-bar sanity check.
   minAcceptanceRate: 0.5,
+  // #132 guess. Per-reviewer/tier acceptance withhold rate (withheldExcluded ÷ total);
+  // distinct from maxGroundingWithholdRate above. No fleet data.
   maxWithholdRate: 0.3,
+  // #132 guess. No fleet data; 50% dismiss rate at any severity feels high.
   maxSeverityDismissRate: 0.5,
+  // #132 guess. 90% completion is intentionally strict (incomplete reviews are wasteful).
   minCompletionRate: 0.9,
+  // #132 guess. 90% structured-output rate; schema failures should be rare.
   minStructuredOutputRate: 0.9,
+  // VALIDATED #391 (2026-06-21, n=100): kept at 0.10. The issue's 11.2% breach was the stale
+  // 30d window inflated by factory dogfood + a schema_invalid mode that dropped to zero after
+  // 2026-06-15; recent post-fix rate is 2% (2/100), within 0.10. No change needed.
   maxReviewerFailureRate: 0.1,
+  // #132 guess. No fleet data; flapping findings are unusual in well-tuned reviewers.
   maxConvergenceFlapRate: 0.2,
+  // #132 guess. Max consecutive recurrence depth before surfacing a convergence hypothesis.
   maxRecurrenceDepth: 3,
+  // #132 guess. No fleet data.
   maxUnlocatedLeakRate: 0.2,
+  // #132 guess. No fleet data.
   maxNoSuggestionLeakRate: 0.1,
+  // #132 guess. No fleet data.
   maxOffDiffCitationLeakRate: 0.3,
+  // #132 guess. Segments below 5 samples are surfaced but flagged lowConfidence.
   minSampleSize: 5,
 };
 

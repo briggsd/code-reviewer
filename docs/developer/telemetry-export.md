@@ -357,6 +357,25 @@ The quality report operates on local artifacts only — the `telemetry:quality` 
 `collectTelemetryEvents` (the same `gh`-based artifact collector used by `telemetry:analyze`),
 or reads a local fleet-dataset JSONL via `--dataset` (#198), and writes its output locally.
 Do not add network ingestion or remote export to this module.
+
+### Ingestion filters (#391)
+
+Both `telemetry:analyze` and `telemetry:quality` accept filters applied to the resolved event
+stream (after `--runs`/`--dataset` collection, before analysis). They let an operator isolate the
+slice to calibrate against:
+
+- `--since <ISO>` / `--until <ISO>` — inclusive date window on each event's top-level `timestamp`.
+  An event with a missing/unparseable timestamp is dropped when either bound is set. Use to compute
+  a **post-fix baseline** (e.g. `--since 2026-06-15`).
+- `--repository <slug>` / `--exclude-repository <slug>` — repeatable, mutually exclusive. `--repository`
+  keeps only events whose `data.repository` matches; `--exclude-repository` drops matching events
+  (repo-less events are retained under exclude, dropped under include). Use to compute an
+  **adopter-only** slice, e.g. `--exclude-repository <factory-repo>`. NOTE: the `gh`-based CI-artifact
+  collector returns only the factory's own runs, so excluding the factory repo there yields an empty
+  stream — adopter-only rates require a fleet `--dataset`.
+
+Both filters compose (AND); the printed provenance line reports the post-filter count and active
+filters. These thresholds-calibration inputs are why the filters exist (#391).
 Remote send-side egress lives in the transport layer (#51, below); factory-side fleet fan-in
 (S06 #136) is the receive counterpart.
 

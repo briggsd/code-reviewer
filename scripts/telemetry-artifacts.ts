@@ -59,6 +59,80 @@ export async function loadTelemetryEvents(source: TelemetrySource): Promise<Reso
   };
 }
 
+/**
+ * Filter a resolved event stream by date window and/or repository slug.
+ *
+ * - `since`/`until`: inclusive bounds on the top-level `timestamp`. An event with a
+ *   missing or unparseable timestamp is DROPPED when either bound is set.
+ * - `includeRepositories`: keep only events whose `data.repository` matches one of the
+ *   listed slugs. An event with no `data.repository` is DROPPED (can't satisfy allow-list).
+ * - `excludeRepositories`: drop events whose `data.repository` matches one of the slugs.
+ *   An event with no `data.repository` is RETAINED (nothing to exclude on).
+ *
+ * Both filters compose (AND). Pure/no I/O.
+ */
+export function filterTelemetryEvents(
+  events: readonly TelemetryEvent[],
+  filters: {
+    since?: string;
+    until?: string;
+    includeRepositories?: readonly string[];
+    excludeRepositories?: readonly string[];
+  },
+): TelemetryEvent[] {
+  const sinceEpoch = filters.since !== undefined ? Date.parse(filters.since) : undefined;
+  const untilEpoch = filters.until !== undefined ? Date.parse(filters.until) : undefined;
+  const hasDateFilter = sinceEpoch !== undefined || untilEpoch !== undefined;
+  // Default to empty arrays so the membership checks below need no non-null assertion (the
+  // repo's Biome gate bans `!`); an empty list means that mode is inactive.
+  const includeRepositories = filters.includeRepositories ?? [];
+  const excludeRepositories = filters.excludeRepositories ?? [];
+  const hasInclude = includeRepositories.length > 0;
+  const hasExclude = excludeRepositories.length > 0;
+
+  const result: TelemetryEvent[] = [];
+  for (const event of events) {
+    // Date-window filter
+    if (hasDateFilter) {
+      const eventEpoch = Date.parse(event.timestamp);
+      if (Number.isNaN(eventEpoch)) {
+        // Can't place the event in the window — drop it (safe direction for baseline).
+        continue;
+      }
+      if (sinceEpoch !== undefined && eventEpoch < sinceEpoch) {
+        continue;
+      }
+      if (untilEpoch !== undefined && eventEpoch > untilEpoch) {
+        continue;
+      }
+    }
+
+    // Repository filter
+    const repository =
+      typeof event.data?.repository === "string" && event.data.repository.length > 0
+        ? event.data.repository
+        : undefined;
+
+    if (hasInclude) {
+      // Include-mode: must match an allowed slug; repo-less events are dropped.
+      if (repository === undefined) {
+        continue;
+      }
+      if (!includeRepositories.includes(repository)) {
+        continue;
+      }
+    } else if (hasExclude) {
+      // Exclude-mode: drop matching repos; repo-less events are retained.
+      if (repository !== undefined && excludeRepositories.includes(repository)) {
+        continue;
+      }
+    }
+
+    result.push(event);
+  }
+  return result;
+}
+
 export async function collectTelemetryEvents(runLimit: number): Promise<CollectedTelemetry> {
   const runs = await listWorkflowRuns(runLimit);
   if (runs.length === 0) {
@@ -133,6 +207,14 @@ export interface CommonTelemetryCliOptions {
   datasetPath?: string;
   outputPath: string;
   thinReviewOutputTokenFloor?: number;
+  /** ISO date string; only events at or after this timestamp are analyzed. */
+  since?: string;
+  /** ISO date string; only events at or before this timestamp are analyzed. */
+  until?: string;
+  /** Keep only events whose data.repository matches one of these slugs. Mutually exclusive with excludeRepositories. */
+  includeRepositories?: string[];
+  /** Drop events whose data.repository matches one of these slugs. Mutually exclusive with includeRepositories. */
+  excludeRepositories?: string[];
 }
 
 export interface ParseCommonArgsConfig {
@@ -167,6 +249,10 @@ export function parseCommonTelemetryArgs(
   let datasetPath: string | undefined;
   let outputPath = config.defaultOutput;
   let thinReviewOutputTokenFloor: number | undefined;
+  let since: string | undefined;
+  let until: string | undefined;
+  const includeRepositories: string[] = [];
+  const excludeRepositories: string[] = [];
   const rest: string[] = [];
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -223,11 +309,56 @@ export function parseCommonTelemetryArgs(
       thinReviewOutputTokenFloor = parsed;
       continue;
     }
+    if (arg === "--since") {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        throw new Error("--since requires an ISO date");
+      }
+      index += 1;
+      if (Number.isNaN(Date.parse(value))) {
+        throw new Error("--since requires an ISO date");
+      }
+      since = value;
+      continue;
+    }
+    if (arg === "--until") {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        throw new Error("--until requires an ISO date");
+      }
+      index += 1;
+      if (Number.isNaN(Date.parse(value))) {
+        throw new Error("--until requires an ISO date");
+      }
+      until = value;
+      continue;
+    }
+    if (arg === "--repository") {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        throw new Error("--repository requires a slug value");
+      }
+      index += 1;
+      includeRepositories.push(value);
+      continue;
+    }
+    if (arg === "--exclude-repository") {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        throw new Error("--exclude-repository requires a slug value");
+      }
+      index += 1;
+      excludeRepositories.push(value);
+      continue;
+    }
     rest.push(arg);
   }
 
   if (datasetPath !== undefined && runsSpecified) {
     throw new Error("--dataset and --runs are mutually exclusive");
+  }
+  if (includeRepositories.length > 0 && excludeRepositories.length > 0) {
+    throw new Error("--repository and --exclude-repository are mutually exclusive");
   }
 
   const options: CommonTelemetryCliOptions = { runLimit, outputPath };
@@ -236,6 +367,18 @@ export function parseCommonTelemetryArgs(
   }
   if (thinReviewOutputTokenFloor !== undefined) {
     options.thinReviewOutputTokenFloor = thinReviewOutputTokenFloor;
+  }
+  if (since !== undefined) {
+    options.since = since;
+  }
+  if (until !== undefined) {
+    options.until = until;
+  }
+  if (includeRepositories.length > 0) {
+    options.includeRepositories = includeRepositories;
+  }
+  if (excludeRepositories.length > 0) {
+    options.excludeRepositories = excludeRepositories;
   }
   return { options, rest };
 }

@@ -10,6 +10,22 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
 
 ## [Unreleased]
 
+### Added
+- `telemetry:analyze` and `telemetry:quality` accept ingestion filters: `--since <ISO>` / `--until
+  <ISO>` (date window on the event timestamp) and `--repository <slug>` / `--exclude-repository
+  <slug>` (repeatable, mutually exclusive). These let an operator compute rates over an adopter-only
+  slice (e.g. `--exclude-repository <factory-repo>`) or a post-fix window, the inputs needed to
+  calibrate `telemetry:quality` thresholds (#391).
+
+### Changed
+- `telemetry:quality` threshold `maxGroundingDropRate` raised 0.15 → 0.35, calibrated against a
+  100-run **factory-dogfood** sample (CI artifacts are all the factory repo; the adopter-only
+  baseline still needs the Loki fleet dataset — both calibrated thresholds are repo-agnostic):
+  the run-level grounding-drop rate fires on by-design healthy demotion (#207) while the meaningful
+  finding-level `maxGroundingWithholdRate` stays the precision signal. `maxReviewerFailureRate`
+  kept at 0.10 (validated — recent post-fix rate 2%). Every `DEFAULT_QUALITY_THRESHOLDS` default is
+  now documented with its basis (#391).
+
 ### Fixed
 - GitHub Action wrapper (`action.yml`) and the `examples/ci/github-actions-ai-review.yml` template
   failed to load: the `package-source` / `AI_REVIEW_PACKAGE` default was an unquoted YAML scalar
