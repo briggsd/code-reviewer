@@ -22,6 +22,12 @@ export interface ParsedSummaryMetadata {
   findingReviewers?: Record<string, string>;
   /** schemaVersion 8+: id → finding title (truncated) for prior findings. (#333) */
   findingTitles?: Record<string, string>;
+  /** schemaVersion 9+: stable IDs of grounding-withheld findings from the prior run. (#392) */
+  withheldFindingIds?: string[];
+  /** schemaVersion 9+: id → location.path for withheld findings that have a path. (#392) */
+  withheldFindingPaths?: Record<string, string>;
+  /** schemaVersion 9+: id → reviewer role for withheld findings. (#392) */
+  withheldFindingReviewers?: Record<string, string>;
   /** schemaVersion 7+: id → consecutive open reviewed-round count. */
   recurrenceDepths?: Record<string, number>;
   /**
@@ -111,6 +117,53 @@ export function parseSummaryHiddenMetadata(
       }
     }
 
+    // Parse withheldFindingIds defensively. This is UNTRUSTED prior-comment content. It only
+    // feeds withheld-disposition derivation across re-review rounds — it never affects the CI
+    // gate, decision, or outcome. Accept only non-empty string values; rejected entries are
+    // silently dropped. (schemaVersion 9+)
+    let withheldFindingIds: string[] | undefined;
+    if (Array.isArray(parsed.withheldFindingIds)) {
+      const filtered = (parsed.withheldFindingIds as unknown[]).filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      );
+      if (filtered.length > 0) {
+        withheldFindingIds = filtered;
+      }
+    }
+
+    // Parse withheldFindingPaths defensively. Same safety class as findingPaths (untrusted
+    // prior-comment content). Accept only safe repo-relative path shapes. A rejected entry
+    // leaves that withheld finding path-less, which disposition derivation treats as
+    // carriedForward (the safe direction — never auto-marked resolved). (schemaVersion 9+)
+    let withheldFindingPaths: Record<string, string> | undefined;
+    if (isJsonObject(parsed.withheldFindingPaths)) {
+      const filtered: Record<string, string> = {};
+      for (const [key, value] of Object.entries(parsed.withheldFindingPaths)) {
+        if (typeof value === "string" && isSafeMetadataPath(value)) {
+          filtered[key] = value;
+        }
+      }
+      if (Object.keys(filtered).length > 0) {
+        withheldFindingPaths = filtered;
+      }
+    }
+
+    // Parse withheldFindingReviewers defensively. Same safety class as findingReviewers.
+    // Accept only non-empty string values with bounded length (≤ 64), no control characters.
+    // Rejected entries fall back to "unknown". (schemaVersion 9+)
+    let withheldFindingReviewers: Record<string, string> | undefined;
+    if (isJsonObject(parsed.withheldFindingReviewers)) {
+      const filtered: Record<string, string> = {};
+      for (const [key, value] of Object.entries(parsed.withheldFindingReviewers)) {
+        if (typeof value === "string" && isSafeReviewerRole(value)) {
+          filtered[key] = value;
+        }
+      }
+      if (Object.keys(filtered).length > 0) {
+        withheldFindingReviewers = filtered;
+      }
+    }
+
     // Parse recurrenceDepths defensively. This is UNTRUSTED prior-comment content and only
     // feeds convergence analytics. Accept bounded positive integers; rejected values fall
     // back to legacy depth inference in createReReviewSummary.
@@ -140,6 +193,9 @@ export function parseSummaryHiddenMetadata(
       ...(findingPaths !== undefined ? { findingPaths } : {}),
       ...(findingReviewers !== undefined ? { findingReviewers } : {}),
       ...(findingTitles !== undefined ? { findingTitles } : {}),
+      ...(withheldFindingIds !== undefined ? { withheldFindingIds } : {}),
+      ...(withheldFindingPaths !== undefined ? { withheldFindingPaths } : {}),
+      ...(withheldFindingReviewers !== undefined ? { withheldFindingReviewers } : {}),
       ...(recurrenceDepths !== undefined ? { recurrenceDepths } : {}),
       // Parse findingsHash defensively: accept only a 16-hex string (schemaVersion 5+).
       // This is UNTRUSTED prior-comment content. It influences convergence substrate only —
@@ -161,6 +217,24 @@ export function createPriorReviewStateFromMetadata(
 ): PriorReviewState {
   const lastSeenHeadSha = metadata.headSha ?? ref.headSha;
 
+  const withheldFindings: PriorFindingState[] =
+    metadata.withheldFindingIds !== undefined
+      ? metadata.withheldFindingIds.map(
+          (stableId): PriorFindingState => ({
+            stableId,
+            finding: createPlaceholderFinding(
+              stableId,
+              metadata.withheldFindingPaths?.[stableId],
+              metadata.withheldFindingReviewers?.[stableId],
+              // Titles intentionally not stored for withheld findings (model-authored content,
+              // not persisted in hidden metadata — counts-only boundary, same as M008).
+            ),
+            status: "open",
+            lastSeenHeadSha,
+          }),
+        )
+      : [];
+
   return {
     ...(metadata.runId !== undefined ? { previousRunId: metadata.runId } : {}),
     previousHeadSha: lastSeenHeadSha,
@@ -181,6 +255,7 @@ export function createPriorReviewStateFromMetadata(
           : {}),
       }),
     ),
+    ...(withheldFindings.length > 0 ? { withheldFindings } : {}),
   };
 }
 

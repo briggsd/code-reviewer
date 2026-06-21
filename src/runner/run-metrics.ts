@@ -15,6 +15,7 @@ import type {
   TokenUsage,
 } from "../contracts/index.ts";
 import { deriveDisposition } from "./finding-disposition.ts";
+import type { WithheldDispositionCounts } from "./withheld-disposition.ts";
 
 export function createRunMetrics(input: {
   durationsMs: ReviewRunMetrics["durationsMs"];
@@ -185,6 +186,9 @@ export function createRunMetricsTelemetryEvent(input: {
   dispositions?: DispositionCounts;
   /** Residual-defect counts (#261): shipped findings quality gates did not catch. Counts-only; absent when all zero. */
   residualDefects?: ResidualDefectCounts;
+  /** Withheld-finding disposition counts (#392): prior withheld findings tracked across rounds.
+   *  Counts-only; absent on first review or when there were no prior withheld findings. */
+  withheldDispositions?: WithheldDispositionCounts;
 }): TelemetryEvent {
   const data: Record<string, JsonValue> = {
     schemaVersion: "ai-review.run_metrics.v1",
@@ -391,6 +395,16 @@ export function createRunMetricsTelemetryEvent(input: {
       unlocatedShipped: rd.unlocatedShipped,
       noSuggestionShipped: rd.noSuggestionShipped,
       offDiffCitationShipped: rd.offDiffCitationShipped,
+    };
+  }
+  if (input.withheldDispositions !== undefined) {
+    // Counts-only (M008): integers only — no finding ids, bodies, titles, paths (M008).
+    const wd = input.withheldDispositions;
+    data.withheldDispositions = {
+      promoted: wd.promoted,
+      stillWithheld: wd.stillWithheld,
+      resolved: wd.resolved,
+      carriedForward: wd.carriedForward,
     };
   }
 

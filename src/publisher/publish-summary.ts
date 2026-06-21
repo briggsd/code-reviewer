@@ -101,6 +101,30 @@ export function createPublishHiddenMetadata(
   }
   const hasFindingTitles = Object.keys(findingTitles).length > 0;
 
+  // withheldFindingIds: stable IDs of findings grounding-withheld this run (#392, schemaVersion 9+).
+  // Separate channel from findingIds (which carries BLOCKING findings only). Enables re-review
+  // to track withheld findings across rounds (promoted | stillWithheld | resolved | carriedForward).
+  // Paths and reviewer roles are included for disposition derivation; titles are intentionally
+  // omitted (withheld finding text is model-authored untrusted content, same egress bound as M008).
+  const withheldFindingIds: string[] = [];
+  const withheldFindingPaths: Record<string, string> = {};
+  const withheldFindingReviewers: Record<string, string> = {};
+  if (summary !== undefined && summary.groundingWithheld !== undefined) {
+    for (const finding of summary.groundingWithheld) {
+      const id = finding.id;
+      if (id !== undefined && id.length > 0) {
+        withheldFindingIds.push(id);
+        if (finding.location?.path !== undefined) {
+          withheldFindingPaths[id] = finding.location.path;
+        }
+        withheldFindingReviewers[id] = finding.reviewer;
+      }
+    }
+  }
+  const hasWithheldFindings = withheldFindingIds.length > 0;
+  const hasWithheldFindingPaths = Object.keys(withheldFindingPaths).length > 0;
+  const hasWithheldFindingReviewers = Object.keys(withheldFindingReviewers).length > 0;
+
   // recurrenceDepths: id → consecutive reviewed rounds currently open (#260, schemaVersion 7+).
   // First reviews seed depth=1; re-reviews use the computed per-finding depths.
   const recurrenceDepths: Record<string, number> = {};
@@ -138,10 +162,10 @@ export function createPublishHiddenMetadata(
       : undefined;
 
   return {
-    // Bumped 7 → 8 for findingTitles (#333). The bump is additive and backward-compatible:
-    // old parsers ignore unknown keys per the existing
-    // defensive-parse pattern (parseSummaryHiddenMetadata in summary-metadata.ts line ~40).
-    schemaVersion: 8,
+    // Bumped 8 → 9 for withheldFindingIds/withheldFindingPaths/withheldFindingReviewers (#392).
+    // The bump is additive and backward-compatible: old parsers ignore unknown keys per the
+    // existing defensive-parse pattern (parseSummaryHiddenMetadata in summary-metadata.ts).
+    schemaVersion: 9,
     runId,
     headSha: change.headSha,
     provider: change.provider,
@@ -151,6 +175,9 @@ export function createPublishHiddenMetadata(
     ...(hasFindingPaths ? { findingPaths } : {}),
     ...(hasFindingReviewers ? { findingReviewers } : {}),
     ...(hasFindingTitles ? { findingTitles } : {}),
+    ...(hasWithheldFindings ? { withheldFindingIds } : {}),
+    ...(hasWithheldFindingPaths ? { withheldFindingPaths } : {}),
+    ...(hasWithheldFindingReviewers ? { withheldFindingReviewers } : {}),
     ...(hasRecurrenceDepths ? { recurrenceDepths } : {}),
     // Comprehension-gate verdict (#26): additive, present only when the reviewer ran. v1 parsers
     // ignore unknown keys, so this stays backward-compatible with the existing metadata reader.

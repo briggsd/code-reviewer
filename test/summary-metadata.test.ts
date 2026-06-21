@@ -231,7 +231,7 @@ const CHANGE: ChangeMetadata = {
 describe("schemaVersion 8 hidden metadata (#333)", () => {
   test("createPublishHiddenMetadata emits schemaVersion 8", () => {
     const meta = createPublishHiddenMetadata("run-1", CHANGE);
-    expect(meta.schemaVersion).toBe(8);
+    expect(meta.schemaVersion).toBe(9);
   });
 
   test("partialBySize counts block is included when summary.partialBySize is present", () => {
@@ -261,7 +261,7 @@ describe("schemaVersion 8 hidden metadata (#333)", () => {
 
     const meta = createPublishHiddenMetadata("run-1", CHANGE, summary);
 
-    expect(meta.schemaVersion).toBe(8);
+    expect(meta.schemaVersion).toBe(9);
     const partialBySize = meta.partialBySize as
       | {
           admittedFileCount: number;
@@ -469,7 +469,7 @@ describe("schemaVersion 6 — resolvedLog (#279)", () => {
     };
     const meta = createPublishHiddenMetadata("run-6", CHANGE, summary);
 
-    expect(meta.schemaVersion).toBe(8);
+    expect(meta.schemaVersion).toBe(9);
     expect(meta.resolvedLog).toEqual([
       { stableId: "fnd_old", title: "Old auth issue", resolvedAtSha: "abc1234" },
     ]);
@@ -478,7 +478,7 @@ describe("schemaVersion 6 — resolvedLog (#279)", () => {
   test("createPublishHiddenMetadata omits resolvedLog when absent (back-compat)", () => {
     const meta = createPublishHiddenMetadata("run-6", CHANGE, BASE_SUMMARY);
 
-    expect(meta.schemaVersion).toBe(8);
+    expect(meta.schemaVersion).toBe(9);
     expect(meta.resolvedLog).toBeUndefined();
   });
 
@@ -826,5 +826,297 @@ describe("#333 — findingTitles metadata", () => {
 
     const state = createPriorReviewStateFromMetadata(parsed, ref);
     expect(state.findings[0]?.finding.title).toBe("Prior finding fnd_x");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #392 — withheldFindingIds / withheldFindingPaths / withheldFindingReviewers
+// schemaVersion 9
+// ---------------------------------------------------------------------------
+
+describe("#392 — withheldFindingIds metadata (schemaVersion 9)", () => {
+  test("createPublishHiddenMetadata emits schemaVersion 9", () => {
+    const meta = createPublishHiddenMetadata("run-9", CHANGE);
+    expect(meta.schemaVersion).toBe(9);
+  });
+
+  test("write round-trip: withheldFindingIds, paths, and reviewers are emitted for withheld findings", () => {
+    const summary = {
+      decision: "approved" as const,
+      outcome: "pass" as const,
+      title: "Test",
+      body: "body",
+      findings: [],
+      groundingWithheld: [
+        {
+          id: "fnd_withheld1",
+          reviewer: "security",
+          severity: "critical" as const,
+          category: "auth",
+          title: "Withheld finding A",
+          body: "body",
+          confidence: "low" as const,
+          evidence: [],
+          recommendation: "fix it",
+          location: { path: "src/auth.ts" },
+        },
+        {
+          id: "fnd_withheld2",
+          reviewer: "code_quality",
+          severity: "warning" as const,
+          category: "correctness",
+          title: "Withheld finding B",
+          body: "body",
+          confidence: "low" as const,
+          evidence: [],
+          recommendation: "fix it too",
+          // no location → path should be omitted
+        },
+      ],
+      risk: {
+        tier: "full" as const,
+        reason: "test",
+        matchedRules: [],
+        sensitivePaths: [],
+        reviewedFileCount: 2,
+        ignoredFileCount: 0,
+      },
+    };
+
+    const meta = createPublishHiddenMetadata("run-9", CHANGE, summary);
+    const withheldIds = meta.withheldFindingIds as string[] | undefined;
+    const withheldPaths = meta.withheldFindingPaths as Record<string, string> | undefined;
+    const withheldReviewers = meta.withheldFindingReviewers as Record<string, string> | undefined;
+
+    expect(withheldIds).toEqual(["fnd_withheld1", "fnd_withheld2"]);
+    expect(withheldPaths).toEqual({ fnd_withheld1: "src/auth.ts" });
+    // fnd_withheld2 has no location → absent from withheldFindingPaths
+    expect(withheldPaths?.fnd_withheld2).toBeUndefined();
+    expect(withheldReviewers).toEqual({
+      fnd_withheld1: "security",
+      fnd_withheld2: "code_quality",
+    });
+    // Withheld titles are NOT in the metadata (M008 egress boundary)
+    expect((meta as Record<string, unknown>).withheldFindingTitles).toBeUndefined();
+  });
+
+  test("write round-trip: withheldFindingIds absent when no groundingWithheld", () => {
+    const meta = createPublishHiddenMetadata("run-9", CHANGE);
+    expect((meta as Record<string, unknown>).withheldFindingIds).toBeUndefined();
+    expect((meta as Record<string, unknown>).withheldFindingPaths).toBeUndefined();
+    expect((meta as Record<string, unknown>).withheldFindingReviewers).toBeUndefined();
+  });
+
+  test("write round-trip: withheldFindingIds absent when groundingWithheld is empty array", () => {
+    const summary = {
+      decision: "approved" as const,
+      outcome: "pass" as const,
+      title: "Test",
+      body: "body",
+      findings: [],
+      groundingWithheld: [],
+      risk: {
+        tier: "full" as const,
+        reason: "test",
+        matchedRules: [],
+        sensitivePaths: [],
+        reviewedFileCount: 1,
+        ignoredFileCount: 0,
+      },
+    };
+    const meta = createPublishHiddenMetadata("run-9", CHANGE, summary);
+    expect((meta as Record<string, unknown>).withheldFindingIds).toBeUndefined();
+  });
+
+  test("write round-trip: withheld findings without id are excluded from withheldFindingIds", () => {
+    const summary = {
+      decision: "approved" as const,
+      outcome: "pass" as const,
+      title: "Test",
+      body: "body",
+      findings: [],
+      groundingWithheld: [
+        {
+          // no id field — should be excluded
+          reviewer: "security",
+          severity: "critical" as const,
+          category: "auth",
+          title: "No-id withheld",
+          body: "body",
+          confidence: "low" as const,
+          evidence: [],
+          recommendation: "fix it",
+        },
+      ],
+      risk: {
+        tier: "full" as const,
+        reason: "test",
+        matchedRules: [],
+        sensitivePaths: [],
+        reviewedFileCount: 1,
+        ignoredFileCount: 0,
+      },
+    };
+    const meta = createPublishHiddenMetadata("run-9", CHANGE, summary);
+    // No withheldFindingIds when all withheld findings lack id
+    expect((meta as Record<string, unknown>).withheldFindingIds).toBeUndefined();
+  });
+
+  test("parse: valid withheldFindingIds, paths, and reviewers are accepted", () => {
+    const parsed = parseSummaryHiddenMetadata(
+      [
+        "<!-- code-reviewer",
+        JSON.stringify({
+          schemaVersion: 9,
+          runId: "run-9",
+          headSha: "abc123",
+          findingIds: [],
+          withheldFindingIds: ["fnd_w1", "fnd_w2"],
+          withheldFindingPaths: {
+            fnd_w1: "src/auth/tokens.ts",
+          },
+          withheldFindingReviewers: {
+            fnd_w1: "security",
+            fnd_w2: "code_quality",
+          },
+        }),
+        "-->",
+      ].join("\n"),
+    );
+
+    expect(parsed?.withheldFindingIds).toEqual(["fnd_w1", "fnd_w2"]);
+    expect(parsed?.withheldFindingPaths).toEqual({ fnd_w1: "src/auth/tokens.ts" });
+    expect(parsed?.withheldFindingReviewers).toEqual({
+      fnd_w1: "security",
+      fnd_w2: "code_quality",
+    });
+  });
+
+  test("parse: withheldFindingIds — non-string and empty values are dropped", () => {
+    const parsed = parseSummaryHiddenMetadata(
+      [
+        "<!-- code-reviewer",
+        JSON.stringify({
+          schemaVersion: 9,
+          runId: "run-9",
+          headSha: "abc123",
+          findingIds: [],
+          withheldFindingIds: ["fnd_valid", "", 42, null, "fnd_also_valid"],
+        }),
+        "-->",
+      ].join("\n"),
+    );
+
+    expect(parsed?.withheldFindingIds).toEqual(["fnd_valid", "fnd_also_valid"]);
+  });
+
+  test("parse: unsafe withheldFindingPaths are dropped (traversal, absolute)", () => {
+    const parsed = parseSummaryHiddenMetadata(
+      [
+        "<!-- code-reviewer",
+        JSON.stringify({
+          schemaVersion: 9,
+          runId: "run-9",
+          headSha: "abc123",
+          findingIds: [],
+          withheldFindingIds: ["fnd_safe", "fnd_traversal", "fnd_abs"],
+          withheldFindingPaths: {
+            fnd_safe: "src/auth.ts",
+            fnd_traversal: "../../etc/passwd",
+            fnd_abs: "/etc/shadow",
+          },
+        }),
+        "-->",
+      ].join("\n"),
+    );
+
+    expect(parsed?.withheldFindingPaths).toEqual({ fnd_safe: "src/auth.ts" });
+  });
+
+  test("parse: withheldFindingIds absent in older comments → undefined (back-compat)", () => {
+    const parsed = parseSummaryHiddenMetadata(
+      [
+        "<!-- code-reviewer",
+        JSON.stringify({
+          schemaVersion: 8,
+          runId: "run-8",
+          headSha: "abc123",
+          findingIds: ["fnd_x"],
+        }),
+        "-->",
+      ].join("\n"),
+    );
+
+    expect(parsed?.withheldFindingIds).toBeUndefined();
+    expect(parsed?.withheldFindingPaths).toBeUndefined();
+    expect(parsed?.withheldFindingReviewers).toBeUndefined();
+  });
+
+  test("createPriorReviewStateFromMetadata: withheldFindings reconstructed from withheldFindingIds", () => {
+    const parsed = parseSummaryHiddenMetadata(
+      [
+        "<!-- code-reviewer",
+        JSON.stringify({
+          schemaVersion: 9,
+          runId: "run-9",
+          headSha: "old-head",
+          findingIds: ["fnd_blocking"],
+          withheldFindingIds: ["fnd_w1", "fnd_w2"],
+          withheldFindingPaths: {
+            fnd_w1: "src/auth.ts",
+          },
+          withheldFindingReviewers: {
+            fnd_w1: "security",
+            fnd_w2: "code_quality",
+          },
+        }),
+        "-->",
+      ].join("\n"),
+    );
+
+    if (parsed === undefined) throw new Error("expected metadata to parse");
+
+    const state = createPriorReviewStateFromMetadata(parsed, ref);
+
+    // Main findings unaffected
+    expect(state.findings).toHaveLength(1);
+    expect(state.findings[0]?.stableId).toBe("fnd_blocking");
+
+    // withheldFindings reconstructed
+    expect(state.withheldFindings).toHaveLength(2);
+    const byId = new Map((state.withheldFindings ?? []).map((f) => [f.stableId, f]));
+
+    // fnd_w1: path and reviewer recovered
+    expect(byId.get("fnd_w1")?.finding.location?.path).toBe("src/auth.ts");
+    expect(byId.get("fnd_w1")?.finding.reviewer).toBe("security");
+    expect(byId.get("fnd_w1")?.status).toBe("open");
+
+    // fnd_w2: no path, reviewer recovered
+    expect(byId.get("fnd_w2")?.finding.location).toBeUndefined();
+    expect(byId.get("fnd_w2")?.finding.reviewer).toBe("code_quality");
+
+    // Titles are NOT recovered (not persisted in metadata)
+    expect(byId.get("fnd_w1")?.finding.title).toContain("fnd_w1");
+    expect(byId.get("fnd_w2")?.finding.title).toContain("fnd_w2");
+  });
+
+  test("createPriorReviewStateFromMetadata: withheldFindings absent when no withheldFindingIds in metadata", () => {
+    const parsed = parseSummaryHiddenMetadata(
+      [
+        "<!-- code-reviewer",
+        JSON.stringify({
+          schemaVersion: 8,
+          runId: "run-8",
+          headSha: "old-head",
+          findingIds: ["fnd_x"],
+        }),
+        "-->",
+      ].join("\n"),
+    );
+
+    if (parsed === undefined) throw new Error("expected metadata to parse");
+
+    const state = createPriorReviewStateFromMetadata(parsed, ref);
+    expect(state.withheldFindings).toBeUndefined();
   });
 });

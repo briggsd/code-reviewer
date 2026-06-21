@@ -360,6 +360,11 @@ export interface PriorReviewState {
   previousHeadSha?: string;
   findings: PriorFindingState[];
   hiddenMetadata?: Record<string, JsonValue>;
+  /** schemaVersion 9+: grounding-withheld findings from the prior run (#392). Absent when the
+   *  prior comment had no withheld findings or was written by a pre-v9 runner. Used to derive
+   *  withheld-finding dispositions across re-review rounds (promoted/stillWithheld/resolved/
+   *  carriedForward). */
+  withheldFindings?: PriorFindingState[];
 }
 
 export interface ReviewRunDurations {
@@ -490,6 +495,10 @@ export interface ReviewRunMetrics {
   dispositions?: DispositionCounts;
   /** Counts-only pre-fusion vs post-fusion finding totals (#258, M023). */
   fusion?: FusionCounts;
+  /** Withheld-finding disposition counts (#392): prior withheld findings tracked across rounds
+   *  (promoted | stillWithheld | resolved | carriedForward). Absent on first review or when
+   *  the prior comment carried no withheld findings. Counts-only (M008). */
+  withheldDispositions?: import("../runner/withheld-disposition.ts").WithheldDispositionCounts;
 }
 
 export interface ReviewRunRecord {
