@@ -94,27 +94,87 @@ export interface QualityReportThresholds {
   minSampleSize: number;
 }
 
+/**
+ * Default quality thresholds used by the hypothesis-queue report.
+ *
+ * BASIS AND PROVENANCE
+ * --------------------
+ * ALL values below are **provisional starting guesses introduced in #132** with no
+ * evidentiary basis from real fleet data. They were chosen to be "plausible-looking"
+ * rather than calibrated. Treat any threshold breach as a hypothesis worth
+ * investigating, not a confirmed problem.
+ *
+ * CALIBRATION IN PROGRESS (#391)
+ * --------------------------------
+ * The four thresholds most likely to misfire on factory-dogfood data are slated for
+ * data-driven recalibration once operators can isolate adopter-only and post-fix
+ * windows using the `--since`, `--until`, `--repository`, and `--exclude-repository`
+ * filters added in #391:
+ *
+ *   - maxGroundingDropRate (currently 0.15): the 28.9% observed rate includes
+ *     factory dogfood runs with denyContextTools active; the real adopter baseline
+ *     is unknown. Likely needs raising.
+ *   - maxGroundingWithholdRate (currently 0.30): uninstrumented in early runs;
+ *     not yet observed at scale.
+ *   - maxReviewerFailureRate (currently 0.10): the 11.2% observed rate is inflated
+ *     by the factory repo (45/47 fail-events) and by a schema_invalid failure mode
+ *     that dropped to zero after 2026-06-15. Adopter-only, post-fix baseline unknown.
+ *   - maxOverrideRate (currently 0.10): no fleet data; pure guess.
+ *
+ * The VALUES of these four thresholds are UNCHANGED in this PR — calibrated numbers
+ * follow after operators run `telemetry:quality --exclude-repository <factory> --since
+ * 2026-06-15` over real fleet data.
+ *
+ * All other thresholds are also #132 guesses and should be treated accordingly.
+ * Per-line notes call out the basis (or lack thereof) for each one:
+ */
 export const DEFAULT_QUALITY_THRESHOLDS: QualityReportThresholds = {
+  // #132 guess. Observed factory rate ~28.9% (inflated by denyContextTools dogfood).
+  // Calibration pending adopter-only baseline via --exclude-repository (#391).
   maxGroundingDropRate: 0.15,
+  // #132 guess. No observed adopter baseline; uninstrumented in many early runs.
   maxGroundingWithholdRate: 0.3,
+  // #132 guess. No fleet data; 50% is a conservative ceiling for "half the diff ignored".
   maxDiffFilterDropRate: 0.5,
+  // #132 guess. No fleet data.
   maxPatchAdmissionDegradedRate: 0.2,
+  // #132 guess. No fleet data.
   maxDeletionPruningRate: 0.3,
+  // #132 guess. No fleet data.
   maxProseFindingDropRate: 0.1,
+  // #132 guess. No fleet data.
   maxFusionDropRate: 0.3,
+  // #132 guess. No fleet data.
   maxThinReviewRate: 0.2,
+  // #132 guess. No fleet data. Calibration pending (#391) — override rate is likely
+  // highly repo-specific (low for adopters with mature review culture).
   maxOverrideRate: 0.1,
+  // #132 guess. No fleet data; 50% acceptance is a low-bar sanity check.
   minAcceptanceRate: 0.5,
+  // #132 guess. Per-reviewer/tier acceptance withhold rate (withheldExcluded ÷ total);
+  // distinct from maxGroundingWithholdRate above. No fleet data.
   maxWithholdRate: 0.3,
+  // #132 guess. No fleet data; 50% dismiss rate at any severity feels high.
   maxSeverityDismissRate: 0.5,
+  // #132 guess. 90% completion is intentionally strict (incomplete reviews are wasteful).
   minCompletionRate: 0.9,
+  // #132 guess. 90% structured-output rate; schema failures should be rare.
   minStructuredOutputRate: 0.9,
+  // #132 guess. Observed factory rate ~11.2% inflated by factory dogfood (45/47 events)
+  // and a schema_invalid failure mode that dropped to zero after 2026-06-15.
+  // Calibration pending adopter-only + post-fix baseline via --exclude-repository --since (#391).
   maxReviewerFailureRate: 0.1,
+  // #132 guess. No fleet data; flapping findings are unusual in well-tuned reviewers.
   maxConvergenceFlapRate: 0.2,
+  // #132 guess. Max consecutive recurrence depth before surfacing a convergence hypothesis.
   maxRecurrenceDepth: 3,
+  // #132 guess. No fleet data.
   maxUnlocatedLeakRate: 0.2,
+  // #132 guess. No fleet data.
   maxNoSuggestionLeakRate: 0.1,
+  // #132 guess. No fleet data.
   maxOffDiffCitationLeakRate: 0.3,
+  // #132 guess. Segments below 5 samples are surfaced but flagged lowConfidence.
   minSampleSize: 5,
 };
 

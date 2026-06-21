@@ -5,7 +5,11 @@ import { dirname, resolve } from "node:path";
 import type { AnalyzeOptions } from "../src/state/run-metrics-analyze.ts";
 import { analyzeRunMetrics, formatRunMetricsAnalysis } from "../src/state/run-metrics-analyze.ts";
 import type { CommonTelemetryCliOptions } from "./telemetry-artifacts.ts";
-import { loadTelemetryEvents, parseCommonTelemetryArgs } from "./telemetry-artifacts.ts";
+import {
+  filterTelemetryEvents,
+  loadTelemetryEvents,
+  parseCommonTelemetryArgs,
+} from "./telemetry-artifacts.ts";
 
 const DEFAULT_RUN_LIMIT = 20;
 const DEFAULT_OUTPUT = "telemetry-analyze.json";
@@ -41,10 +45,23 @@ async function main(): Promise<void> {
   const options = parseArgs(Bun.argv.slice(2));
   const outputPath = resolve(options.outputPath);
 
-  const { events: telemetryEvents, sourceSummary } = await loadTelemetryEvents({
+  const { events: rawEvents, sourceSummary } = await loadTelemetryEvents({
     runLimit: options.runLimit,
     datasetPath: options.datasetPath,
   });
+
+  const telemetryEvents = filterTelemetryEvents(rawEvents, {
+    since: options.since,
+    until: options.until,
+    includeRepositories: options.includeRepositories,
+    excludeRepositories: options.excludeRepositories,
+  });
+
+  const filterDesc = buildFilterDescription(options);
+  const filteredSuffix =
+    telemetryEvents.length !== rawEvents.length
+      ? ` (filtered: ${rawEvents.length - telemetryEvents.length} dropped${filterDesc})`
+      : "";
 
   if (telemetryEvents.length === 0) {
     console.error("No telemetry events collected; nothing to analyze.");
@@ -69,7 +86,9 @@ async function main(): Promise<void> {
   await writeFile(outputPath, `${JSON.stringify(analysis, null, 2)}\n`);
 
   console.log(formatRunMetricsAnalysis(analysis));
-  console.log(`\nAnalyzed ${analysis.runCount} ai_review.run_metrics events ${sourceSummary}.`);
+  console.log(
+    `\nAnalyzed ${telemetryEvents.length} of ${rawEvents.length} events ${sourceSummary}${filteredSuffix}.`,
+  );
   console.log(`Wrote ${outputPath}`);
 }
 
@@ -84,4 +103,21 @@ function parseArgs(argv: readonly string[]): CommonTelemetryCliOptions {
     throw new Error(`Unknown argument: ${unknown}`);
   }
   return options;
+}
+
+function buildFilterDescription(options: CommonTelemetryCliOptions): string {
+  const parts: string[] = [];
+  if (options.since !== undefined) {
+    parts.push(`since=${options.since}`);
+  }
+  if (options.until !== undefined) {
+    parts.push(`until=${options.until}`);
+  }
+  if (options.includeRepositories !== undefined && options.includeRepositories.length > 0) {
+    parts.push(`repository=${options.includeRepositories.join(",")}`);
+  }
+  if (options.excludeRepositories !== undefined && options.excludeRepositories.length > 0) {
+    parts.push(`exclude-repository=${options.excludeRepositories.join(",")}`);
+  }
+  return parts.length > 0 ? ` [${parts.join(", ")}]` : "";
 }
