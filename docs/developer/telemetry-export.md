@@ -174,10 +174,12 @@ grounding-withheld findings from the prior run were classified this round:
 
 - `promoted` — the withheld finding surfaced as a live blocking finding this round.
 - `stillWithheld` — the finding was grounding-withheld again this round (evidence still absent).
-- `resolved` — the finding's file was reviewed this round and the finding was neither promoted nor
-  withheld (evidence gone, file reviewed, finding resolved).
-- `carriedForward` — the finding's file was not reviewed this round (incremental narrow or file
-  not in the diff); disposition unknown.
+- `resolved` — the finding's file was reviewed this round (or this was a full review of the whole
+  diff, where `reviewedPaths` is undefined and every file is implicitly reviewed) and the finding
+  was neither promoted nor withheld (evidence gone, finding resolved). In a full review a path-less
+  withheld finding also lands here, since there is no narrowed path set to miss.
+- `carriedForward` — in an incremental review, the finding's file was not in the reviewed delta, or
+  the withheld finding had no tracked path to check against the delta; disposition unknown.
 
 The block carries only integers (counts-only, M008). It is absent on first review, when there are
 no prior withheld findings, or when the prior comment was written by a pre-v9 runner.

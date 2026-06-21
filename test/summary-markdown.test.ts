@@ -1805,6 +1805,23 @@ describe("resolvedLog — cross-round history section", () => {
     expect(markdown).not.toContain("🗂 Resolved over this PR");
   });
 
+  test("recurred-but-withheld entry (id-carrying groundingWithheld) excluded from resolved log (#392)", () => {
+    // #392 assigns stable IDs to groundingWithheld findings, which activates the previously
+    // dormant exclusion at summary-markdown.ts:674-677: a finding resolved in an earlier round
+    // that recurs THIS round only as a withheld (low-confidence) finding is not actually
+    // resolved, so it must not appear in "Resolved over this PR". Before #392 withheld findings
+    // had no id, so this path did nothing.
+    const withheld = makeFinding({ id: "fnd_back", title: "Back again", confidence: "low" });
+    const summary = makeSummary({
+      findings: [],
+      groundingWithheld: [withheld],
+      resolvedLog: [{ stableId: "fnd_back", title: "Back again", resolvedAtSha: "abc1234" }],
+    });
+    const markdown = formatReviewSummaryMarkdown(summary);
+
+    expect(markdown).not.toContain("🗂 Resolved over this PR");
+  });
+
   test("titles are run through escapeMarkdown (#74 — untrusted prior-comment content)", () => {
     const summary = makeSummary({
       findings: [],

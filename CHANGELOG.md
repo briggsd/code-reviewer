@@ -29,7 +29,11 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
   next re-review round, `PriorReviewState.withheldFindings` is reconstructed from metadata and
   `run_metrics.withheldDispositions` emits counts-only disposition counts (`promoted`,
   `stillWithheld`, `resolved`, `carriedForward`). Withheld finding titles are intentionally not
-  persisted (model-authored content, M008 egress boundary).
+  persisted (model-authored content, M008 egress boundary). Assigning stable IDs to withheld
+  findings also refines summary rendering: a finding resolved in an earlier round that recurs this
+  round only as a withheld (low-confidence) finding is now correctly excluded from the "Resolved
+  over this PR" history (previously withheld findings had no id, so the existing exclusion was
+  dormant).
 
 - `--git-diff` runs now accept `--include-untracked` to include untracked, non-gitignored files in
   the local review. When set, each untracked file is momentarily marked intent-to-add (`git add -N`)
