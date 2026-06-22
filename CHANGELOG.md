@@ -27,6 +27,12 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
   now documented with its basis (#391).
 
 ### Fixed
+- Cross-file findings are no longer over-withheld: `assessFindingGrounding` now matches
+  `quotedCode` against the whole changeset (any changed file's patch or full-content corpus)
+  instead of only the located file's corpus. A finding located in file A whose evidence quotes
+  a line from changed file B is grounded rather than dropped (#393). The scope gate (#73) and
+  fabrication guard (#207) are unchanged: a quote that matches nowhere in the changeset is
+  still demoted to low-confidence.
 - GitHub Action wrapper (`action.yml`) and the `examples/ci/github-actions-ai-review.yml` template
   failed to load: the `package-source` / `AI_REVIEW_PACKAGE` default was an unquoted YAML scalar
   starting with `@` (a reserved indicator), which is invalid YAML, so the manifest could not be
