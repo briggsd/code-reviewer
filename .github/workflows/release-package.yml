@@ -229,6 +229,13 @@ jobs:
         # trusted-publishing auth. Provenance is generated automatically under trusted publishing;
         # --provenance is passed explicitly to keep it guaranteed. publishConfig.access=public in
         # the manifest plus --access public keep the scoped package public.
+        #
+        # The tarball path MUST be written `./dist/*.tgz`, not `dist/*.tgz`: npm >= 11.5
+        # parses a bare relative arg containing a single slash (e.g. the shell-expanded
+        # `dist/briggsd-code-reviewer-X.Y.Z.tgz`) as a `<owner>/<repo>` GitHub shorthand spec
+        # and tries to `git ls-remote` it instead of publishing the file (exit 128,
+        # "Permission denied (publickey)"). The leading `./` forces file-path interpretation.
+        # This stayed latent until #390 made the npm upgrade actually take effect via sudo.
         run: |
           sudo npm install -g npm@11.5.1
-          npm publish dist/*.tgz --provenance --access public
+          npm publish ./dist/*.tgz --provenance --access public
