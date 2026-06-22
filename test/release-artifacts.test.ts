@@ -21,7 +21,9 @@ describe("release artifact workflow", () => {
     expect(workflow).toContain("npm pack --pack-destination dist");
     // Actions are SHA-pinned repo-wide (#96); the trailing comment preserves the version tag.
     expect(workflow).toMatch(/actions\/upload-artifact@[0-9a-f]{40} # v4/);
-    expect(workflow).toContain("npm publish dist/*.tgz --provenance --access public");
+    // Leading `./` is required: npm >= 11.5 parses a bare `dist/<name>.tgz` (single slash)
+    // as a GitHub owner/repo shorthand and tries to git-clone it instead of publishing.
+    expect(workflow).toContain("npm publish ./dist/*.tgz --provenance --access public");
     // The pack job fails fast when the pushed vX.Y.Z tag does not match package.json `version`,
     // blocking BOTH publish jobs (they `needs: pack`) — the safeguard against a mislabeled
     // GitHub Release and an immutable, un-revertible npm publish. Lock it against silent removal.
