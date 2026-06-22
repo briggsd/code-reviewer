@@ -1,9 +1,11 @@
 import type {
   ChangeRef,
+  Confidence,
   Finding,
   JsonValue,
   PriorFindingState,
   PriorReviewState,
+  Severity,
 } from "../contracts/index.ts";
 
 const hiddenMetadataPattern = /<!--\s*code-reviewer\s*\n([\s\S]*?)\n\s*-->/m;
@@ -22,12 +24,19 @@ export interface ParsedSummaryMetadata {
   findingReviewers?: Record<string, string>;
   /** schemaVersion 8+: id → finding title (truncated) for prior findings. (#333) */
   findingTitles?: Record<string, string>;
+  /** schemaVersion 10+: id → real confidence for prior blocking findings. (#395) */
+  findingConfidences?: Record<string, Confidence>;
+  /** schemaVersion 10+: id → real severity for prior blocking findings. (#395) */
+  findingSeverities?: Record<string, Severity>;
   /** schemaVersion 9+: stable IDs of grounding-withheld findings from the prior run. (#392) */
   withheldFindingIds?: string[];
   /** schemaVersion 9+: id → location.path for withheld findings that have a path. (#392) */
   withheldFindingPaths?: Record<string, string>;
   /** schemaVersion 9+: id → reviewer role for withheld findings. (#392) */
   withheldFindingReviewers?: Record<string, string>;
+  /** schemaVersion 10+: id → real severity for withheld findings (confidence is structurally
+   *  "low" post-demotion, so it is not persisted). (#395) */
+  withheldFindingSeverities?: Record<string, Severity>;
   /** schemaVersion 7+: id → consecutive open reviewed-round count. */
   recurrenceDepths?: Record<string, number>;
   /**
@@ -117,6 +126,37 @@ export function parseSummaryHiddenMetadata(
       }
     }
 
+    // Parse findingConfidences / findingSeverities defensively. UNTRUSTED prior-comment content:
+    // they only set the reconstructed prior finding's confidence/severity for precision/recall
+    // analytics — never the CI gate, decision, or outcome. Accept only values in the Confidence /
+    // Severity enum allowlist; a rejected entry falls back to the "low"/"suggestion" default (the
+    // safe direction). (schemaVersion 10+)
+    let findingConfidences: Record<string, Confidence> | undefined;
+    if (isJsonObject(parsed.findingConfidences)) {
+      const filtered: Record<string, Confidence> = {};
+      for (const [key, value] of Object.entries(parsed.findingConfidences)) {
+        if (typeof value === "string" && isSafeConfidence(value)) {
+          filtered[key] = value;
+        }
+      }
+      if (Object.keys(filtered).length > 0) {
+        findingConfidences = filtered;
+      }
+    }
+
+    let findingSeverities: Record<string, Severity> | undefined;
+    if (isJsonObject(parsed.findingSeverities)) {
+      const filtered: Record<string, Severity> = {};
+      for (const [key, value] of Object.entries(parsed.findingSeverities)) {
+        if (typeof value === "string" && isSafeSeverity(value)) {
+          filtered[key] = value;
+        }
+      }
+      if (Object.keys(filtered).length > 0) {
+        findingSeverities = filtered;
+      }
+    }
+
     // Parse withheldFindingIds defensively. This is UNTRUSTED prior-comment content. It only
     // feeds withheld-disposition derivation across re-review rounds — it never affects the CI
     // gate, decision, or outcome. Accept only non-empty string values; rejected entries are
@@ -164,6 +204,21 @@ export function parseSummaryHiddenMetadata(
       }
     }
 
+    // Parse withheldFindingSeverities defensively. Same enum-allowlist safety as findingSeverities;
+    // a rejected entry falls back to the "suggestion" default. (schemaVersion 10+)
+    let withheldFindingSeverities: Record<string, Severity> | undefined;
+    if (isJsonObject(parsed.withheldFindingSeverities)) {
+      const filtered: Record<string, Severity> = {};
+      for (const [key, value] of Object.entries(parsed.withheldFindingSeverities)) {
+        if (typeof value === "string" && isSafeSeverity(value)) {
+          filtered[key] = value;
+        }
+      }
+      if (Object.keys(filtered).length > 0) {
+        withheldFindingSeverities = filtered;
+      }
+    }
+
     // Parse recurrenceDepths defensively. This is UNTRUSTED prior-comment content and only
     // feeds convergence analytics. Accept bounded positive integers; rejected values fall
     // back to legacy depth inference in createReReviewSummary.
@@ -193,9 +248,12 @@ export function parseSummaryHiddenMetadata(
       ...(findingPaths !== undefined ? { findingPaths } : {}),
       ...(findingReviewers !== undefined ? { findingReviewers } : {}),
       ...(findingTitles !== undefined ? { findingTitles } : {}),
+      ...(findingConfidences !== undefined ? { findingConfidences } : {}),
+      ...(findingSeverities !== undefined ? { findingSeverities } : {}),
       ...(withheldFindingIds !== undefined ? { withheldFindingIds } : {}),
       ...(withheldFindingPaths !== undefined ? { withheldFindingPaths } : {}),
       ...(withheldFindingReviewers !== undefined ? { withheldFindingReviewers } : {}),
+      ...(withheldFindingSeverities !== undefined ? { withheldFindingSeverities } : {}),
       ...(recurrenceDepths !== undefined ? { recurrenceDepths } : {}),
       // Parse findingsHash defensively: accept only a 16-hex string (schemaVersion 5+).
       // This is UNTRUSTED prior-comment content. It influences convergence substrate only —
@@ -222,13 +280,19 @@ export function createPriorReviewStateFromMetadata(
       ? metadata.withheldFindingIds.map(
           (stableId): PriorFindingState => ({
             stableId,
-            finding: createPlaceholderFinding(
-              stableId,
-              metadata.withheldFindingPaths?.[stableId],
-              metadata.withheldFindingReviewers?.[stableId],
-              // Titles intentionally not stored for withheld findings (model-authored content,
-              // not persisted in hidden metadata — counts-only boundary, same as M008).
-            ),
+            finding: createPlaceholderFinding(stableId, {
+              ...(metadata.withheldFindingPaths?.[stableId] !== undefined
+                ? { path: metadata.withheldFindingPaths[stableId] }
+                : {}),
+              ...(metadata.withheldFindingReviewers?.[stableId] !== undefined
+                ? { reviewer: metadata.withheldFindingReviewers[stableId] }
+                : {}),
+              // Titles intentionally not stored for withheld findings (model-authored content).
+              // Real severity is recovered (#395); confidence stays "low" (grounding demotes it).
+              ...(metadata.withheldFindingSeverities?.[stableId] !== undefined
+                ? { severity: metadata.withheldFindingSeverities[stableId] }
+                : {}),
+            }),
             status: "open",
             lastSeenHeadSha,
           }),
@@ -242,12 +306,24 @@ export function createPriorReviewStateFromMetadata(
     findings: metadata.findingIds.map(
       (stableId): PriorFindingState => ({
         stableId,
-        finding: createPlaceholderFinding(
-          stableId,
-          metadata.findingPaths?.[stableId],
-          metadata.findingReviewers?.[stableId],
-          metadata.findingTitles?.[stableId],
-        ),
+        finding: createPlaceholderFinding(stableId, {
+          ...(metadata.findingPaths?.[stableId] !== undefined
+            ? { path: metadata.findingPaths[stableId] }
+            : {}),
+          ...(metadata.findingReviewers?.[stableId] !== undefined
+            ? { reviewer: metadata.findingReviewers[stableId] }
+            : {}),
+          ...(metadata.findingTitles?.[stableId] !== undefined
+            ? { title: metadata.findingTitles[stableId] }
+            : {}),
+          // Real confidence + severity recovered when present (#395); else "low"/"suggestion".
+          ...(metadata.findingConfidences?.[stableId] !== undefined
+            ? { confidence: metadata.findingConfidences[stableId] }
+            : {}),
+          ...(metadata.findingSeverities?.[stableId] !== undefined
+            ? { severity: metadata.findingSeverities[stableId] }
+            : {}),
+        }),
         status: "open",
         lastSeenHeadSha,
         ...(metadata.recurrenceDepths?.[stableId] !== undefined
@@ -261,9 +337,13 @@ export function createPriorReviewStateFromMetadata(
 
 function createPlaceholderFinding(
   stableId: string,
-  path?: string,
-  reviewer?: string,
-  title?: string,
+  opts: {
+    path?: string;
+    reviewer?: string;
+    title?: string;
+    confidence?: Confidence;
+    severity?: Severity;
+  } = {},
 ): Finding {
   return {
     id: stableId,
@@ -272,18 +352,22 @@ function createPlaceholderFinding(
     // real "custom" AgentRole an operator extension could legitimately emit. This aligns with
     // deriveAcceptanceByReviewer (src/runner/run-events.ts) which also uses ?? "unknown" for an
     // absent prior reviewer, keeping acceptanceByReviewer attribution honest.
-    reviewer: reviewer ?? "unknown",
-    severity: "suggestion",
+    reviewer: opts.reviewer ?? "unknown",
+    // Use the recovered severity/confidence when available (schemaVersion 10+ metadata, #395).
+    // Fall back to the historical "suggestion"/"low" placeholder for older comments (which lack
+    // the maps) so they display as before — and so any precision/recall analysis can tell a
+    // recovered value from the unrecoverable-old-format default.
+    severity: opts.severity ?? "suggestion",
     category: "prior_state",
     // Use the recovered title when available (schemaVersion 8+ metadata via findingTitles).
     // Fall back to the opaque "Prior finding fnd_…" placeholder so older comments (which lack
     // findingTitles) continue to display a recognisable label rather than a blank. (#333)
-    title: title ?? `Prior finding ${stableId}`,
+    title: opts.title ?? `Prior finding ${stableId}`,
     body: "Full prior finding details were not available in summary metadata.",
-    confidence: "low",
+    confidence: opts.confidence ?? "low",
     evidence: [],
     recommendation: "Load the full prior summary artifact or state store for finding details.",
-    ...(path !== undefined ? { location: { path } } : {}),
+    ...(opts.path !== undefined ? { location: { path: opts.path } } : {}),
   };
 }
 
@@ -334,4 +418,19 @@ function isSafeRecurrenceDepth(value: unknown): value is number {
 // summary-markdown.ts, so no injection vector is introduced by accepting the value here.
 function isSafeFindingTitle(value: string): boolean {
   return value.trim().length > 0 && value.length <= 200;
+}
+
+// Enum allowlists for untrusted findingConfidences / findingSeverities / withheldFindingSeverities
+// values (#395). These are constrained enums (Confidence / Severity in contracts/common.ts), so a
+// strict membership check — not a shape/length heuristic — is the right validator. A value outside
+// the set is rejected and the reconstruction falls back to the "low"/"suggestion" default.
+const CONFIDENCE_VALUES: readonly Confidence[] = ["high", "medium", "low"];
+const SEVERITY_VALUES: readonly Severity[] = ["critical", "warning", "suggestion"];
+
+function isSafeConfidence(value: string): value is Confidence {
+  return (CONFIDENCE_VALUES as readonly string[]).includes(value);
+}
+
+function isSafeSeverity(value: string): value is Severity {
+  return (SEVERITY_VALUES as readonly string[]).includes(value);
 }

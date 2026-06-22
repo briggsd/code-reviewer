@@ -10,6 +10,14 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
 
 ## [Unreleased]
 
+### Fixed
+- Re-review now reconstructs prior findings with their **real** `confidence` and `severity` instead
+  of a hardcoded `low`/`suggestion` placeholder. Hidden summary metadata persists `findingConfidences`
+  and `findingSeverities` for blocking findings and `withheldFindingSeverities` for withheld findings
+  (schemaVersion 9 → 10, additive; parsed against the enum allowlist). This unblocks precision/recall
+  analysis that segments by confidence or severity (#395). Withheld confidence is not persisted —
+  grounding demotes it to `low`, so it carries no real signal.
+
 ### Added
 - `telemetry:analyze` and `telemetry:quality` accept ingestion filters: `--since <ISO>` / `--until
   <ISO>` (date window on the event timestamp) and `--repository <slug>` / `--exclude-repository
