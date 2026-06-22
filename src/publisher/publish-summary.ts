@@ -101,14 +101,38 @@ export function createPublishHiddenMetadata(
   }
   const hasFindingTitles = Object.keys(findingTitles).length > 0;
 
+  // findingConfidences / findingSeverities: id → real confidence/severity for findings with a
+  // non-empty id (#395, schemaVersion 10+). Lets re-review reconstruct prior findings with their
+  // REAL confidence/severity instead of the hardcoded `low`/`suggestion` placeholder, so
+  // precision/recall analysis segmenting by confidence or severity is meaningful. Same hidden
+  // PR-comment channel as findingReviewers — NOT telemetry (M008).
+  const findingConfidences: Record<string, string> = {};
+  const findingSeverities: Record<string, string> = {};
+  if (summary !== undefined) {
+    for (const finding of summary.findings) {
+      if (finding.id !== undefined && finding.id.length > 0) {
+        findingConfidences[finding.id] = finding.confidence;
+        findingSeverities[finding.id] = finding.severity;
+      }
+    }
+  }
+  const hasFindingConfidences = Object.keys(findingConfidences).length > 0;
+  const hasFindingSeverities = Object.keys(findingSeverities).length > 0;
+
   // withheldFindingIds: stable IDs of findings grounding-withheld this run (#392, schemaVersion 9+).
   // Separate channel from findingIds (which carries BLOCKING findings only). Enables re-review
   // to track withheld findings across rounds (promoted | stillWithheld | resolved | carriedForward).
   // Paths and reviewer roles are included for disposition derivation; titles are intentionally
   // omitted (withheld finding text is model-authored untrusted content, same egress bound as M008).
+  // withheldFindingSeverities (#395, v10+): real severity per withheld finding. Severity is NOT
+  // demoted by grounding, so it carries real signal; withheld *confidence* is intentionally NOT
+  // persisted because grounding overwrites it to "low" (run-review.ts) — it would be a useless
+  // all-"low" map. (Capturing pre-demotion model confidence is a possible future follow-up if
+  // recall calibration #391 needs it.)
   const withheldFindingIds: string[] = [];
   const withheldFindingPaths: Record<string, string> = {};
   const withheldFindingReviewers: Record<string, string> = {};
+  const withheldFindingSeverities: Record<string, string> = {};
   if (summary !== undefined && summary.groundingWithheld !== undefined) {
     for (const finding of summary.groundingWithheld) {
       const id = finding.id;
@@ -118,12 +142,14 @@ export function createPublishHiddenMetadata(
           withheldFindingPaths[id] = finding.location.path;
         }
         withheldFindingReviewers[id] = finding.reviewer;
+        withheldFindingSeverities[id] = finding.severity;
       }
     }
   }
   const hasWithheldFindings = withheldFindingIds.length > 0;
   const hasWithheldFindingPaths = Object.keys(withheldFindingPaths).length > 0;
   const hasWithheldFindingReviewers = Object.keys(withheldFindingReviewers).length > 0;
+  const hasWithheldFindingSeverities = Object.keys(withheldFindingSeverities).length > 0;
 
   // recurrenceDepths: id → consecutive reviewed rounds currently open (#260, schemaVersion 7+).
   // First reviews seed depth=1; re-reviews use the computed per-finding depths.
@@ -162,10 +188,10 @@ export function createPublishHiddenMetadata(
       : undefined;
 
   return {
-    // Bumped 8 → 9 for withheldFindingIds/withheldFindingPaths/withheldFindingReviewers (#392).
+    // Bumped 9 → 10 for findingConfidences/findingSeverities/withheldFindingSeverities (#395).
     // The bump is additive and backward-compatible: old parsers ignore unknown keys per the
     // existing defensive-parse pattern (parseSummaryHiddenMetadata in summary-metadata.ts).
-    schemaVersion: 9,
+    schemaVersion: 10,
     runId,
     headSha: change.headSha,
     provider: change.provider,
@@ -175,9 +201,12 @@ export function createPublishHiddenMetadata(
     ...(hasFindingPaths ? { findingPaths } : {}),
     ...(hasFindingReviewers ? { findingReviewers } : {}),
     ...(hasFindingTitles ? { findingTitles } : {}),
+    ...(hasFindingConfidences ? { findingConfidences } : {}),
+    ...(hasFindingSeverities ? { findingSeverities } : {}),
     ...(hasWithheldFindings ? { withheldFindingIds } : {}),
     ...(hasWithheldFindingPaths ? { withheldFindingPaths } : {}),
     ...(hasWithheldFindingReviewers ? { withheldFindingReviewers } : {}),
+    ...(hasWithheldFindingSeverities ? { withheldFindingSeverities } : {}),
     ...(hasRecurrenceDepths ? { recurrenceDepths } : {}),
     // Comprehension-gate verdict (#26): additive, present only when the reviewer ran. v1 parsers
     // ignore unknown keys, so this stays backward-compatible with the existing metadata reader.

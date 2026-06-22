@@ -229,9 +229,9 @@ const CHANGE: ChangeMetadata = {
 };
 
 describe("schemaVersion 8 hidden metadata (#333)", () => {
-  test("createPublishHiddenMetadata emits schemaVersion 8", () => {
+  test("createPublishHiddenMetadata emits schemaVersion 10", () => {
     const meta = createPublishHiddenMetadata("run-1", CHANGE);
-    expect(meta.schemaVersion).toBe(9);
+    expect(meta.schemaVersion).toBe(10);
   });
 
   test("partialBySize counts block is included when summary.partialBySize is present", () => {
@@ -261,7 +261,7 @@ describe("schemaVersion 8 hidden metadata (#333)", () => {
 
     const meta = createPublishHiddenMetadata("run-1", CHANGE, summary);
 
-    expect(meta.schemaVersion).toBe(9);
+    expect(meta.schemaVersion).toBe(10);
     const partialBySize = meta.partialBySize as
       | {
           admittedFileCount: number;
@@ -469,7 +469,7 @@ describe("schemaVersion 6 — resolvedLog (#279)", () => {
     };
     const meta = createPublishHiddenMetadata("run-6", CHANGE, summary);
 
-    expect(meta.schemaVersion).toBe(9);
+    expect(meta.schemaVersion).toBe(10);
     expect(meta.resolvedLog).toEqual([
       { stableId: "fnd_old", title: "Old auth issue", resolvedAtSha: "abc1234" },
     ]);
@@ -478,7 +478,7 @@ describe("schemaVersion 6 — resolvedLog (#279)", () => {
   test("createPublishHiddenMetadata omits resolvedLog when absent (back-compat)", () => {
     const meta = createPublishHiddenMetadata("run-6", CHANGE, BASE_SUMMARY);
 
-    expect(meta.schemaVersion).toBe(9);
+    expect(meta.schemaVersion).toBe(10);
     expect(meta.resolvedLog).toBeUndefined();
   });
 
@@ -835,9 +835,9 @@ describe("#333 — findingTitles metadata", () => {
 // ---------------------------------------------------------------------------
 
 describe("#392 — withheldFindingIds metadata (schemaVersion 9)", () => {
-  test("createPublishHiddenMetadata emits schemaVersion 9", () => {
+  test("createPublishHiddenMetadata emits schemaVersion 10 (#395)", () => {
     const meta = createPublishHiddenMetadata("run-9", CHANGE);
-    expect(meta.schemaVersion).toBe(9);
+    expect(meta.schemaVersion).toBe(10);
   });
 
   test("write round-trip: withheldFindingIds, paths, and reviewers are emitted for withheld findings", () => {
@@ -1118,5 +1118,132 @@ describe("#392 — withheldFindingIds metadata (schemaVersion 9)", () => {
 
     const state = createPriorReviewStateFromMetadata(parsed, ref);
     expect(state.withheldFindings).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #395 — findingConfidences / findingSeverities / withheldFindingSeverities
+// schemaVersion 10
+// ---------------------------------------------------------------------------
+
+describe("#395 — real confidence/severity for prior findings (schemaVersion 10)", () => {
+  const summaryWithFindings = {
+    decision: "significant_concerns" as const,
+    outcome: "fail" as const,
+    title: "Test",
+    body: "body",
+    findings: [
+      {
+        id: "fnd_block1",
+        reviewer: "security",
+        severity: "critical" as const,
+        category: "auth",
+        title: "Blocking A",
+        body: "body",
+        confidence: "high" as const,
+        evidence: [],
+        recommendation: "fix it",
+        location: { path: "src/auth.ts" },
+      },
+      {
+        id: "fnd_block2",
+        reviewer: "code_quality",
+        severity: "warning" as const,
+        category: "correctness",
+        title: "Blocking B",
+        body: "body",
+        confidence: "medium" as const,
+        evidence: [],
+        recommendation: "fix it too",
+      },
+    ],
+    groundingWithheld: [
+      {
+        id: "fnd_withheld1",
+        reviewer: "documentation",
+        severity: "critical" as const, // real severity; confidence is demoted to "low"
+        category: "docs",
+        title: "Withheld A",
+        body: "body",
+        confidence: "low" as const,
+        evidence: [],
+        recommendation: "fix it",
+      },
+    ],
+    risk: {
+      tier: "full" as const,
+      reason: "test",
+      matchedRules: [],
+      sensitivePaths: [],
+      reviewedFileCount: 2,
+      ignoredFileCount: 0,
+    },
+  };
+
+  test("write: emits findingConfidences/findingSeverities (blocking) + withheldFindingSeverities", () => {
+    const meta = createPublishHiddenMetadata("run-10", CHANGE, summaryWithFindings);
+    expect(meta.schemaVersion).toBe(10);
+    expect(meta.findingConfidences).toEqual({ fnd_block1: "high", fnd_block2: "medium" });
+    expect(meta.findingSeverities).toEqual({ fnd_block1: "critical", fnd_block2: "warning" });
+    expect(meta.withheldFindingSeverities).toEqual({ fnd_withheld1: "critical" });
+    // No withheld CONFIDENCE map — it is structurally "low" post-demotion (#395).
+    expect((meta as Record<string, unknown>).withheldFindingConfidences).toBeUndefined();
+  });
+
+  test("write: maps omitted when there are no findings", () => {
+    const meta = createPublishHiddenMetadata("run-10", CHANGE);
+    expect((meta as Record<string, unknown>).findingConfidences).toBeUndefined();
+    expect((meta as Record<string, unknown>).findingSeverities).toBeUndefined();
+    expect((meta as Record<string, unknown>).withheldFindingSeverities).toBeUndefined();
+  });
+
+  test("parse: valid enum values are accepted, invalid ones rejected", () => {
+    const metadata = parseSummaryHiddenMetadata(
+      `<!-- code-reviewer\n${JSON.stringify({
+        schemaVersion: 10,
+        findingIds: ["fnd_a", "fnd_b"],
+        findingConfidences: { fnd_a: "high", fnd_b: "certain" }, // "certain" invalid
+        findingSeverities: { fnd_a: "critical", fnd_b: "catastrophic" }, // "catastrophic" invalid
+        withheldFindingSeverities: { fnd_w: "warning", fnd_x: 7 }, // 7 not a string
+      })}\n-->`,
+    );
+    expect(metadata?.findingConfidences).toEqual({ fnd_a: "high" });
+    expect(metadata?.findingSeverities).toEqual({ fnd_a: "critical" });
+    expect(metadata?.withheldFindingSeverities).toEqual({ fnd_w: "warning" });
+  });
+
+  test("reconstruct: blocking prior findings use recovered confidence + severity", () => {
+    const meta = createPublishHiddenMetadata("run-10", CHANGE, summaryWithFindings);
+    const parsed = parseSummaryHiddenMetadata(`<!-- code-reviewer\n${JSON.stringify(meta)}\n-->`);
+    if (parsed === undefined) throw new Error("expected parsed metadata");
+    const state = createPriorReviewStateFromMetadata(parsed, ref);
+
+    const block1 = state.findings.find((f) => f.stableId === "fnd_block1")?.finding;
+    expect(block1?.confidence).toBe("high");
+    expect(block1?.severity).toBe("critical");
+    const block2 = state.findings.find((f) => f.stableId === "fnd_block2")?.finding;
+    expect(block2?.confidence).toBe("medium");
+    expect(block2?.severity).toBe("warning");
+
+    // Withheld: real severity recovered, confidence stays "low" (demoted).
+    const withheld1 = state.withheldFindings?.find((f) => f.stableId === "fnd_withheld1")?.finding;
+    expect(withheld1?.severity).toBe("critical");
+    expect(withheld1?.confidence).toBe("low");
+  });
+
+  test("reconstruct back-compat: pre-v10 metadata falls back to low/suggestion", () => {
+    const parsed = parseSummaryHiddenMetadata(
+      `<!-- code-reviewer\n${JSON.stringify({
+        schemaVersion: 9,
+        findingIds: ["fnd_old"],
+        findingReviewers: { fnd_old: "security" },
+      })}\n-->`,
+    );
+    if (parsed === undefined) throw new Error("expected parsed metadata");
+    const state = createPriorReviewStateFromMetadata(parsed, ref);
+    const old = state.findings.find((f) => f.stableId === "fnd_old")?.finding;
+    expect(old?.confidence).toBe("low");
+    expect(old?.severity).toBe("suggestion");
+    expect(old?.reviewer).toBe("security");
   });
 });

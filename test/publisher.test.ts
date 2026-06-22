@@ -60,11 +60,11 @@ describe("summary publishing orchestration", () => {
       expect(typeof findingId).toBe("string");
       expect(result.summaryCommentId).toBe("123");
       expect(publisher.inputs).toHaveLength(1);
-      // schemaVersion 9 adds withheldFindingIds (#392). Check core fields via objectContaining, then
+      // schemaVersion 10 adds findingConfidences/findingSeverities (#395). Check core fields via objectContaining, then
       // check the hash format separately (it's deterministic but computed from the finding id).
       const hiddenMeta = publisher.inputs[0]?.hiddenMetadata;
       expect(hiddenMeta).toMatchObject({
-        schemaVersion: 9,
+        schemaVersion: 10,
         runId: "fixture-auth-pr",
         headSha: "abc123",
         provider: "github",
@@ -138,9 +138,9 @@ describe("summary publishing orchestration", () => {
   test("creates stable hidden metadata for summary comments", async () => {
     const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
 
-    // No summary passed → no findingIds and no findingsHash; schemaVersion 9 (#392).
+    // No summary passed → no findingIds and no findingsHash; schemaVersion 10 (#395).
     expect(createPublishHiddenMetadata("run-123", fixture.metadata)).toEqual({
-      schemaVersion: 9,
+      schemaVersion: 10,
       runId: "run-123",
       headSha: "abc123",
       provider: "github",
