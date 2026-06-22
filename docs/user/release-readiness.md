@@ -2,6 +2,26 @@
 
 Use this checklist before publishing or handing the runner to another repository. Pair it with the [Adoption guide](adoption.md), which documents the recommended adopter path, live-tested evidence, and deferred channels.
 
+## Release cadence
+
+Releases are **time-boxed weekly**. Merge to `main` continuously; once a week, if
+`CHANGELOG.md`'s `## [Unreleased]` section has any entries and the live holdout quality
+gate passes, cut a release. A quiet week with an empty `[Unreleased]` cuts nothing — the
+timer is a ceiling on how long shipped work waits, not a mandate to tag every week.
+
+Pick the version from the `[Unreleased]` contents under [SemVer](https://semver.org): any
+`Added`/`feat` entry makes it a minor (`0.X+1.0`); a `Fixed`-only batch is a patch
+(`0.X.Y+1`). The changelog stays current per-PR (each change lands with its own entry), so
+cutting is just promotion + bump + gate + tag — never a reconstruction.
+
+A regression test (`test/packaging.test.ts`) enforces the version↔changelog invariant: it
+fails the gate if `package.json`'s version lacks **both** a matching dated
+`## [X.Y.Z] - YYYY-MM-DD` section **and** a corresponding reference-link definition at the
+foot of `CHANGELOG.md` (`[X.Y.Z]: https://github.com/briggsd/code-reviewer…`). This is the
+forcing function — it is impossible to bump the version for a release without fully
+promoting the changelog, which is how `v0.2.0`/`v0.3.0`/`v0.3.1` silently fell three
+releases behind before it existed.
+
 ## Required verification
 
 Run from a clean checkout:
@@ -81,7 +101,9 @@ publish.** To cut a release:
    references in `docs/user/packaging.md`. (A pin left on an unpublished version makes the action
    wrapper install a 404.)
 2. **Update the changelog.** In [`CHANGELOG.md`](../../CHANGELOG.md), promote the `## [Unreleased]`
-   entries into a new `## [X.Y.Z]` section and refresh the comparison links at the bottom.
+   entries into a new dated `## [X.Y.Z] - YYYY-MM-DD` section and refresh the comparison links at
+   the bottom. The release-hygiene test in `test/packaging.test.ts` blocks the gate until this
+   section exists for the version in `package.json`, so step 1 and step 2 must land together.
 3. **Land the bump** on the default branch (normal PR + merge).
 4. **Validate quality (dispatch).** Manually run `.github/workflows/release-package.yml` via
    **workflow_dispatch** against the merged commit. This builds the tarball **and** runs the

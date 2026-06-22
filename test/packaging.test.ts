@@ -46,7 +46,7 @@ describe("package distribution metadata", () => {
     const releaseReadiness = await readFile("docs/user/release-readiness.md", "utf8");
 
     expect(manifest.name).toBe("@briggsd/code-reviewer");
-    expect(manifest.version).toBe("0.3.1");
+    expect(manifest.version).toBe("0.4.0");
     expect(manifest.private).toBeUndefined();
     expect(manifest.publishConfig?.access).toBe("public");
     expect(manifest.license).toBe("Apache-2.0");
@@ -157,5 +157,26 @@ describe("package distribution metadata", () => {
     expect(manifest.files).not.toContain("test");
     expect(manifest.files).not.toContain(".github");
     expect(manifest.files).not.toContain("continue.md");
+  });
+
+  // Release-hygiene guard: the package version and the changelog must not drift.
+  // Tagging v0.2.0/v0.3.0/v0.3.1 each bumped package.json without ever promoting
+  // [Unreleased] into a versioned section, so the changelog silently fell three
+  // releases behind. This ties promotion to the version bump every release requires:
+  // bumping to X.Y.Z without writing its dated CHANGELOG section fails the gate.
+  test("CHANGELOG.md has a dated section and link for the current package version", async () => {
+    const manifest = JSON.parse(await readFile("package.json", "utf8")) as PackageJson;
+    const version = manifest.version;
+    if (!version) {
+      throw new Error("package.json is missing a version");
+    }
+    const changelog = await readFile("CHANGELOG.md", "utf8");
+
+    const escaped = version.replace(/\./g, "\\.");
+    // Keep a Changelog dated header, e.g. "## [0.4.0] - 2026-06-21".
+    const datedSection = new RegExp(`^## \\[${escaped}\\] - \\d{4}-\\d{2}-\\d{2}$`, "m");
+    expect(changelog).toMatch(datedSection);
+    // Reference-link definition at the foot, e.g. "[0.4.0]: https://github.com/...".
+    expect(changelog).toContain(`\n[${version}]: https://github.com/briggsd/code-reviewer`);
   });
 });
