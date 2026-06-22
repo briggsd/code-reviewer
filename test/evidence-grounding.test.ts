@@ -522,7 +522,139 @@ describe("assessFindingGrounding", () => {
     expect(result.corpusStats.fullContentSkippedByBudgetCount).toBe(1);
   });
 
-  test("out-of-file quote from another changed file does not ground", () => {
+  // -------------------------------------------------------------------------
+  // #393: whole-changeset (cross-file) quote matching
+  // -------------------------------------------------------------------------
+
+  test("cross-file grounding (#393): finding located in A, quotedCode from B's patch → grounded", () => {
+    // A finding whose quotedCode matches another changed file's patch is legitimate
+    // (e.g. a stale version string in action.yml flagged against package.json).
+    // After #393 it must land in `grounded`, not `dropped`.
+    const diff: DiffSummary = {
+      files: [
+        {
+          path: "auth/accounts.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          isBinary: false,
+          patch: "+  return db.accounts.findById(accountId);",
+        },
+        {
+          path: "auth/tokens.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          isBinary: false,
+          patch: "+  return verifyToken(req);",
+        },
+      ],
+      totalAdditions: 2,
+      totalDeletions: 0,
+      truncated: false,
+    };
+    // Finding is located in accounts.ts but quotes a line that only appears in tokens.ts's patch
+    const finding = makeFinding({
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["return verifyToken(req);"],
+    });
+
+    const result = assessFindingGrounding([finding], diff);
+
+    expect(result.grounded).toContain(finding);
+    expect(result.dropped).toHaveLength(0);
+  });
+
+  test("cross-file grounding (#393): finding located in A, quotedCode from B's full content → grounded", () => {
+    // A finding located in file A quoting content from file B's full-content corpus
+    // (unchanged region of B) is also grounded — the quote is real code in the changeset.
+    const diff: DiffSummary = {
+      files: [
+        {
+          path: "package.json",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          isBinary: false,
+          patch: '+"version": "0.3.1"',
+        },
+        {
+          path: ".github/workflows/action.yml",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          isBinary: false,
+          patch: '+  image: "ghcr.io/org/code-reviewer:0.3.1"',
+        },
+      ],
+      totalAdditions: 2,
+      totalDeletions: 0,
+      truncated: false,
+    };
+    // Finding is located in action.yml but quotes a stale line from package.json's full content
+    const finding = makeFinding({
+      location: { path: ".github/workflows/action.yml" },
+      quotedCode: ['"version": "0.1.0"'],
+    });
+
+    const result = assessFindingGrounding([finding], diff, {
+      changedFileContents: {
+        "package.json": '{\n  "name": "code-reviewer",\n  "version": "0.1.0"\n}\n',
+        ".github/workflows/action.yml": "image: ghcr.io/org/code-reviewer:0.1.0\n",
+      },
+      fullContentBudgetBytes: 10_000,
+    });
+
+    expect(result.grounded).toContain(finding);
+    expect(result.dropped).toHaveLength(0);
+  });
+
+  test("fabrication guard intact (#393): quote matching NO changed file is still dropped", () => {
+    // Even with whole-changeset matching, a quote that doesn't exist in any changed file's
+    // corpus (patch or full content) must still be dropped (fabrication guard #207 intact).
+    const diff: DiffSummary = {
+      files: [
+        {
+          path: "auth/accounts.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          isBinary: false,
+          patch: "+  return db.accounts.findById(accountId);",
+        },
+        {
+          path: "auth/tokens.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          isBinary: false,
+          patch: "+  return verifyToken(req);",
+        },
+      ],
+      totalAdditions: 2,
+      totalDeletions: 0,
+      truncated: false,
+    };
+    // Quote matches neither file's patch nor full content — it is fabricated
+    const fabricated = makeFinding({
+      location: { path: "auth/accounts.ts" },
+      quotedCode: ["return db.accounts.deleteEverything();"],
+    });
+
+    const result = assessFindingGrounding([fabricated], diff, {
+      changedFileContents: {
+        "auth/accounts.ts": "export const accounts = true;\n",
+        "auth/tokens.ts": "export function check() { return verifyToken(req); }\n",
+      },
+      fullContentBudgetBytes: 10_000,
+    });
+
+    expect(result.dropped).toContain(fabricated);
+    expect(result.grounded).toHaveLength(0);
+  });
+
+  test("same-file still grounds after #393 (no regression)", () => {
+    // A finding located in file A quoting file A's own patch still works as before.
     const diff: DiffSummary = {
       files: [
         {
@@ -548,18 +680,12 @@ describe("assessFindingGrounding", () => {
     };
     const finding = makeFinding({
       location: { path: "auth/accounts.ts" },
-      quotedCode: ["return verifyToken(req);"],
+      quotedCode: ["return db.accounts.findById(accountId);"],
     });
 
-    const result = assessFindingGrounding([finding], diff, {
-      changedFileContents: {
-        "auth/accounts.ts": "export const accounts = true;\n",
-        "auth/tokens.ts": "export function check() { return verifyToken(req); }\n",
-      },
-      fullContentBudgetBytes: 10_000,
-    });
+    const result = assessFindingGrounding([finding], diff);
 
-    expect(result.dropped).toContain(finding);
-    expect(result.grounded).toHaveLength(0);
+    expect(result.grounded).toContain(finding);
+    expect(result.dropped).toHaveLength(0);
   });
 });

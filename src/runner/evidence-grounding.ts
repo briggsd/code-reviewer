@@ -222,7 +222,8 @@ function compareFullContentCandidates(a: FullContentCandidate, b: FullContentCan
  *
  * Partition rule — a finding goes to `dropped` iff:
  *   - finding.quotedCode is present with ≥1 checkable quote (length >= MIN_CHECKABLE_QUOTE_LENGTH), AND
- *   - none of its checkable quotes appears as a substring of the normalized corpus.
+ *   - none of its checkable quotes appears as a substring of the normalized corpus of ANY changed
+ *     file (patch or full-content, across the whole changeset, #393).
  *
  * No-quote carve-out: a finding with no quotedCode (undefined/empty) or only sub-threshold
  * quotes is ALWAYS kept in `grounded` at full confidence and CAN block the CI gate. There is
@@ -233,8 +234,15 @@ function compareFullContentCandidates(a: FullContentCandidate, b: FullContentCan
  * Caller contract (#207): the `dropped` set is NOT silently discarded by the caller. Each
  * dropped finding is down-weighted to `confidence: "low"` and kept visible in the labeled
  * low-confidence render block (non-blocking, excluded from the gate/title/findingIds). The
- * partition itself is unchanged here; #214 is the future full-file-corpus promoter that can
- * reinstate blocking eligibility for findings citing unchanged regions of changed files.
+ * partition itself is unchanged here; #214 is the full-file-corpus promoter that reinstates
+ * blocking eligibility for findings citing unchanged regions of changed files.
+ *
+ * Cross-file grounding (#393): a finding located in changed file A whose quotedCode matches
+ * ANY changed file's corpus (patch or full-content) is GROUNDED. Cross-file findings are
+ * real — e.g. a stale version string in action.yml flagged against package.json, or a
+ * default URL inconsistency spanning two files. The fabrication guard (#207) and scope gate
+ * (#73) are both preserved: a quote that matches NOWHERE in the changeset is still DROPPED,
+ * and only findings whose location.path is a changed file are even eligible to be dropped.
  */
 export function assessFindingGrounding(
   findings: readonly Finding[],
@@ -256,6 +264,12 @@ export function assessFindingGrounding(
   // staleness/absence findings (e.g. "you forgot to update docs/X") legitimately cite files
   // that were NOT changed, so dropping them on a diff-corpus miss is a false positive (#73).
   const changedFilePaths = new Set(diff.files.map((f) => normalizePath(f.path)));
+
+  // Precompute flat arrays of all changed files' corpora for whole-changeset matching (#393).
+  // Iterate per-file arrays rather than concatenating into one string — concatenation can
+  // create a false match across a file boundary.
+  const allPatchCorpora = [...patchCorpusByPath.values()];
+  const allFullContentCorpora = [...fullContent.corpusByPath.values()];
 
   const grounded: Finding[] = [];
   const dropped: Finding[] = [];
@@ -289,14 +303,16 @@ export function assessFindingGrounding(
       continue;
     }
 
-    // Drop iff none of the checkable quotes is a substring of this changed file's corpus.
-    // The hunk corpus keeps deleted-line findings eligible; the optional full-content corpus
-    // promotes real quotes from unchanged regions of the same changed file.
-    const normalizedLocationPath = normalizePath(locationPath);
-    const patchCorpus = patchCorpusByPath.get(normalizedLocationPath) ?? "";
-    const fullContentCorpus = fullContent.corpusByPath.get(normalizedLocationPath) ?? "";
+    // Drop iff none of the checkable quotes is a substring of ANY changed file's corpus
+    // (patch or full-content, whole changeset, #393). Cross-file findings — e.g. a finding
+    // located in file A whose quotedCode comes from file B — are grounded as long as the
+    // quote exists somewhere in the changeset. The hunk corpus keeps deleted-line findings
+    // eligible; the optional full-content corpus promotes real quotes from unchanged regions.
+    // A quote matching NOWHERE in the changeset is still DROPPED (fabrication guard intact).
     const anyGrounded = checkableQuotes.some(
-      (q) => patchCorpus.includes(q) || fullContentCorpus.includes(q),
+      (q) =>
+        allPatchCorpora.some((c) => c.includes(q)) ||
+        allFullContentCorpora.some((c) => c.includes(q)),
     );
     if (anyGrounded) {
       grounded.push(finding);

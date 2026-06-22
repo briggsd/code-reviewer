@@ -191,6 +191,11 @@
   staleness / "you forgot to update X" findings. The fabrication guard still applies on changed files
   (U+200B case). When a PR's review still shows "N withheld", the dropped findings DID cite changed
   files (legitimate grounding). **#74** (renderer escapes no finding text) is the remaining sibling.
+  Quote matching is now **whole-changeset** (#393): a quote grounds if it matches ANY changed file's
+  corpus (patch or full-content), so a cross-file finding located in one changed file but quoting
+  another changed file is no longer over-withheld (real examples: stale version strings in action.yml
+  vs package.json, default package URL spanning two files). The scope gate (#73) and fabrication
+  guard (#207) are unchanged: a quote that matches nowhere in the changeset is still DROPPED.
 - Do not let `suppress` hide a `reviewer:"security"` finding (acknowledgements.ts downgrades it to
   acknowledge on purpose). Acknowledged findings stay in `summary.findings` (annotated) + are excluded
   from the gate only — never silently dropped. Acks come from the BASE branch (provider path), not head.
