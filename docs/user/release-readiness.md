@@ -15,8 +15,10 @@ Pick the version from the `[Unreleased]` contents under [SemVer](https://semver.
 cutting is just promotion + bump + gate + tag — never a reconstruction.
 
 A regression test (`test/packaging.test.ts`) enforces the version↔changelog invariant: it
-fails the gate if `package.json`'s version has no matching dated `## [X.Y.Z]` section. This
-is the forcing function — it is impossible to bump the version for a release without
+fails the gate if `package.json`'s version lacks **both** a matching dated
+`## [X.Y.Z] - YYYY-MM-DD` section **and** a corresponding reference-link definition at the
+foot of `CHANGELOG.md` (`[X.Y.Z]: https://github.com/briggsd/code-reviewer…`). This is the
+forcing function — it is impossible to bump the version for a release without fully
 promoting the changelog, which is how `v0.2.0`/`v0.3.0`/`v0.3.1` silently fell three
 releases behind before it existed.
 
