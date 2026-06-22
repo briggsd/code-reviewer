@@ -177,7 +177,7 @@ Published summary comments/notes include hidden metadata with `schemaVersion: 10
 
 ```json
 {
-  "schemaVersion": 9,
+  "schemaVersion": 10,
   "runId": "run-123",
   "headSha": "abc123",
   "provider": "github",
@@ -200,12 +200,21 @@ Published summary comments/notes include hidden metadata with `schemaVersion: 10
   "findingTitles": {
     "fnd_0123456789abcdef": "Auth token not rotated"
   },
+  "findingConfidences": {
+    "fnd_0123456789abcdef": "high"
+  },
+  "findingSeverities": {
+    "fnd_0123456789abcdef": "critical"
+  },
   "withheldFindingIds": ["fnd_fedcba9876543210"],
   "withheldFindingPaths": {
     "fnd_fedcba9876543210": "src/auth/tokens.ts"
   },
   "withheldFindingReviewers": {
     "fnd_fedcba9876543210": "security"
+  },
+  "withheldFindingSeverities": {
+    "fnd_fedcba9876543210": "warning"
   }
 }
 ```
