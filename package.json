@@ -1,6 +1,6 @@
 {
   "name": "@briggsd/code-reviewer",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "type": "module",
   "description": "Reusable CI-native AI code review system for GitHub and GitLab projects.",
   "homepage": "https://github.com/briggsd/code-reviewer#readme",
