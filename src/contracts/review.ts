@@ -196,6 +196,12 @@ export interface ReviewContext {
    * `.ai-review.json`. selectModel skips candidate models whose provider is in this set.
    */
   disabledProviders?: readonly string[];
+  /**
+   * Operator-supplied review intent/scope note (sourced from RunReviewOptions, NEVER from
+   * reviewed-repo .ai-review.json). Injected inert into reviewer prompts to let the model
+   * calibrate severity and judge scope.
+   */
+  intent?: string;
 }
 
 export interface FindingLocation {

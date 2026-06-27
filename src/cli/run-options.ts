@@ -105,6 +105,18 @@ function hasFlag(args: string[], name: string): boolean {
  * no-op on this emergency lever is the worst failure mode. Only called from the trusted env path
  * (never from reviewed-repo config).
  */
+/**
+ * Normalize the operator-supplied --intent note (#384): trim, treat empty/whitespace as absent
+ * (so a run without meaningful intent stays byte-for-byte unchanged), and cap length to bound
+ * the prompt. Returns undefined when there is nothing to inject.
+ */
+export function normalizeIntent(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.slice(0, 1000);
+}
+
 export function parseDisabledProviders(raw: string | undefined): readonly string[] | undefined {
   if (raw === undefined || raw.trim().length === 0) {
     return undefined;

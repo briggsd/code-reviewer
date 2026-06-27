@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { normalizeIntent } from "../src/cli/run-options.ts";
 import type {
   AgentRuntime,
   CoordinatorRunInput,
@@ -223,6 +224,17 @@ describe("normalizeAcknowledgements", () => {
   test("normalizeReviewConfig defaults acknowledgements to empty array", () => {
     const config = normalizeReviewConfig({});
     expect(config.acknowledgements).toEqual([]);
+  });
+});
+
+describe("normalizeIntent (#384)", () => {
+  test("trims, treats empty/whitespace as absent, caps at 1000", () => {
+    expect(normalizeIntent("  hello  ")).toBe("hello");
+    expect(normalizeIntent("")).toBeUndefined();
+    expect(normalizeIntent("   ")).toBeUndefined();
+    expect(normalizeIntent(undefined)).toBeUndefined();
+    const long = "x".repeat(1001);
+    expect(normalizeIntent(long)?.length).toBe(1000);
   });
 });
 
@@ -1203,6 +1215,71 @@ describe("fixture local runner", () => {
       allowedTools: [],
       deniedTools: ["read", "grep", "find", "ls", "bash", "write", "edit"],
     });
+  });
+
+  test("emits intent.supplied trace event with intentLength (#384)", async () => {
+    const fixture = normalizeReviewFixture({
+      ...minimalReviewFixtureInput(),
+      diff: {
+        files: [
+          {
+            path: "src/auth.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            isBinary: false,
+          },
+        ],
+        totalAdditions: 1,
+        totalDeletions: 0,
+        truncated: false,
+      },
+    });
+    const runtime = new RecordingRuntime();
+    const traceSink = new RecordingTraceSink();
+
+    await runReview({
+      fixture,
+      runtime,
+      traceSink,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+      intent: "trace-test-note",
+    });
+
+    expect(traceSink.events.find((e) => e.type === "intent.supplied")?.data).toMatchObject({
+      intentLength: "trace-test-note".length,
+    });
+  });
+
+  test("does not emit intent.supplied when intent is absent (#384)", async () => {
+    const fixture = normalizeReviewFixture({
+      ...minimalReviewFixtureInput(),
+      diff: {
+        files: [
+          {
+            path: "src/auth.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            isBinary: false,
+          },
+        ],
+        totalAdditions: 1,
+        totalDeletions: 0,
+        truncated: false,
+      },
+    });
+    const runtime = new RecordingRuntime();
+    const traceSink = new RecordingTraceSink();
+
+    await runReview({
+      fixture,
+      runtime,
+      traceSink,
+      now: new Date("2026-06-09T00:00:00.000Z"),
+    });
+
+    expect(traceSink.events.find((e) => e.type === "intent.supplied")).toBeUndefined();
   });
 });
 

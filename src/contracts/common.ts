@@ -54,6 +54,7 @@ export type TraceEventType =
   | "review.started"
   | "context.built"
   | "conventions.resolved"
+  | "intent.supplied"
   | "risk.assessed"
   | "agent.started"
   | "agent.output"
