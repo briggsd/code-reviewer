@@ -134,7 +134,7 @@ publish.** To cut a release:
    that the tag matches `package.json` `version` (failing fast on a mismatch, which blocks both
    publishes), then builds the `npm pack` tarball. A tag-only `release` job creates a GitHub
    Release with that tarball attached via `gh release create`, and a tag-only `npm-publish` job
-   downloads the same validated tarball and runs `npm publish dist/*.tgz --provenance --access
+   downloads the same validated tarball and runs `npm publish ./dist/*.tgz --provenance --access
    public` via trusted-publishing OIDC to publish to the public npm registry. The `release` and
    `npm-publish` jobs both depend on `pack` but run independently of each other. The holdout gate
    does **not** run on this path — quality was validated in step 4.

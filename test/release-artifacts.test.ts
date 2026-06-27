@@ -44,6 +44,15 @@ describe("release artifact workflow", () => {
     expect(dryRunAt).toBeLessThan(workflow.indexOf("\n  holdout-gate:"));
     // The benign "version already published" tolerance must be present so it can't be silently dropped.
     expect(workflow).toContain("cannot publish over the previously published versions");
+    // The dispatch dry-run and the tag-path publish are two independent literals; tie them so they
+    // cannot silently diverge (a re-dropped `./` reintroducing #401, or any spec change on one job
+    // only). Extract the spec the REAL npm-publish job uses, then assert the dry-run uses the
+    // identical spec + `--dry-run`. Drift fails this lock in the blocking gate, not on a live tag.
+    const publishMatch = workflow.match(/npm publish (\S+) --provenance --access public/);
+    expect(publishMatch).not.toBeNull();
+    const publishSpec = publishMatch?.[1] ?? "";
+    expect(publishSpec).toBe("./dist/*.tgz");
+    expect(workflow).toContain(`npm publish ${publishSpec} --dry-run --provenance --access public`);
 
     // Four jobs: pack (both triggers, no secrets), holdout-gate (dispatch-only, secrets),
     // release (tag-only, publishes the tarball), npm-publish (tag-only, publishes to npm).
