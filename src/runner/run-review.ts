@@ -103,6 +103,12 @@ export interface RunReviewOptions {
    * to ReviewContext. Reviewed-repo content never reaches this — operator env only.
    */
   disabledProviders?: readonly string[];
+  /**
+   * Operator-supplied review intent/scope note (#384). Sourced from the --intent CLI flag and
+   * threaded through to ReviewContext. Reviewed-repo content never reaches this — operator CLI
+   * input only.
+   */
+  intent?: string;
 }
 
 export interface RunReviewResult {
@@ -177,6 +183,7 @@ export async function runReviewFromChange(
     ...(options.disabledProviders !== undefined
       ? { disabledProviders: options.disabledProviders }
       : {}),
+    ...(options.intent !== undefined ? { intent: options.intent } : {}),
   });
 }
 
@@ -238,6 +245,7 @@ async function buildReviewContext(input: {
     ...(options.disabledProviders !== undefined
       ? { disabledProviders: options.disabledProviders }
       : {}),
+    ...(options.intent !== undefined ? { intent: options.intent } : {}),
   };
 
   // Compute the effective patch budget: config override (if any) wins over tier-profile default.
@@ -297,6 +305,15 @@ async function buildReviewContext(input: {
       durationMs: contextBuildMs,
     },
   });
+
+  if (context.intent !== undefined && context.intent.length > 0) {
+    await emitTrace(options.traceSink, {
+      type: "intent.supplied",
+      runId,
+      timestamp: clock().toISOString(),
+      data: { intentLength: context.intent.length },
+    });
+  }
 
   await emitTrace(options.traceSink, {
     type: "risk.assessed",

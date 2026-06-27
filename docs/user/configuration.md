@@ -258,6 +258,23 @@ A `thinking` override goes under `modelRouting.default` (all roles) or `modelRou
 }
 ```
 
+### Per-run scope note (`--intent`)
+
+`--intent "<note>"` passes a free-text scope note for a single run — for example, that a change is a
+plumbing slice whose consumer lands later, so a not-yet-reachable code path may be out of scope. The
+reviewer reads it to calibrate severity and judge what counts for this change.
+
+It is a **CLI flag, not a config field**, by design: an `.ai-review.json` `intent` would let a repo
+silently down-calibrate severity on every review (the same reasoning that keeps reviewer/tier
+overrides operator-only). The note is **advisory** — sanitized and injected as data, never obeyed as
+an instruction, so it cannot disable a reviewer or suppress a finding; it only adds context. A run
+without `--intent` is unchanged. Telemetry records that a note was supplied and its length, never its
+text. Notes are capped at 1,000 characters — anything longer is truncated, so keep the note concise
+to be sure the whole thing reaches the reviewer.
+
+Unlike `conventions` (repo-wide expected exceptions, declared in config), `--intent` is per-run
+context for *this* change. Use `conventions` for durable repo norms, `--intent` for one review's scope.
+
 ## Remote telemetry export (optional)
 
 By default the runner writes counts-only telemetry to a local JSONL artifact only. To **also**

@@ -7,6 +7,7 @@ import {
   applyGitDiffDefault,
   formatConventionsHint,
   formatLocalRunHealthHeader,
+  normalizeIntent,
   parseDisabledProviders,
   parseReviewersOption,
   parseRunPublishOptions,
@@ -203,6 +204,7 @@ async function runCommand(args: string[]): Promise<void> {
   // repository variable. selectModel skips disabled candidates and falls through to the next.
   // Reviewed-repo content never reaches this — env/option only (mirrors reviewerDefinitions seam).
   const disabledProviders = parseDisabledProviders(process.env.AI_REVIEW_DISABLED_PROVIDERS);
+  const intent = normalizeIntent(readFlag(args, "--intent"));
   if (runtimeName !== undefined && runtimeName !== "dummy" && runtimeName !== "pi") {
     throw new Error(`unsupported runtime: ${runtimeName}`);
   }
@@ -309,6 +311,7 @@ async function runCommand(args: string[]): Promise<void> {
             ...(jobKind !== undefined ? { jobKind } : {}),
             ...(reviewerDefinitions !== undefined ? { reviewerDefinitions } : {}),
             ...(disabledProviders !== undefined ? { disabledProviders } : {}),
+            ...(intent !== undefined ? { intent } : {}),
           })
         : await runReviewFromChange({
             runId,
@@ -333,6 +336,7 @@ async function runCommand(args: string[]): Promise<void> {
             ...(source.incremental !== undefined ? { incremental: source.incremental } : {}),
             ...(reviewerDefinitions !== undefined ? { reviewerDefinitions } : {}),
             ...(disabledProviders !== undefined ? { disabledProviders } : {}),
+            ...(intent !== undefined ? { intent } : {}),
           });
 
     if (publishOptions.publishInline) {
