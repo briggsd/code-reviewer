@@ -269,7 +269,8 @@ silently down-calibrate severity on every review (the same reasoning that keeps 
 overrides operator-only). The note is **advisory** — sanitized and injected as data, never obeyed as
 an instruction, so it cannot disable a reviewer or suppress a finding; it only adds context. A run
 without `--intent` is unchanged. Telemetry records that a note was supplied and its length, never its
-text.
+text. Notes are capped at 1,000 characters — anything longer is truncated, so keep the note concise
+to be sure the whole thing reaches the reviewer.
 
 Unlike `conventions` (repo-wide expected exceptions, declared in config), `--intent` is per-run
 context for *this* change. Use `conventions` for durable repo norms, `--intent` for one review's scope.
