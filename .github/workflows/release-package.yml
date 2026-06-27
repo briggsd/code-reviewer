@@ -89,6 +89,36 @@ jobs:
           npm pack --pack-destination dist
           ls -l dist/*.tgz
 
+      - name: Validate publish command (dry-run)
+        # workflow_dispatch only: exercise the EXACT publish spec the tag path runs, against the
+        # just-built tarball, WITHOUT touching the registry — so a publish-command regression (e.g.
+        # the npm >= 11.5 `dist/*.tgz`-as-git-shorthand misparse fixed in #401) is caught here,
+        # before a v* tag is cut, instead of on the immutable tag. npm is upgraded to the SAME
+        # pinned version the npm-publish job uses because that misparse is a npm >= 11.5 behavior:
+        # on the runner's older default npm the dry-run would not reproduce it. --provenance needs
+        # no OIDC under --dry-run (npm defers provenance past the dry-run boundary), so this stays
+        # in the contents: read pack job and consumes no secrets — the tag path stays the only
+        # thing that actually publishes (#297). A "cannot publish over the previously published
+        # versions" error means the spec resolved + packed and npm reached the registry (the
+        # version just already exists, e.g. an ad-hoc dispatch at a released version) — that is a
+        # PASS for command validation; only a resolve/pack failure (the misparse) fails the step.
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          sudo npm install -g npm@11.5.1
+          set +e
+          out="$(npm publish ./dist/*.tgz --dry-run --provenance --access public 2>&1)"
+          code=$?
+          echo "$out"
+          if [ "$code" -eq 0 ]; then
+            exit 0
+          fi
+          if printf '%s' "$out" | grep -qF "cannot publish over the previously published versions"; then
+            echo "::notice::publish spec resolves; version already on the registry (benign for dry-run validation)"
+            exit 0
+          fi
+          echo "::error::npm publish dry-run could not resolve/pack the tarball spec"
+          exit 1
+
       - name: Upload package artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

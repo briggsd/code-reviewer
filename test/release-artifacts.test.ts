@@ -33,6 +33,18 @@ describe("release artifact workflow", () => {
     // and upgrades it with sudo (the runner's global prefix is root-owned; plain -g hits EACCES).
     expect(workflow).toContain("sudo npm install -g npm@11.5.1");
 
+    // dispatch-only dry-run: validates the publish command resolves/packs before a v* tag is cut.
+    expect(workflow).toContain("Validate publish command (dry-run)");
+    // Leading `./` is the regression guard — the same `./dist/*.tgz` fix from #401.
+    expect(workflow).toContain("npm publish ./dist/*.tgz --dry-run --provenance --access public");
+    // Dry-run must live in the `pack` job (dispatch-reachable), not on any tag-push-only job.
+    // Assert the dry-run command appears BEFORE the holdout-gate job key.
+    const dryRunAt = workflow.indexOf("npm publish ./dist/*.tgz --dry-run");
+    expect(dryRunAt).toBeGreaterThan(-1);
+    expect(dryRunAt).toBeLessThan(workflow.indexOf("\n  holdout-gate:"));
+    // The benign "version already published" tolerance must be present so it can't be silently dropped.
+    expect(workflow).toContain("cannot publish over the previously published versions");
+
     // Four jobs: pack (both triggers, no secrets), holdout-gate (dispatch-only, secrets),
     // release (tag-only, publishes the tarball), npm-publish (tag-only, publishes to npm).
     expect(workflow).toContain("holdout-gate:");

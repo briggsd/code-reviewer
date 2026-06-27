@@ -108,8 +108,11 @@ publish.** To cut a release:
 4. **Validate quality (dispatch).** Manually run `.github/workflows/release-package.yml` via
    **workflow_dispatch** against the merged commit. This builds the tarball **and** runs the
    **live holdout quality gate** (the only place provider secrets are used), uploading
-   `dist/quality-stamp.json`. Confirm the gate passes before tagging. This is the gate for the
-   release; it is not bypassed — it just runs here, not on the tag push.
+   `dist/quality-stamp.json`. It also runs a `npm publish --dry-run` of the built tarball to
+   validate the publish command resolves and packs correctly — catching a regression like the
+   `./`-less path misparse from #401 here, before the immutable tag, not on it. Confirm the
+   gate passes before tagging. This is the gate for the release; it is not bypassed — it just
+   runs here, not on the tag push.
 
    **Verify the validated commit SHA.** `workflow_dispatch` targets a **branch ref, not a SHA**, so
    if other commits land between this run and the tag, the gate will have validated a *different*
