@@ -206,6 +206,40 @@ class ErroringSecurityPiProcessRunner extends FakePiProcessRunner {
   }
 }
 
+// Like ErroringSecurityPiProcessRunner, but reproduces the EXACT production wire format from the
+// 06:51 out-of-credits incident (#315): a `message_start` event whose nested `message` carries
+// `stopReason:"error"` and an `errorMessage` that is the raw `400 {json}` Anthropic envelope —
+// including the HTML-escaped `&amp;` and the request_id. The existing #283 runner uses a
+// simplified *inline* errorMessage; this locks the real envelope shape end-to-end.
+class CreditExhaustedSecurityPiProcessRunner extends FakePiProcessRunner {
+  override async run(input: PiProcessRunInput): Promise<PiProcessRunResult> {
+    if (input.role === "security") {
+      this.calls.push(input);
+      return {
+        finalText: "",
+        events: [
+          {
+            type: "message_start",
+            message: {
+              role: "assistant",
+              content: [],
+              api: "anthropic-messages",
+              provider: "anthropic",
+              model: "claude-sonnet-4-6",
+              stopReason: "error",
+              errorMessage:
+                '400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans &amp; Billing to upgrade or purchase credits."},"request_id":"req_011Cc4btnqPh2y5XTMcjinTV"}',
+            },
+          },
+        ],
+        rawOutput: "",
+      };
+    }
+
+    return super.run(input);
+  }
+}
+
 // Every reviewer returns a model-error response (not a throw) — the exact #281 scenario.
 // Without the fix: 0 findings, decision:approved, degraded:false (silent non-review).
 // With the fix: all reviewers fail → review_failed / degraded.
@@ -1757,6 +1791,60 @@ describe("PiAgentRuntime", () => {
         "provider_error",
       );
       expect(failedSecurity?.data?.errorCategory).toBe("provider_error");
+      // provider_error is non-retryable — only one attempt.
+      expect(runner.calls.filter((call) => call.role === "security")).toHaveLength(1);
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  // #315 regression: the REAL out-of-credits wire format (message_start event, nested
+  // message.stopReason:"error", errorMessage = raw `400 {json}` envelope with `&amp;`) must
+  // classify as provider_error/non-retryable AND carry the billing-specific operator reason.
+  // Locks both the terminal-error extraction shape and the classifier reason split.
+  test("real out-of-credits envelope shape → provider_error with billing reason (#315)", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "ai-review-pi-credit-"));
+
+    try {
+      const fixture = await loadReviewFixture("examples/fixtures/auth-pr.json");
+      const tracePath = join(outputDirectory, "trace.jsonl");
+      const traceSink = new JsonlTraceSink(tracePath);
+      const runner = new CreditExhaustedSecurityPiProcessRunner();
+      const runtime = new PiAgentRuntime({
+        processRunner: runner,
+        timestamp: "2026-06-15T06:51:16.000Z",
+      });
+
+      const result = await runReview({
+        fixture,
+        runtime,
+        traceSink,
+        tracePath,
+        now: new Date("2026-06-15T06:51:16.000Z"),
+      });
+      await traceSink.close();
+
+      const events = (await readFile(tracePath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as RuntimeEvent);
+      const failedSecurity = events.find(
+        (event) => event.type === "agent.failed" && event.role === "security",
+      );
+
+      const securityFailure = result.coordinatorResult?.reviewerFailures?.find(
+        (failure) => failure.role === "security",
+      );
+      expect(securityFailure?.errorClassification).toMatchObject({
+        category: "provider_error",
+        retryable: false,
+        reason: "provider quota or billing exhausted",
+      });
+      // The operator-facing reason also reaches the trace via the agent.failed event.
+      expect(failedSecurity?.data?.errorCategory).toBe("provider_error");
+      expect(
+        (failedSecurity?.data?.errorClassification as { reason?: string } | undefined)?.reason,
+      ).toBe("provider quota or billing exhausted");
       // provider_error is non-retryable — only one attempt.
       expect(runner.calls.filter((call) => call.role === "security")).toHaveLength(1);
     } finally {

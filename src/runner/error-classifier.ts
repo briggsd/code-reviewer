@@ -28,19 +28,26 @@ export function classifyReviewError(error: unknown): ReviewErrorClassification {
   // 429, and an out-of-usage message can read "...keep going" / "try again".
   // Retrying these only burns budget. Generic/unknown provider envelopes (handled
   // lower) stay below the transient branch so an overloaded_error still retries.
+  // Billing/credit/quota exhaustion is the most actionable triage signal in this branch
+  // (operator response is "top up the account", not "debug a code bug"), so detect it FIRST
+  // and give it a distinct operator-facing reason. The remaining terminal rejections
+  // (malformed request, unknown model) keep the generic reason. Both stay
+  // `provider_error`/non-retryable — only the `reason` string differs by group. Reasons are
+  // fixed literals (no raw-error interpolation) so they never echo provider text or secrets.
   if (
     matchesAny(text, [
-      "invalid_request_error",
       "out of extra usage",
       "out of usage",
       "insufficient_quota",
       "quota exceeded",
       "billing",
       "credit",
-      "model not found",
-      "invalid model",
     ])
   ) {
+    return nonRetryable("provider_error", "provider quota or billing exhausted");
+  }
+
+  if (matchesAny(text, ["invalid_request_error", "model not found", "invalid model"])) {
     return nonRetryable("provider_error", "provider rejected the request");
   }
 
