@@ -10,7 +10,12 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Changed
+- Billing/credit/quota-exhaustion provider errors now carry the operator reason `provider quota or
+  billing exhausted` in `errorClassification.reason` (was the shared `provider rejected the
+  request`). Other terminal rejections (malformed request, unknown model) keep the old reason. Both
+  groups stay `category: "provider_error"` / non-retryable — only the `reason` literal differs, so
+  operators parsing `trace.jsonl` `agent.failed` events by `reason` can update their queries (#315).
 
 ## [0.4.0] - 2026-06-21
 
