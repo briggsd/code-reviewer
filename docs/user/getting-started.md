@@ -143,5 +143,6 @@ code-reviewer run --git-diff --runtime pi
 ```
 
 This reviews local git changes and prints the result; it does not publish. In a
-cloned checkout of this repo, `bun run review` and `bun run review:local` are
-shortcuts for the two commands above.
+cloned checkout of this repo there are shortcuts for each: `bun run review:local`
+runs the dummy (free) check, and `bun run review` runs the real model-backed pi
+review (needs pi auth).
