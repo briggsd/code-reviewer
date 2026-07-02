@@ -160,12 +160,15 @@ describe("CLI --api-key flag", () => {
 
 describe("CLI --pi-* deprecation warning", () => {
   test("--pi-provider and --pi-model emit a deprecation warning to stderr", async () => {
+    // --runtime dummy keeps this hermetic: the deprecation note is emitted before runtime
+    // construction, so --runtime pi is unnecessary here and would spawn a real pi subprocess
+    // (a live call if a provider key is present) — see the "valid parse" tests' note.
     const result = await runCli([
       "run",
       "--fixture",
       "examples/fixtures/auth-pr.json",
       "--runtime",
-      "pi",
+      "dummy",
       "--pi-provider",
       "anthropic",
       "--pi-model",
