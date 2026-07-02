@@ -11,6 +11,8 @@ import {
   parseDisabledProviders,
   parseReviewersOption,
   parseRunPublishOptions,
+  resolveConventionApiKey,
+  resolveRuntimeName,
 } from "./cli/run-options.ts";
 import { resolveRemoteEndpoint } from "./cli/telemetry-auth.ts";
 import type {
@@ -180,7 +182,9 @@ async function runCommand(args: string[]): Promise<void> {
     }
   }
   const outputDirectory = applyGitDiffDefault(readFlag(args, "--output-dir"), args, ".ai-review");
-  const runtimeName = applyGitDiffDefault(readFlag(args, "--runtime"), args, "dummy");
+  // Raw explicit --runtime (before auto-infer). The effective runtimeName is resolved below, once
+  // the model/auth flags have been read, via resolveRuntimeName (M035 S02, #407).
+  const explicitRuntime = readFlag(args, "--runtime");
   const jobKind = readFlag(args, "--job-kind");
   const outputFormat = readFlag(args, "--format") ?? "json";
   // Generic model/key flags (M035 S01, #406): runtime-agnostic --model and --api-key.
@@ -209,8 +213,8 @@ async function runCommand(args: string[]): Promise<void> {
   // Reviewed-repo content never reaches this — env/option only (mirrors reviewerDefinitions seam).
   const disabledProviders = parseDisabledProviders(process.env.AI_REVIEW_DISABLED_PROVIDERS);
   const intent = normalizeIntent(readFlag(args, "--intent"));
-  if (runtimeName !== undefined && runtimeName !== "dummy" && runtimeName !== "pi") {
-    throw new Error(`unsupported runtime: ${runtimeName}`);
+  if (explicitRuntime !== undefined && explicitRuntime !== "dummy" && explicitRuntime !== "pi") {
+    throw new Error(`unsupported runtime: ${explicitRuntime}`);
   }
   if (outputFormat !== "json" && outputFormat !== "markdown") {
     throw new Error(`unsupported format: ${outputFormat}`);
@@ -252,16 +256,39 @@ async function runCommand(args: string[]): Promise<void> {
     model = piModel;
   }
 
+  // Resolve the effective runtime (M035 S02, #407). An explicit --runtime wins; otherwise a real
+  // model/auth flag auto-infers pi (so you don't say pi twice). An explicit --runtime dummy with a
+  // real model/auth flag is rejected loudly by resolveRuntimeName (it would run a fake review).
+  const hasRealModelOrAuthSignal =
+    modelArg !== undefined ||
+    apiKeyArg !== undefined ||
+    piProvider !== undefined ||
+    piModel !== undefined ||
+    piApiKeyArg !== undefined;
+  const runtimeName = resolveRuntimeName(
+    explicitRuntime,
+    hasRealModelOrAuthSignal,
+    args.includes("--git-diff"),
+  );
+
   // Determine which api-key flag was used so error messages name the flag the user typed.
   const usedApiKeyFlagName = apiKeyArg !== undefined ? "--api-key" : "--pi-api-key";
   const rawApiKey = apiKeyArg ?? piApiKeyArg;
-  if (rawApiKey !== undefined && runtimeName !== "pi") {
-    throw new Error(`${usedApiKeyFlagName} requires --runtime pi`);
-  }
-  // Resolve to the literal key. `env:NAME` indirection keeps the secret out of shell history;
-  // a bare value is accepted too. The resolved key is only forwarded into the spawned `pi` argv.
-  const piApiKey =
+  // Resolve an explicit key (`env:NAME` indirection keeps the secret out of shell history; a bare
+  // value is accepted too). With no explicit key but pi selected via --model, forward the provider-
+  // convention env var (e.g. anthropic → ANTHROPIC_API_KEY) as pi's --api-key — this defeats the
+  // #42 quirk where pi prefers stored OAuth over the env key. Either way the key goes into the
+  // spawned `pi` argv ONLY — never trace/telemetry (M008).
+  const explicitApiKey =
     rawApiKey !== undefined ? resolveApiKey(rawApiKey, usedApiKeyFlagName) : undefined;
+  const piApiKey =
+    explicitApiKey ??
+    resolveConventionApiKey({
+      runtimeName,
+      fromModelFlag: modelArg !== undefined,
+      provider,
+      env: process.env,
+    });
 
   const now = new Date();
   const runId =
@@ -782,6 +809,9 @@ function printHelp(): void {
   );
   console.log(
     "      --pi-provider/--pi-model/--pi-api-key are deprecated aliases for --model and --api-key",
+  );
+  console.log(
+    "      --runtime is auto-selected as pi when --model/--api-key (or a --pi-* flag) is given and --runtime is omitted",
   );
   console.log(
     "  run --git-diff [--base <ref>] [--change-id <id>] [--include-untracked] [--config <path>] [--seed-fixture <path>]",

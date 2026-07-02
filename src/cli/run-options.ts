@@ -39,8 +39,9 @@ export function formatLocalRunHealthHeader(summary: ReviewSummary): string[] {
  * When the flag was explicitly set, its value wins. When --git-diff is present and
  * no explicit value was provided, the given fallback is returned. Otherwise undefined.
  *
- * Used in runCommand for --output-dir (defaults to ".ai-review") and --runtime
- * (defaults to "dummy") so the defaulting logic has a single, tested, non-test consumer.
+ * Used in runCommand for --output-dir (defaults to ".ai-review") so the defaulting
+ * logic has a single, tested, non-test consumer. Runtime defaulting is handled by
+ * resolveRuntimeName.
  */
 export function applyGitDiffDefault(
   value: string | undefined,
@@ -48,6 +49,41 @@ export function applyGitDiffDefault(
   fallback: string,
 ): string | undefined {
   return value ?? (args.includes("--git-diff") ? fallback : undefined);
+}
+
+/**
+ * Resolve the effective runtime name from the explicit --runtime flag, model/auth signal,
+ * and --git-diff context (#407). When --runtime is explicit it wins (with one loud guard:
+ * an explicit dummy combined with a real model/auth flag would run a fake review while the
+ * operator believes they asked for a real one — this is rejected with a clear error).
+ * Without an explicit runtime, a real model/auth signal infers pi; otherwise the prior
+ * default applies: dummy under --git-diff, undefined otherwise (which runReview turns into
+ * deterministic fake reviewers). Unsupported-runtime validation is handled separately by
+ * the caller.
+ */
+export function resolveRuntimeName(
+  explicitRuntime: string | undefined,
+  hasRealModelOrAuthSignal: boolean,
+  gitDiff: boolean,
+): string | undefined {
+  if (explicitRuntime !== undefined) {
+    // Explicit --runtime wins. Guard the one dangerous combination: a real model/auth flag under
+    // an explicit dummy runtime would run a FAKE review while the operator believes they asked for
+    // a real one (wart #2's inverse). Fail loudly instead of silently faking.
+    if (explicitRuntime === "dummy" && hasRealModelOrAuthSignal) {
+      throw new Error(
+        "--runtime dummy cannot be combined with --model/--api-key/--pi-* (dummy runs a fake review — drop --runtime to auto-select pi, or drop the model/key flags)",
+      );
+    }
+    return explicitRuntime;
+  }
+  // No explicit --runtime: a real model/auth flag signals intent for a real review → pi.
+  if (hasRealModelOrAuthSignal) {
+    return "pi";
+  }
+  // Otherwise preserve the prior default: dummy under --git-diff, else undefined (which runReview
+  // turns into deterministic fake reviewers).
+  return gitDiff ? "dummy" : undefined;
 }
 
 export interface RunPublishOptions {
@@ -115,6 +151,46 @@ export function normalizeIntent(raw: string | undefined): string | undefined {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return undefined;
   return trimmed.slice(0, 1000);
+}
+
+// Conventional API-key env var per provider (mirrors the CI real-pi job's env block). Extend this
+// map as providers are added. An unmapped provider has no convention (returns undefined).
+const PROVIDER_API_KEY_ENV: Record<string, string> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  openai: "OPENAI_API_KEY",
+  google: "GOOGLE_GENERATIVE_AI_API_KEY",
+};
+
+export function conventionApiKeyEnvVar(provider: string): string | undefined {
+  return PROVIDER_API_KEY_ENV[provider];
+}
+
+/**
+ * Resolve the convention API key to forward as pi's --api-key (#407). Applies ONLY when pi was
+ * selected via the generic --model path and no explicit --api-key was given (the caller passes an
+ * `env` snapshot so this stays pure/testable). Forwarding an env key as an explicit --api-key
+ * defeats the #42 quirk where pi prefers a stored OAuth credential over the ANTHROPIC_API_KEY env
+ * var. Returns undefined when it does not apply or when the convention env var is unset/empty (pi
+ * then falls back to its own auth resolution). Throws for a --model provider with no known
+ * convention, so a real review is not silently OAuth-shadowed — the operator must pass --api-key.
+ */
+export function resolveConventionApiKey(opts: {
+  runtimeName: string | undefined;
+  fromModelFlag: boolean;
+  provider: string | undefined;
+  env: Record<string, string | undefined>;
+}): string | undefined {
+  if (opts.runtimeName !== "pi" || !opts.fromModelFlag || opts.provider === undefined) {
+    return undefined;
+  }
+  const envVar = conventionApiKeyEnvVar(opts.provider);
+  if (envVar === undefined) {
+    throw new Error(
+      `--model provider '${opts.provider}' has no conventional API-key env var; pass --api-key explicitly`,
+    );
+  }
+  const value = opts.env[envVar];
+  return value !== undefined && value.length > 0 ? value : undefined;
 }
 
 export function parseDisabledProviders(raw: string | undefined): readonly string[] | undefined {
