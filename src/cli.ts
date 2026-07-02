@@ -277,14 +277,18 @@ async function runCommand(args: string[]): Promise<void> {
   // Resolve an explicit key (`env:NAME` indirection keeps the secret out of shell history; a bare
   // value is accepted too). With no explicit key but pi selected via --model, forward the provider-
   // convention env var (e.g. anthropic → ANTHROPIC_API_KEY) as pi's --api-key — this defeats the
-  // #42 quirk where pi prefers stored OAuth over the env key. Either way the key goes into the
-  // spawned `pi` argv ONLY — never trace/telemetry (M008).
+  // #42 quirk where pi prefers stored OAuth over the env key. Forwarding materializes an env-only
+  // key onto the spawned `pi` argv (visible via ps / /proc/<pid>/cmdline) — the SAME boundary the
+  // explicit --api-key flag already crosses by design (see resolveApiKey); never trace/telemetry
+  // (M008). runtimeAutoInferred distinguishes an auto-selected pi from an explicit --runtime pi so
+  // the unknown-provider guard only fires on auto-infer (see resolveConventionApiKey).
   const explicitApiKey =
     rawApiKey !== undefined ? resolveApiKey(rawApiKey, usedApiKeyFlagName) : undefined;
   const piApiKey =
     explicitApiKey ??
     resolveConventionApiKey({
       runtimeName,
+      runtimeAutoInferred: explicitRuntime === undefined && runtimeName === "pi",
       fromModelFlag: modelArg !== undefined,
       provider,
       env: process.env,
@@ -812,6 +816,9 @@ function printHelp(): void {
   );
   console.log(
     "      --runtime is auto-selected as pi when --model/--api-key (or a --pi-* flag) is given and --runtime is omitted",
+  );
+  console.log(
+    "      with --model, the provider's conventional key env var (anthropic→ANTHROPIC_API_KEY, openai→OPENAI_API_KEY, google→GOOGLE_GENERATIVE_AI_API_KEY) is auto-forwarded; other providers need --api-key",
   );
   console.log(
     "  run --git-diff [--base <ref>] [--change-id <id>] [--include-untracked] [--config <path>] [--seed-fixture <path>]",

@@ -171,11 +171,18 @@ export function conventionApiKeyEnvVar(provider: string): string | undefined {
  * `env` snapshot so this stays pure/testable). Forwarding an env key as an explicit --api-key
  * defeats the #42 quirk where pi prefers a stored OAuth credential over the ANTHROPIC_API_KEY env
  * var. Returns undefined when it does not apply or when the convention env var is unset/empty (pi
- * then falls back to its own auth resolution). Throws for a --model provider with no known
- * convention, so a real review is not silently OAuth-shadowed — the operator must pass --api-key.
+ * then falls back to its own auth resolution).
+ *
+ * For a --model provider with no known convention: when pi was AUTO-INFERRED (no explicit
+ * --runtime), this throws — the operator gave only `--model <provider>/…`, so requiring an explicit
+ * --api-key keeps a real review from silently relying on a possibly-wrong stored OAuth identity.
+ * When the operator EXPLICITLY passed --runtime pi (`runtimeAutoInferred` false), it returns
+ * undefined instead, preserving the pre-#407 path where pi resolves its own env/OAuth auth for
+ * out-of-convention providers.
  */
 export function resolveConventionApiKey(opts: {
   runtimeName: string | undefined;
+  runtimeAutoInferred: boolean;
   fromModelFlag: boolean;
   provider: string | undefined;
   env: Record<string, string | undefined>;
@@ -185,9 +192,12 @@ export function resolveConventionApiKey(opts: {
   }
   const envVar = conventionApiKeyEnvVar(opts.provider);
   if (envVar === undefined) {
-    throw new Error(
-      `--model provider '${opts.provider}' has no conventional API-key env var; pass --api-key explicitly`,
-    );
+    if (opts.runtimeAutoInferred) {
+      throw new Error(
+        `--model provider '${opts.provider}' has no conventional API-key env var; pass --api-key explicitly`,
+      );
+    }
+    return undefined;
   }
   const value = opts.env[envVar];
   return value !== undefined && value.length > 0 ? value : undefined;

@@ -90,6 +90,7 @@ describe("resolveConventionApiKey (#407 env-key forward)", () => {
     expect(
       resolveConventionApiKey({
         runtimeName: "pi",
+        runtimeAutoInferred: true,
         fromModelFlag: true,
         provider: "anthropic",
         env: { ANTHROPIC_API_KEY: "sk-x" },
@@ -101,6 +102,7 @@ describe("resolveConventionApiKey (#407 env-key forward)", () => {
     expect(
       resolveConventionApiKey({
         runtimeName: "pi",
+        runtimeAutoInferred: true,
         fromModelFlag: true,
         provider: "anthropic",
         env: {},
@@ -109,6 +111,7 @@ describe("resolveConventionApiKey (#407 env-key forward)", () => {
     expect(
       resolveConventionApiKey({
         runtimeName: "pi",
+        runtimeAutoInferred: true,
         fromModelFlag: true,
         provider: "anthropic",
         env: { ANTHROPIC_API_KEY: "" },
@@ -116,10 +119,11 @@ describe("resolveConventionApiKey (#407 env-key forward)", () => {
     ).toBeUndefined();
   });
 
-  test("throws for a --model provider with no known convention (must pass --api-key)", () => {
+  test("throws for an unknown --model provider only when pi was AUTO-INFERRED (must pass --api-key)", () => {
     expect(() =>
       resolveConventionApiKey({
         runtimeName: "pi",
+        runtimeAutoInferred: true,
         fromModelFlag: true,
         provider: "exotic",
         env: {},
@@ -127,11 +131,24 @@ describe("resolveConventionApiKey (#407 env-key forward)", () => {
     ).toThrow("no conventional API-key env var");
   });
 
+  test("an explicit --runtime pi with an unknown --model provider defers to pi's native auth (no throw)", () => {
+    expect(
+      resolveConventionApiKey({
+        runtimeName: "pi",
+        runtimeAutoInferred: false, // operator explicitly chose pi — back-compat with pre-#407
+        fromModelFlag: true,
+        provider: "exotic",
+        env: {},
+      }),
+    ).toBeUndefined();
+  });
+
   test("does not apply for non-pi runtime, the deprecated --pi-* path, or a missing provider", () => {
     const key = { ANTHROPIC_API_KEY: "sk-x" };
     expect(
       resolveConventionApiKey({
         runtimeName: "dummy",
+        runtimeAutoInferred: false,
         fromModelFlag: true,
         provider: "anthropic",
         env: key,
@@ -140,6 +157,7 @@ describe("resolveConventionApiKey (#407 env-key forward)", () => {
     expect(
       resolveConventionApiKey({
         runtimeName: "pi",
+        runtimeAutoInferred: false,
         fromModelFlag: false, // deprecated --pi-provider path keeps pi's native env/OAuth resolution
         provider: "anthropic",
         env: key,
@@ -148,6 +166,7 @@ describe("resolveConventionApiKey (#407 env-key forward)", () => {
     expect(
       resolveConventionApiKey({
         runtimeName: "pi",
+        runtimeAutoInferred: true,
         fromModelFlag: true,
         provider: undefined,
         env: key,
