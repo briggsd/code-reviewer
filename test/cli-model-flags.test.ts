@@ -122,7 +122,9 @@ describe("CLI --api-key flag", () => {
     expect(result.stderr).toContain("--api-key cannot be combined with --pi-api-key");
   });
 
-  test("--api-key with a non-pi runtime fails with --api-key in the message", async () => {
+  test("--api-key under an explicit --runtime dummy is rejected loudly (#407)", async () => {
+    // #407: auto-infer replaced the old "--api-key requires --runtime pi" error. An explicit
+    // --runtime dummy with a real auth flag would run a fake review, so it is rejected loudly.
     const result = await runCli([
       "run",
       "--fixture",
@@ -134,7 +136,7 @@ describe("CLI --api-key flag", () => {
     ]);
 
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("--api-key requires --runtime pi");
+    expect(result.stderr).toContain("--runtime dummy cannot be combined with");
     // Key value must never be echoed.
     expect(result.stderr).not.toContain("sk-ant-test");
   });
@@ -160,9 +162,9 @@ describe("CLI --api-key flag", () => {
 
 describe("CLI --pi-* deprecation warning", () => {
   test("--pi-provider and --pi-model emit a deprecation warning to stderr", async () => {
-    // --runtime dummy keeps this hermetic: the deprecation note is emitted before runtime
-    // construction, so --runtime pi is unnecessary here and would spawn a real pi subprocess
-    // (a live call if a provider key is present) — see the "valid parse" tests' note.
+    // The deprecation note is emitted before runtime resolution. --runtime dummy + a --pi-* signal
+    // is itself rejected loudly (#407), so this never reaches runtime construction — hermetic, and
+    // the warning still surfaces before the error.
     const result = await runCli([
       "run",
       "--fixture",
@@ -177,6 +179,43 @@ describe("CLI --pi-* deprecation warning", () => {
 
     // The deprecation note must appear regardless of whether the run itself succeeded.
     expect(result.stderr).toContain("deprecated");
+  });
+});
+
+describe("CLI runtime auto-infer (#407)", () => {
+  // These prove --runtime is auto-inferred to pi from a real model/auth flag. Each uses an input
+  // that ERRORS before PiAgentRuntime is constructed, so no real `pi` subprocess is ever spawned
+  // (a live call / hang would otherwise result when a provider key is present in the environment).
+  test("--pi-api-key with no --runtime infers pi (old 'requires --runtime pi' wart is gone)", async () => {
+    const result = await runCli([
+      "run",
+      "--fixture",
+      "examples/fixtures/auth-pr.json",
+      "--pi-api-key",
+      "env:AI_REVIEW_TEST_MISSING_KEY_407",
+    ]);
+
+    expect(result.exitCode).not.toBe(0);
+    // Auto-infer selected pi, so resolution proceeds to the key step and fails on the unset env
+    // var — NOT on the removed "requires --runtime pi" guard.
+    expect(result.stderr).toContain("is empty or unset");
+    expect(result.stderr).not.toContain("requires --runtime pi");
+  });
+
+  test("--model with no --runtime infers pi; an unknown provider requires an explicit --api-key", async () => {
+    const result = await runCli([
+      "run",
+      "--fixture",
+      "examples/fixtures/auth-pr.json",
+      "--model",
+      "exotic/some-model",
+    ]);
+
+    expect(result.exitCode).not.toBe(0);
+    // Auto-infer selected pi; the convention env-key lookup has no entry for 'exotic', so it fails
+    // fast asking for an explicit --api-key (before any pi spawn).
+    expect(result.stderr).toContain("no conventional API-key env var");
+    expect(result.stderr).not.toContain("requires --runtime pi");
   });
 });
 

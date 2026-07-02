@@ -58,7 +58,9 @@ describe("CLI CI exit behavior", () => {
 });
 
 describe("CLI Pi auth + progress flags", () => {
-  test("rejects --pi-api-key unless the Pi runtime is selected (#42)", async () => {
+  test("rejects a real auth flag under an explicit --runtime dummy (#42/#407)", async () => {
+    // #407: auto-infer replaced the old "--pi-api-key requires --runtime pi" error. An explicit
+    // --runtime dummy with a real auth flag is now rejected loudly (it would run a fake review).
     const result = await runCli([
       "run",
       "--fixture",
@@ -70,7 +72,7 @@ describe("CLI Pi auth + progress flags", () => {
     ]);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("--pi-api-key requires --runtime pi");
+    expect(result.stderr).toContain("--runtime dummy cannot be combined with");
     // The rejected key value must never be echoed back.
     expect(result.stderr).not.toContain("sk-ant-should-not-be-used");
     expect(result.stdout).toBe("");

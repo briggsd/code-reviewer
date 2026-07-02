@@ -234,3 +234,21 @@
   *substantive-diff* counterpart to the #65 trivial-diff exemption above: a fast empty review on a
   trivial diff is fine; an empty review because every reviewer hit a provider error is the bug.
 - Do not expose provider secrets or disable the real-Pi review workflow's default-off gate.
+- Runtime auto-infer (#407, M035 S02) fires ONLY on an explicit real-model/auth flag
+  (`--model`/`--api-key` or a legacy `--pi-*`). A plain run with no such flag still defaults to
+  `dummy` (under `--git-diff`) or deterministic-fake — do not make auto-infer flip the global
+  default (that is the fork-safety rail: a fork with no secret and no model flag must never
+  auto-select pi). An explicit `--runtime dummy` combined with a real model/auth flag is rejected
+  loudly on purpose (it would run a fake review while the operator believes they asked for a real
+  one) — do not soften it to a silent dummy.
+- The `--model` convention env-key forward (#407) auto-forwards a provider's conventional key env
+  var (anthropic→`ANTHROPIC_API_KEY`, openai→`OPENAI_API_KEY`, google→`GOOGLE_GENERATIVE_AI_API_KEY`)
+  as pi's `--api-key` to defeat the #42 OAuth-shadow quirk. This materializes an env-only key onto
+  the spawned `pi` argv — the SAME boundary the explicit `--api-key`/`--pi-api-key` flags already
+  cross by design (see `resolveApiKey`); it is argv-only, never trace/telemetry (M008). Do not
+  "harden" this by dropping the forward (it reintroduces the silent OAuth-shadow) — argv exposure
+  is an accepted, pre-existing trade-off of key-override on this runtime. The forward is scoped to
+  the `--model` path only: the deprecated `--pi-provider` path keeps pi's native env/OAuth
+  resolution, so the CI real-pi job is unaffected. The unknown-provider hard-error fires only when
+  pi was AUTO-INFERRED; an explicit `--runtime pi` still defers to pi's native auth for
+  out-of-convention providers (pre-#407 back-compat).
