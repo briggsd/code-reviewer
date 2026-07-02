@@ -1094,4 +1094,19 @@ describe(".ai-review.json modelRouting routes complex roles to a non-dummy model
       expect(routing?.provider, `modelRouting.roles.${role}.provider`).toBe(opusProvider);
     }
   });
+
+  // The default is what documentation (and any role not listed above) routes to when `bun run
+  // review` runs pi with no --pi-model (#408). It must be a real, non-dummy model or those
+  // reviewers would run without a model under pi.
+  test("routes unlisted roles (e.g. documentation) to a real default model", async () => {
+    const raw = await readFile(join(import.meta.dir, "../.ai-review.json"), "utf-8");
+    const parsed: unknown = JSON.parse(raw);
+    const config = normalizeReviewConfig(parsed);
+
+    const fallback = config.modelRouting.default;
+    expect(fallback, "modelRouting.default should be defined").toBeDefined();
+    expect(fallback.provider).toBe("anthropic");
+    expect(fallback.provider).not.toBe("dummy");
+    expect(fallback.model).toBe("claude-sonnet-4-6");
+  });
 });

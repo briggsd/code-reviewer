@@ -125,3 +125,24 @@ first run, verify:
 After the smoke PR is stable, switch trusted jobs from `dummy` to `pi`, add model
 credentials only there, and rerun the same kind of small change before scaling to
 larger diffs.
+
+## 6. Review locally (optional)
+
+To preview a review of your uncommitted changes before opening a PR, run the CLI
+against your working tree with `--git-diff`. A no-cost dummy pass checks the wiring:
+
+```bash
+code-reviewer run --git-diff --runtime dummy
+```
+
+For a real model-backed review, use `--runtime pi` with a provider key available in
+the environment (for example `ANTHROPIC_API_KEY`) or a stored pi OAuth credential:
+
+```bash
+code-reviewer run --git-diff --runtime pi
+```
+
+This reviews local git changes and prints the result; it does not publish. In a
+cloned checkout of this repo there are shortcuts for each: `bun run review:local`
+runs the dummy (free) check, and `bun run review` runs the real model-backed pi
+review (needs pi auth).
