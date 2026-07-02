@@ -183,6 +183,10 @@ async function runCommand(args: string[]): Promise<void> {
   const runtimeName = applyGitDiffDefault(readFlag(args, "--runtime"), args, "dummy");
   const jobKind = readFlag(args, "--job-kind");
   const outputFormat = readFlag(args, "--format") ?? "json";
+  // Generic model/key flags (M035 S01, #406): runtime-agnostic --model and --api-key.
+  // The --pi-* variants are deprecated aliases that resolve into the same internal path.
+  const modelArg = readFlag(args, "--model");
+  const apiKeyArg = readFlag(args, "--api-key");
   const piProvider = readFlag(args, "--pi-provider");
   const piModel = readFlag(args, "--pi-model");
   const piApiKeyArg = readFlag(args, "--pi-api-key");
@@ -211,15 +215,53 @@ async function runCommand(args: string[]): Promise<void> {
   if (outputFormat !== "json" && outputFormat !== "markdown") {
     throw new Error(`unsupported format: ${outputFormat}`);
   }
-  if ((piProvider === undefined) !== (piModel === undefined)) {
-    throw new Error("--pi-provider and --pi-model must be provided together");
+
+  // Emit one deprecation note if any --pi-* flag is present (before validation so it surfaces
+  // even if a subsequent check also errors).
+  if (piProvider !== undefined || piModel !== undefined || piApiKeyArg !== undefined) {
+    console.error(
+      "warning: --pi-provider/--pi-model/--pi-api-key are deprecated; use --model <provider>/<model> and --api-key",
+    );
   }
-  if (piApiKeyArg !== undefined && runtimeName !== "pi") {
-    throw new Error("--pi-api-key requires --runtime pi");
+
+  // Conflict: --model and --pi-provider/--pi-model are mutually exclusive.
+  if (modelArg !== undefined && (piProvider !== undefined || piModel !== undefined)) {
+    throw new Error("--model cannot be combined with --pi-provider/--pi-model (use one)");
+  }
+  // Conflict: --api-key and --pi-api-key are mutually exclusive.
+  if (apiKeyArg !== undefined && piApiKeyArg !== undefined) {
+    throw new Error("--api-key cannot be combined with --pi-api-key (use one)");
+  }
+
+  // Resolve provider + model. --model <provider>/<model> splits on the first '/' only.
+  let provider: string | undefined;
+  let model: string | undefined;
+  if (modelArg !== undefined) {
+    const slashIndex = modelArg.indexOf("/");
+    if (slashIndex <= 0 || slashIndex === modelArg.length - 1) {
+      throw new Error("--model must be <provider>/<model> (e.g. anthropic/claude-sonnet-4-6)");
+    }
+    provider = modelArg.slice(0, slashIndex);
+    model = modelArg.slice(slashIndex + 1);
+  } else {
+    // --pi-provider/--pi-model deprecated path: must be provided together.
+    if ((piProvider === undefined) !== (piModel === undefined)) {
+      throw new Error("--pi-provider and --pi-model must be provided together");
+    }
+    provider = piProvider;
+    model = piModel;
+  }
+
+  // Determine which api-key flag was used so error messages name the flag the user typed.
+  const usedApiKeyFlagName = apiKeyArg !== undefined ? "--api-key" : "--pi-api-key";
+  const rawApiKey = apiKeyArg ?? piApiKeyArg;
+  if (rawApiKey !== undefined && runtimeName !== "pi") {
+    throw new Error(`${usedApiKeyFlagName} requires --runtime pi`);
   }
   // Resolve to the literal key. `env:NAME` indirection keeps the secret out of shell history;
   // a bare value is accepted too. The resolved key is only forwarded into the spawned `pi` argv.
-  const piApiKey = piApiKeyArg === undefined ? undefined : resolvePiApiKey(piApiKeyArg);
+  const piApiKey =
+    rawApiKey !== undefined ? resolveApiKey(rawApiKey, usedApiKeyFlagName) : undefined;
 
   const now = new Date();
   const runId =
@@ -261,8 +303,8 @@ async function runCommand(args: string[]): Promise<void> {
       ? new DummyAgentRuntime({ defaultFindings: source.fakeFindings })
       : runtimeName === "pi"
         ? new PiAgentRuntime({
-            ...(piProvider !== undefined && piModel !== undefined
-              ? { defaultModel: { provider: piProvider, model: piModel } }
+            ...(provider !== undefined && model !== undefined
+              ? { defaultModel: { provider: provider, model: model } }
               : {}),
             ...(piApiKey !== undefined ? { piApiKey } : {}),
           })
@@ -651,23 +693,25 @@ function requiredFlag(args: string[], name: string): string {
   return value;
 }
 
-// Resolve a `--pi-api-key` argument to the literal key. `env:NAME` reads the named env var
+// Resolve an api-key argument to the literal key. `env:NAME` reads the named env var
 // (preferred — keeps the key out of the calling shell's history); any other value is the literal
 // key. Never logged. The resolved key is forwarded into the spawned `pi --api-key` argv, which is
 // inherent to pi's auth-override mechanism and IS visible in the child process's command line
 // (`ps` / `/proc/<pid>/cmdline`) — `env:NAME` does not change that, it only protects shell history.
-function resolvePiApiKey(raw: string): string {
+// flagName is the CLI flag name the user actually passed (e.g. "--api-key" or "--pi-api-key"),
+// used verbatim in error messages so the user sees the flag they typed.
+function resolveApiKey(raw: string, flagName: string): string {
   if (raw.startsWith("env:")) {
     const name = raw.slice("env:".length);
     const value = process.env[name];
     if (value === undefined || value.length === 0) {
-      throw new Error(`--pi-api-key env:${name} requested but ${name} is empty or unset`);
+      throw new Error(`${flagName} env:${name} requested but ${name} is empty or unset`);
     }
     return value;
   }
 
   if (raw.length === 0) {
-    throw new Error("--pi-api-key value must not be empty");
+    throw new Error(`${flagName} value must not be empty`);
   }
 
   return raw;
@@ -728,13 +772,16 @@ function printHelp(): void {
   console.log("  schemas                              Print reviewer/coordinator output schemas");
   console.log("  run --fixture <path> [--config <path>] [--output-dir] [--runtime dummy|pi]");
   console.log(
-    "      [--format json|markdown] [--ci-exit] [--job-kind <string>] [--redact-trace] [--pi-provider <name> --pi-model <id>]",
+    "      [--format json|markdown] [--ci-exit] [--job-kind <string>] [--redact-trace] [--model <provider>/<model>]",
   );
   console.log(
-    "      [--pi-api-key <key|env:NAME>] [--progress|--no-progress]   (pi auth precedence: --pi-api-key > stored OAuth > env key)",
+    "      [--api-key <key|env:NAME>] [--progress|--no-progress]   (pi auth precedence: --api-key > stored OAuth > env key)",
   );
   console.log(
     "      [--reviewers <path>]   Operator-supplied reviewer definitions module (explicit load; applies to all run forms; merge-by-role/operator-wins, or full-replace via { definitions, replace:true })",
+  );
+  console.log(
+    "      --pi-provider/--pi-model/--pi-api-key are deprecated aliases for --model and --api-key",
   );
   console.log(
     "  run --git-diff [--base <ref>] [--change-id <id>] [--include-untracked] [--config <path>] [--seed-fixture <path>]",
@@ -743,7 +790,7 @@ function printHelp(): void {
     "      [--runtime dummy|pi] [--output-dir <path>] [--format json|markdown] [--ci-exit] [--redact-trace] [--reviewers <path>]",
   );
   console.log(
-    "      [--job-kind <string>] [--pi-provider <name> --pi-model <id>] [--pi-api-key <key|env:NAME>] [--progress|--no-progress]",
+    "      [--job-kind <string>] [--model <provider>/<model>] [--api-key <key|env:NAME>] [--progress|--no-progress]",
   );
   console.log("                                       Review local git changes; no publish.");
   console.log(
@@ -761,7 +808,7 @@ function printHelp(): void {
     "      [--output-dir <path>] [--format json|markdown] [--publish-summary] [--publish-inline] [--ci-exit] [--redact-trace]",
   );
   console.log(
-    "      [--job-kind <string>] [--pi-provider <name> --pi-model <id>] [--pi-api-key <key|env:NAME>] [--reviewers <path>] [--progress|--no-progress]",
+    "      [--job-kind <string>] [--model <provider>/<model>] [--api-key <key|env:NAME>] [--reviewers <path>] [--progress|--no-progress]",
   );
   console.log("                                       Run deterministic local review");
 }
