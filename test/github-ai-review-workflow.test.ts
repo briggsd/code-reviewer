@@ -23,8 +23,11 @@ describe("repository AI review workflow", () => {
     expect(workflow).toContain("AI_REVIEW_PI_PROVIDER: ${{ vars.AI_REVIEW_PI_PROVIDER }}");
     expect(workflow).toContain("AI_REVIEW_PI_MODEL: ${{ vars.AI_REVIEW_PI_MODEL }}");
     expect(workflow).toContain("--runtime pi");
-    expect(workflow).toContain('--pi-provider "${AI_REVIEW_PI_PROVIDER:-anthropic}"');
-    expect(workflow).toContain('--pi-model "${AI_REVIEW_PI_MODEL:-claude-sonnet-4-6}"');
+    // Generic --model (M035): provider/model composed from the same env vars. --runtime pi stays
+    // explicit; the convention env-key forward supplies the key from ANTHROPIC_API_KEY (argv-only).
+    expect(workflow).toContain(
+      '--model "${AI_REVIEW_PI_PROVIDER:-anthropic}/${AI_REVIEW_PI_MODEL:-claude-sonnet-4-6}"',
+    );
     expect(workflow).toContain("--publish-summary");
     expect(workflow).toContain("name: ai-review-real-${{ github.event.pull_request.number }}");
     expect(workflow).not.toContain("pull_request_target:");

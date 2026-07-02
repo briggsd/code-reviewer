@@ -61,12 +61,18 @@ bun run review:local   # reviews your uncommitted git diff with the dummy runtim
 It reads the working-tree diff, so a clean checkout reviews nothing. Run `git add -N <path>`
 first if you want brand-new untracked files included.
 
-For a real model-backed review, switch to the Pi runtime and pass a provider/model:
+For a real model-backed review of your working-tree diff, run:
+
+```bash
+bun run review   # = run --git-diff --runtime pi; needs a provider key (e.g. ANTHROPIC_API_KEY) or stored pi OAuth
+```
+
+To point any run at a real model, pass `--model <provider>/<model>` — this auto-selects the Pi
+runtime, and `--api-key` takes a literal key or `env:NAME`:
 
 ```bash
 bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json \
-  --runtime pi --pi-provider anthropic --pi-model claude-sonnet-4-6 \
-  --pi-api-key env:ANTHROPIC_API_KEY
+  --model anthropic/claude-sonnet-4-6 --api-key env:ANTHROPIC_API_KEY
 ```
 
 ## Install it in another repo's CI

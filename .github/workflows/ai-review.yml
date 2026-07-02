@@ -155,8 +155,7 @@ jobs:
             --runtime pi \
             "${REDACT_ARGS[@]}" \
             --job-kind real-review \
-            --pi-provider "${AI_REVIEW_PI_PROVIDER:-anthropic}" \
-            --pi-model "${AI_REVIEW_PI_MODEL:-claude-sonnet-4-6}" \
+            --model "${AI_REVIEW_PI_PROVIDER:-anthropic}/${AI_REVIEW_PI_MODEL:-claude-sonnet-4-6}" \
             --publish-summary \
             --output-dir .ai-review \
             --ci-exit
