@@ -1,5 +1,6 @@
 {
   "modelRouting": {
+    "default": { "provider": "anthropic", "model": "claude-sonnet-4-6" },
     "roles": {
       "code_quality": { "provider": "anthropic", "model": "claude-opus-4-8" },
       "security": { "provider": "anthropic", "model": "claude-opus-4-8" },

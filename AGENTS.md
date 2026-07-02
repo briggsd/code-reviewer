@@ -48,6 +48,7 @@ bun run check          # bunx tsc --noEmit && bun test (the tsc+test core; CI bl
 bun test               # bun:test suite (tests live in test/)
 bun run src/cli.ts run --fixture examples/fixtures/auth-pr.json --runtime dummy
 bun run review:local                                                         # review local changes (shortcut: --git-diff + defaults --runtime dummy, --output-dir .ai-review). add --base main for committed branch work
+bun run review                                                               # real pi review of local changes (--git-diff --runtime pi); needs pi auth (ANTHROPIC_API_KEY env or stored pi OAuth). review:local is the no-cost dummy wiring check
 bun run src/cli.ts run --git-diff --runtime dummy --output-dir .ai-review   # same with explicit flags; any explicit --runtime / --output-dir overrides the defaults
 bun run src/cli.ts schemas        # emit config + structured-output JSON schemas
 bun run schema:config             # regenerate .ai-review.schema.json
