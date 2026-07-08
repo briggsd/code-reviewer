@@ -103,8 +103,14 @@ export class HttpTelemetryTransport implements TelemetryTransport {
       // `finally` runs either way.
       const request = this.formatRequest(event);
       // Seed with the vendor's static headers, then set the managed headers AFTER so a vendor map
-      // can never clobber the content type or the auth slot.
-      const headers: Record<string, string> = { ...this.staticHeaders };
+      // can never clobber the content type or the auth slot. Keys are lowercased when seeding
+      // because HTTP header names are case-insensitive: a differently-cased vendor key (e.g.
+      // `Content-Type`) must collapse onto the same slot as the lowercase managed key set below,
+      // or both would reach fetch and its case-insensitive fold would pick a non-guaranteed winner.
+      const headers: Record<string, string> = {};
+      for (const [name, value] of Object.entries(this.staticHeaders)) {
+        headers[name.toLowerCase()] = value;
+      }
       headers["content-type"] = request.contentType;
       if (this.authorization !== undefined) {
         headers.authorization = this.authorization;

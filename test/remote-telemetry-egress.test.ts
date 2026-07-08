@@ -17,6 +17,9 @@ interface CapturedRequest {
   redirect: RequestRedirect | undefined;
   body: string;
   headers: Record<string, string>;
+  // Raw header keys as handed to fetch (NOT lowercased) — lets a test prove a differently-cased
+  // vendor key was collapsed onto the managed slot rather than surviving as a duplicate.
+  rawHeaderKeys: string[];
 }
 
 function captureFetch(captured: CapturedRequest[]): typeof fetch {
@@ -32,6 +35,7 @@ function captureFetch(captured: CapturedRequest[]): typeof fetch {
       redirect: init?.redirect,
       body: typeof init?.body === "string" ? init.body : "",
       headers,
+      rawHeaderKeys: Object.keys(init?.headers ?? {}),
     });
     return new Response("", { status: 204 });
   }) as unknown as typeof fetch;
@@ -127,6 +131,29 @@ describe("HttpTelemetryTransport (generic, #51 spec)", () => {
 
     await transport.send(METRICS_EVENT);
 
+    expect(captured[0]?.authorization).toBe("Bearer real-token");
+  });
+
+  test("managed headers win over a differently-cased vendor header", async () => {
+    const captured: CapturedRequest[] = [];
+    const transport = new HttpTelemetryTransport({
+      url: "https://collector.example.com/ingest",
+      authorization: "Bearer real-token",
+      // Mixed-case vendor keys — the exact case the seam exists to support (e.g. DD-API-KEY).
+      headers: { "Content-Type": "text/plain", Authorization: "Bearer static-should-lose" },
+      fetch: captureFetch(captured),
+    });
+
+    await transport.send(METRICS_EVENT);
+
+    // The differently-cased vendor keys must be collapsed onto the single lowercase managed slot,
+    // not survive alongside it — otherwise fetch's case-insensitive fold picks a non-guaranteed
+    // winner. Assert the RAW keys handed to fetch, since captureFetch's own lowercasing would hide
+    // a duplicate.
+    const keys = captured[0]?.rawHeaderKeys ?? [];
+    expect(keys.filter((k) => k.toLowerCase() === "content-type")).toEqual(["content-type"]);
+    expect(keys.filter((k) => k.toLowerCase() === "authorization")).toEqual(["authorization"]);
+    expect(captured[0]?.contentType).toBe("application/x-ndjson");
     expect(captured[0]?.authorization).toBe("Bearer real-token");
   });
 
