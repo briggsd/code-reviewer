@@ -1,4 +1,5 @@
 export * from "./counts-only-telemetry-transport.ts";
+export * from "./datadog-telemetry-transport.ts";
 export * from "./filesystem-state-store.ts";
 export * from "./http-telemetry-transport.ts";
 export * from "./jsonl-telemetry-transport.ts";
