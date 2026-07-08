@@ -61,7 +61,7 @@ stages:
   - review
 
 variables:
-  AI_REVIEW_PACKAGE: https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/code-reviewer/0.2.0/code-reviewer.tgz
+  AI_REVIEW_PACKAGE: https://gitlab.example.com/api/v4/projects/<project-id>/packages/generic/code-reviewer/0.5.0/code-reviewer.tgz
   AI_REVIEW_GITLAB_API_BASE_URL: "$CI_API_V4_URL"
   AI_REVIEW_RUNTIME: dummy
 

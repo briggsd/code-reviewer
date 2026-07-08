@@ -150,6 +150,7 @@ vulnerabilities privately).
 - [GitHub Action wrapper](docs/user/github-action-wrapper.md) — thin `uses:` wrapper.
 - [Fork safety](docs/user/fork-safety.md) — fork strategy and secret/write-token boundaries.
 - [Inline publishing](docs/user/inline-publishing.md) — experimental GitHub inline comments.
+- [Observability](docs/user/observability.md) — export review telemetry to Loki / Datadog / an HTTP collector; CI wiring.
 - [Internal/self-managed GitLab beta onboarding](docs/user/internal-gitlab-beta.md) — self-managed setup and tokens.
 
 **Packaging & release**
