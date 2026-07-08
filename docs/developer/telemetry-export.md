@@ -409,6 +409,12 @@ Within a namespace: `…_AUTHORIZATION` is a raw `Authorization` header (e.g. `B
 not validated** (so a stale value from a credential rotation won't abort the run). A *set* but
 malformed `…_BASIC_AUTH` (no colon, empty user, or empty token) is a hard startup error.
 
+**Datadog is the exception to the `…_AUTHORIZATION` / `…_BASIC_AUTH` pattern.** It authenticates
+with `AI_REVIEW_DATADOG_API_KEY` (sent as the `DD-API-KEY` header); `AI_REVIEW_DATADOG_AUTHORIZATION`
+and `AI_REVIEW_DATADOG_BASIC_AUTH` are **not read** for this namespace. Setting `AI_REVIEW_DATADOG_URL`
+without `AI_REVIEW_DATADOG_API_KEY` is a hard startup error, as is a plaintext `http://` intake URL
+while a key is present (the API key must never leave over plaintext).
+
 The Loki variant labels each stream by `service`, `event_type`, and a low-cardinality allowlist
 (`riskTier`, `decision`, `outcome`); the full counts-only event is the log line, queryable with
 LogQL `| json`. It reuses the generic transport's POST / redirect / timeout / fail-open behavior
