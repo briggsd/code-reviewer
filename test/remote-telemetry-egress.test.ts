@@ -16,6 +16,10 @@ interface CapturedRequest {
   authorization: string | undefined;
   redirect: RequestRedirect | undefined;
   body: string;
+  headers: Record<string, string>;
+  // Raw header keys as handed to fetch (NOT lowercased) — lets a test prove a differently-cased
+  // vendor key was collapsed onto the managed slot rather than surviving as a duplicate.
+  rawHeaderKeys: string[];
 }
 
 function captureFetch(captured: CapturedRequest[]): typeof fetch {
@@ -30,6 +34,8 @@ function captureFetch(captured: CapturedRequest[]): typeof fetch {
       authorization: headers.authorization,
       redirect: init?.redirect,
       body: typeof init?.body === "string" ? init.body : "",
+      headers,
+      rawHeaderKeys: Object.keys(init?.headers ?? {}),
     });
     return new Response("", { status: 204 });
   }) as unknown as typeof fetch;
@@ -86,6 +92,69 @@ describe("HttpTelemetryTransport (generic, #51 spec)", () => {
 
     const expected = `Basic ${Buffer.from("12345:key", "utf8").toString("base64")}`;
     expect(captured[0]?.authorization).toBe(expected);
+  });
+
+  test("attaches configured static headers to the request", async () => {
+    const captured: CapturedRequest[] = [];
+    const transport = new HttpTelemetryTransport({
+      url: "https://collector.example.com/ingest",
+      headers: { "dd-api-key": "vendor-key" },
+      fetch: captureFetch(captured),
+    });
+
+    await transport.send(METRICS_EVENT);
+
+    expect(captured[0]?.headers["dd-api-key"]).toBe("vendor-key");
+  });
+
+  test("managed content-type wins over a static headers entry", async () => {
+    const captured: CapturedRequest[] = [];
+    const transport = new HttpTelemetryTransport({
+      url: "https://collector.example.com/ingest",
+      headers: { "content-type": "text/plain" },
+      fetch: captureFetch(captured),
+    });
+
+    await transport.send(METRICS_EVENT);
+
+    expect(captured[0]?.contentType).toBe("application/x-ndjson");
+  });
+
+  test("managed authorization wins over a static headers entry", async () => {
+    const captured: CapturedRequest[] = [];
+    const transport = new HttpTelemetryTransport({
+      url: "https://collector.example.com/ingest",
+      authorization: "Bearer real-token",
+      headers: { authorization: "Bearer static-should-lose" },
+      fetch: captureFetch(captured),
+    });
+
+    await transport.send(METRICS_EVENT);
+
+    expect(captured[0]?.authorization).toBe("Bearer real-token");
+  });
+
+  test("managed headers win over a differently-cased vendor header", async () => {
+    const captured: CapturedRequest[] = [];
+    const transport = new HttpTelemetryTransport({
+      url: "https://collector.example.com/ingest",
+      authorization: "Bearer real-token",
+      // Mixed-case vendor keys — the exact case the seam exists to support (e.g. DD-API-KEY).
+      headers: { "Content-Type": "text/plain", Authorization: "Bearer static-should-lose" },
+      fetch: captureFetch(captured),
+    });
+
+    await transport.send(METRICS_EVENT);
+
+    // The differently-cased vendor keys must be collapsed onto the single lowercase managed slot,
+    // not survive alongside it — otherwise fetch's case-insensitive fold picks a non-guaranteed
+    // winner. Assert the RAW keys handed to fetch, since captureFetch's own lowercasing would hide
+    // a duplicate.
+    const keys = captured[0]?.rawHeaderKeys ?? [];
+    expect(keys.filter((k) => k.toLowerCase() === "content-type")).toEqual(["content-type"]);
+    expect(keys.filter((k) => k.toLowerCase() === "authorization")).toEqual(["authorization"]);
+    expect(captured[0]?.contentType).toBe("application/x-ndjson");
+    expect(captured[0]?.authorization).toBe("Bearer real-token");
   });
 
   test("send() after close() is a no-op (no request made)", async () => {

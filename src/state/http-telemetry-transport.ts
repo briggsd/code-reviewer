@@ -26,6 +26,11 @@ export interface HttpTelemetryTransportOptions {
   basicAuth?: { user: string; token: string };
   /** Turn an event into a request body. Defaults to one NDJSON line (the #51 spec shape). */
   formatRequest?: (event: TelemetryEvent) => HttpTelemetryRequest;
+  /** Static headers attached to every request (e.g. a vendor API-key header like `DD-API-KEY`).
+   * The managed `content-type` and `authorization`/Basic auth headers win over these on collision.
+   * Keys are lowercased before the request is sent (HTTP header names are case-insensitive), so
+   * `DD-API-KEY` reaches `fetch` — and downstream logs — as `dd-api-key`. */
+  headers?: Record<string, string>;
   /** Per-request abort timeout (ms). Bounds a hung connection. Default 10s. */
   timeoutMs?: number;
   /**
@@ -47,6 +52,7 @@ export class HttpTelemetryTransport implements TelemetryTransport {
   private readonly timeoutMs: number;
   private readonly closeGraceMs: number;
   private readonly fetchImpl: typeof fetch;
+  private readonly staticHeaders: Record<string, string>;
   // In-flight request controllers — used to abort stragglers in close() after the grace period.
   private readonly inFlight = new Set<AbortController>();
   // In-flight send promises — awaited (bounded by grace) during close() so end-of-run pushes
@@ -61,6 +67,7 @@ export class HttpTelemetryTransport implements TelemetryTransport {
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.closeGraceMs = options.closeGraceMs ?? DEFAULT_CLOSE_GRACE_MS;
     this.fetchImpl = options.fetch ?? fetch;
+    this.staticHeaders = options.headers ?? {};
   }
 
   async send(event: TelemetryEvent): Promise<void> {
@@ -97,7 +104,16 @@ export class HttpTelemetryTransport implements TelemetryTransport {
       // rather than a synchronous throw that bypasses fail-open. The timer/inFlight cleanup in
       // `finally` runs either way.
       const request = this.formatRequest(event);
-      const headers: Record<string, string> = { "content-type": request.contentType };
+      // Seed with the vendor's static headers, then set the managed headers AFTER so a vendor map
+      // can never clobber the content type or the auth slot. Keys are lowercased when seeding
+      // because HTTP header names are case-insensitive: a differently-cased vendor key (e.g.
+      // `Content-Type`) must collapse onto the same slot as the lowercase managed key set below,
+      // or both would reach fetch and its case-insensitive fold would pick a non-guaranteed winner.
+      const headers: Record<string, string> = {};
+      for (const [name, value] of Object.entries(this.staticHeaders)) {
+        headers[name.toLowerCase()] = value;
+      }
+      headers["content-type"] = request.contentType;
       if (this.authorization !== undefined) {
         headers.authorization = this.authorization;
       }
