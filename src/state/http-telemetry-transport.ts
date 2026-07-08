@@ -27,7 +27,9 @@ export interface HttpTelemetryTransportOptions {
   /** Turn an event into a request body. Defaults to one NDJSON line (the #51 spec shape). */
   formatRequest?: (event: TelemetryEvent) => HttpTelemetryRequest;
   /** Static headers attached to every request (e.g. a vendor API-key header like `DD-API-KEY`).
-   * The managed `content-type` and `authorization`/Basic auth headers win over these on collision. */
+   * The managed `content-type` and `authorization`/Basic auth headers win over these on collision.
+   * Keys are lowercased before the request is sent (HTTP header names are case-insensitive), so
+   * `DD-API-KEY` reaches `fetch` — and downstream logs — as `dd-api-key`. */
   headers?: Record<string, string>;
   /** Per-request abort timeout (ms). Bounds a hung connection. Default 10s. */
   timeoutMs?: number;
