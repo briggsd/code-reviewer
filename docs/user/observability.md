@@ -68,8 +68,9 @@ real-review job.
 ### GitHub Actions
 
 GitHub does **not** auto-inject secrets/variables into a job — each must be explicitly forwarded
-in the job's `env:` block, or the runner never sees it. Mirror the Loki lines already present in
-`ai-review.yml`'s real-review job:
+in the job's `env:` block, or the runner never sees it. Add them to your real-review job's `env:`
+(the starter template `examples/ci/github-actions-ai-review.yml` is where your workflow comes
+from; this repo's own `.github/workflows/ai-review.yml` shows the same pattern wired for Loki):
 
 ```yaml
     env:
