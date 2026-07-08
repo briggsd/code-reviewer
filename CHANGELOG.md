@@ -10,12 +10,44 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-07
+
+### Added
+- Runtime-agnostic `--model <provider>/<model>` and `--api-key` CLI flags, replacing the
+  Pi-shaped incantation. They resolve into the same internal path the runtime consumes (#406).
+- Runtime auto-inference: omitting `--runtime` while passing a real-model/auth flag
+  (`--model`/`--api-key`, or a legacy `--pi-*`) now infers the `pi` runtime; an explicit
+  `--runtime` still wins, and `--runtime dummy` with a real-model signal errors loudly. A
+  provider's conventional key env is auto-forwarded (`anthropic` → `ANTHROPIC_API_KEY`), argv-only
+  and scoped to the `--model` path (#407).
+- `bun run review` — one command for a real Pi review of local changes (`--git-diff --runtime
+  pi`). `.ai-review.json` gains `modelRouting.default` so every reviewer routes to a real model
+  under pi; `bun run review:local` stays the no-cost `dummy` wiring check (#408).
+- `--intent` CLI flag — an operator-supplied per-run review scope note, injected inert (sanitized,
+  not obeyed as instructions) into both the reviewer and coordinator prompts via the `conventions`
+  mechanism. A run without `--intent` is byte-for-byte unchanged (#384).
+- Datadog logs-intake telemetry exporter — set `AI_REVIEW_DATADOG_URL` +
+  `AI_REVIEW_DATADOG_API_KEY` (optionally `AI_REVIEW_DATADOG_SERVICE`) to mirror telemetry to
+  Datadog (`POST /api/v2/logs`, `DD-API-KEY` auth). Exporter precedence when several are
+  configured is Loki → Datadog → generic; `ddtags` reuse the Loki low-cardinality allowlist
+  (`riskTier`/`decision`/`outcome`) and the counts-only egress boundary is preserved. Datadog
+  metrics intake (`/api/v2/series`) is out of scope (#414).
+- Optional static `headers` on the HTTP telemetry transport — attaches caller-supplied per-request
+  headers (e.g. a vendor API-key header like `DD-API-KEY`), enabling header-authenticated
+  exporters. Managed `content-type`/`authorization` always win over the static map, and keys are
+  lowercased (HTTP header names are case-insensitive) (#413).
+
 ### Changed
 - Billing/credit/quota-exhaustion provider errors now carry the operator reason `provider quota or
   billing exhausted` in `errorClassification.reason` (was the shared `provider rejected the
   request`). Other terminal rejections (malformed request, unknown model) keep the old reason. Both
   groups stay `category: "provider_error"` / non-retryable — only the `reason` literal differs, so
   operators parsing `trace.jsonl` `agent.failed` events by `reason` can update their queries (#315).
+
+### Deprecated
+- `--pi-provider` / `--pi-model` / `--pi-api-key` — use the runtime-agnostic `--model
+  <provider>/<model>` and `--api-key` instead. The `--pi-*` flags remain as aliases (with a
+  deprecation notice) for back-compat and are mutually exclusive with `--model` (#406).
 
 ## [0.4.0] - 2026-06-21
 
@@ -163,7 +195,8 @@ Initial pre-registry baseline of the Code Reviewer.
 - Pre-registry distribution as a Bun-backed npm tarball plus a quality stamp, built by the
   release artifact workflow; registry publish is deferred and `private: true` is intentional.
 
-[Unreleased]: https://github.com/briggsd/code-reviewer/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/briggsd/code-reviewer/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/briggsd/code-reviewer/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/briggsd/code-reviewer/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/briggsd/code-reviewer/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/briggsd/code-reviewer/compare/v0.2.0...v0.3.0
