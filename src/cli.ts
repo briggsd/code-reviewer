@@ -14,7 +14,7 @@ import {
   resolveConventionApiKey,
   resolveRuntimeName,
 } from "./cli/run-options.ts";
-import { resolveRemoteEndpoint } from "./cli/telemetry-auth.ts";
+import { resolveDatadogEndpoint, resolveRemoteEndpoint } from "./cli/telemetry-auth.ts";
 import type {
   BreakGlassOverride,
   ChangedFile,
@@ -36,6 +36,7 @@ import type {
 import {
   BitbucketVcsAdapter,
   CountsOnlyTelemetryTransport,
+  createDatadogTelemetryTransport,
   createDefaultReviewConfig,
   createLokiTelemetryTransport,
   createRemoteDeliveryTraceLogger,
@@ -79,8 +80,9 @@ const HEAD_CONTENT_FETCH_CONCURRENCY = 8;
 //   • AI_REVIEW_TELEMETRY_* → generic authenticated NDJSON HTTP POST (#51 send-side).
 //   • AI_REVIEW_LOKI_*      → Grafana Loki push-API variant (push straight to Loki, no
 //     promtail/Alloy hop). Composes the same HTTP core via createLokiTelemetryTransport.
-// Loki takes precedence if more than one is configured. (Adding a future exporter = a new
-// namespace here; multiples could later be tee'd together rather than precedence-selected.)
+//   • AI_REVIEW_DATADOG_*  → Datadog logs-intake variant (POST /api/v2/logs, DD-API-KEY header).
+// Precedence when several are configured: Loki → Datadog → generic. (Adding a future exporter =
+// a new namespace here; multiples could later be tee'd together rather than precedence-selected.)
 //
 // JSONL is the PRIMARY tee leg (durable artifact `telemetry:rollup`/`:analyze` read) and stays
 // local/unwrapped. The remote leg is wrapped in CountsOnlyTelemetryTransport so every egressed
@@ -111,6 +113,18 @@ function buildRemoteTelemetryTransport(): TelemetryTransport | undefined {
       labelFromData: ["riskTier", "decision", "outcome"],
       ...(loki.authorization !== undefined ? { authorization: loki.authorization } : {}),
       ...(loki.basicAuth !== undefined ? { basicAuth: loki.basicAuth } : {}),
+    });
+  }
+
+  const datadog = resolveDatadogEndpoint(process.env);
+  if (datadog !== undefined) {
+    // Low-cardinality tags only — the full counts-only event stays in the JSON log line, which
+    // Datadog indexes. Same cardinality discipline as the Loki labels.
+    return createDatadogTelemetryTransport({
+      url: datadog.url,
+      apiKey: datadog.apiKey,
+      tagsFromData: ["riskTier", "decision", "outcome"],
+      ...(datadog.service !== undefined ? { service: datadog.service } : {}),
     });
   }
 

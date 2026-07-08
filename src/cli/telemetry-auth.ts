@@ -66,6 +66,52 @@ export function parseBasicAuth(
   return { user: raw.slice(0, separatorIndex), token };
 }
 
+/** Config for the Datadog logs-intake exporter, resolved from its env namespace. */
+export interface DatadogEndpointConfig {
+  url: string;
+  apiKey: string;
+  service?: string;
+}
+
+/**
+ * Resolve the Datadog exporter config from AI_REVIEW_DATADOG_{URL,API_KEY,SERVICE}. Returns
+ * undefined when _URL is unset (exporter off). The URL is validated via resolveRemoteEndpoint
+ * (inherits URL parse + metadata-host denylist). THROWS when _URL is set but _API_KEY is
+ * missing/empty (an intake URL with no key is a misconfiguration), and when the URL is plaintext
+ * http:// while an API key is present — assertHttpUrl's plaintext-credential guard only sees the
+ * AUTHORIZATION/BASIC_AUTH pair, not the DD-API-KEY header seam, so this guard closes that gap.
+ */
+export function resolveDatadogEndpoint(
+  env: Record<string, string | undefined>,
+): DatadogEndpointConfig | undefined {
+  const endpoint = resolveRemoteEndpoint("AI_REVIEW_DATADOG", env);
+  if (endpoint === undefined) {
+    return undefined;
+  }
+  const apiKey = env.AI_REVIEW_DATADOG_API_KEY;
+  if (apiKey === undefined || apiKey.length === 0) {
+    throw new Error(
+      "AI_REVIEW_DATADOG_URL is set but AI_REVIEW_DATADOG_API_KEY is missing or empty — " +
+        "a Datadog intake URL requires an API key",
+    );
+  }
+  // assertHttpUrl (inside resolveRemoteEndpoint) only refuses plaintext http:// when the
+  // AUTHORIZATION/BASIC_AUTH pair is set — it does NOT see the DD-API-KEY header seam. Guard
+  // it here so the API key can never leave over plaintext http.
+  if (new URL(endpoint.url).protocol === "http:") {
+    throw new Error(
+      "AI_REVIEW_DATADOG_URL uses http:// but an API key is present — refusing to send " +
+        "credentials in plaintext; use https://",
+    );
+  }
+  const service = env.AI_REVIEW_DATADOG_SERVICE;
+  return {
+    url: endpoint.url,
+    apiKey,
+    ...(service !== undefined && service.length > 0 ? { service } : {}),
+  };
+}
+
 // Well-known cloud instance-metadata endpoints. No telemetry collector legitimately lives
 // here, and in cloud CI these vend IAM credentials — so they are denied outright. This is a
 // NARROW denylist: ordinary private/RFC1918 addresses and DNS names (internal/cluster-local

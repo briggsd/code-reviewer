@@ -395,12 +395,13 @@ on receive.
 
 **Exporter env namespaces.** Each exporter owns an `AI_REVIEW_<NAME>_{URL,AUTHORIZATION,BASIC_AUTH}`
 namespace, so exporters are configured independently (no shared/ambiguous auth). Setting an
-exporter's `_URL` enables it; Loki takes precedence if more than one is configured.
+exporter's `_URL` enables it. Precedence when several are set: Loki → Datadog → generic.
 
 | Exporter | `…_URL` | Auth (`…_AUTHORIZATION` / `…_BASIC_AUTH`) |
 | --- | --- | --- |
 | Generic HTTP | `AI_REVIEW_TELEMETRY_URL` — `http(s)` URL; events POSTed as newline-delimited JSON. | `AI_REVIEW_TELEMETRY_AUTHORIZATION` / `AI_REVIEW_TELEMETRY_BASIC_AUTH` |
 | Grafana Loki | `AI_REVIEW_LOKI_URL` — the **base** Loki URL (e.g. `https://logs-prod-012.grafana.net`); `/loki/api/v1/push` is appended and events use Loki's `{streams:[…]}` envelope. | `AI_REVIEW_LOKI_AUTHORIZATION` / `AI_REVIEW_LOKI_BASIC_AUTH` |
+| Datadog | `AI_REVIEW_DATADOG_URL` — the **base** Datadog logs-intake host (e.g. `https://http-intake.logs.datadoghq.com`; operator picks their site/region); `/api/v2/logs` is appended and each event is sent as a one-element JSON array of a structured log object. | `AI_REVIEW_DATADOG_API_KEY` (sent as the `DD-API-KEY` header) |
 
 Within a namespace: `…_AUTHORIZATION` is a raw `Authorization` header (e.g. `Bearer <token>`);
 `…_BASIC_AUTH` is a `user:token` pair (e.g. a Grafana Cloud `<instance-id>:<api-token>`) sent as
@@ -412,6 +413,14 @@ The Loki variant labels each stream by `service`, `event_type`, and a low-cardin
 (`riskTier`, `decision`, `outcome`); the full counts-only event is the log line, queryable with
 LogQL `| json`. It reuses the generic transport's POST / redirect / timeout / fail-open behavior
 — only the wire shape and env namespace differ.
+
+The Datadog variant posts each counts-only event to `/api/v2/logs` as a JSON array of one log
+object, `{ …event, ddsource: "ai-code-review", service, ddtags }`. `ddtags` is a comma-separated
+`key:value` string built from a low-cardinality allowlist (`service`, plus `riskTier`/`decision`/
+`outcome` when present) — high-cardinality fields stay in the indexed log line, the same
+discipline as the Loki labels. Only one exporter is ever selected, in precedence order Loki →
+Datadog → generic. Datadog metrics intake (`/api/v2/series`) is out of scope here — a
+Datadog-side log pipeline can derive metrics from these logs.
 
 The local JSONL artifact remains the primary, durable record regardless of remote configuration.
 Each remote request has a ~10-second abort timeout so a hung connection cannot outlive the run.

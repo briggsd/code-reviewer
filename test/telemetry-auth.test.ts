@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { assertHttpUrl, parseBasicAuth, resolveRemoteEndpoint } from "../src/cli/telemetry-auth.ts";
+import {
+  assertHttpUrl,
+  parseBasicAuth,
+  resolveDatadogEndpoint,
+  resolveRemoteEndpoint,
+} from "../src/cli/telemetry-auth.ts";
 
 describe("parseBasicAuth", () => {
   test("returns undefined when unset/empty (feature not configured)", () => {
@@ -151,5 +156,65 @@ describe("resolveRemoteEndpoint", () => {
         AI_REVIEW_LOKI_BASIC_AUTH: "nocolon",
       }),
     ).toThrow(/AI_REVIEW_LOKI_BASIC_AUTH must be/);
+  });
+});
+
+describe("resolveDatadogEndpoint", () => {
+  test("returns undefined when AI_REVIEW_DATADOG_URL is unset", () => {
+    expect(resolveDatadogEndpoint({})).toBeUndefined();
+    expect(resolveDatadogEndpoint({ AI_REVIEW_DATADOG_URL: "" })).toBeUndefined();
+  });
+
+  test("returns url + apiKey for a valid https URL and key", () => {
+    expect(
+      resolveDatadogEndpoint({
+        AI_REVIEW_DATADOG_URL: "https://http-intake.logs.datadoghq.com",
+        AI_REVIEW_DATADOG_API_KEY: "dd-key",
+      }),
+    ).toEqual({ url: "https://http-intake.logs.datadoghq.com", apiKey: "dd-key" });
+  });
+
+  test("includes service when AI_REVIEW_DATADOG_SERVICE is set", () => {
+    expect(
+      resolveDatadogEndpoint({
+        AI_REVIEW_DATADOG_URL: "https://http-intake.logs.datadoghq.com",
+        AI_REVIEW_DATADOG_API_KEY: "dd-key",
+        AI_REVIEW_DATADOG_SERVICE: "my-svc",
+      }),
+    ).toEqual({
+      url: "https://http-intake.logs.datadoghq.com",
+      apiKey: "dd-key",
+      service: "my-svc",
+    });
+  });
+
+  test("throws when _URL is set but _API_KEY is missing or empty", () => {
+    expect(() =>
+      resolveDatadogEndpoint({ AI_REVIEW_DATADOG_URL: "https://http-intake.logs.datadoghq.com" }),
+    ).toThrow(/API_KEY is missing|requires an API key/);
+    expect(() =>
+      resolveDatadogEndpoint({
+        AI_REVIEW_DATADOG_URL: "https://http-intake.logs.datadoghq.com",
+        AI_REVIEW_DATADOG_API_KEY: "",
+      }),
+    ).toThrow(/API_KEY is missing|requires an API key/);
+  });
+
+  test("throws when the URL is http:// and an API key is present", () => {
+    expect(() =>
+      resolveDatadogEndpoint({
+        AI_REVIEW_DATADOG_URL: "http://collector.internal/",
+        AI_REVIEW_DATADOG_API_KEY: "dd-key",
+      }),
+    ).toThrow(/plaintext/);
+  });
+
+  test("inherits the metadata-host denylist from resolveRemoteEndpoint", () => {
+    expect(() =>
+      resolveDatadogEndpoint({
+        AI_REVIEW_DATADOG_URL: "http://169.254.169.254/",
+        AI_REVIEW_DATADOG_API_KEY: "dd-key",
+      }),
+    ).toThrow();
   });
 });
