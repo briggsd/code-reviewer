@@ -16,6 +16,7 @@ interface CapturedRequest {
   authorization: string | undefined;
   redirect: RequestRedirect | undefined;
   body: string;
+  headers: Record<string, string>;
 }
 
 function captureFetch(captured: CapturedRequest[]): typeof fetch {
@@ -30,6 +31,7 @@ function captureFetch(captured: CapturedRequest[]): typeof fetch {
       authorization: headers.authorization,
       redirect: init?.redirect,
       body: typeof init?.body === "string" ? init.body : "",
+      headers,
     });
     return new Response("", { status: 204 });
   }) as unknown as typeof fetch;
@@ -86,6 +88,46 @@ describe("HttpTelemetryTransport (generic, #51 spec)", () => {
 
     const expected = `Basic ${Buffer.from("12345:key", "utf8").toString("base64")}`;
     expect(captured[0]?.authorization).toBe(expected);
+  });
+
+  test("attaches configured static headers to the request", async () => {
+    const captured: CapturedRequest[] = [];
+    const transport = new HttpTelemetryTransport({
+      url: "https://collector.example.com/ingest",
+      headers: { "dd-api-key": "vendor-key" },
+      fetch: captureFetch(captured),
+    });
+
+    await transport.send(METRICS_EVENT);
+
+    expect(captured[0]?.headers["dd-api-key"]).toBe("vendor-key");
+  });
+
+  test("managed content-type wins over a static headers entry", async () => {
+    const captured: CapturedRequest[] = [];
+    const transport = new HttpTelemetryTransport({
+      url: "https://collector.example.com/ingest",
+      headers: { "content-type": "text/plain" },
+      fetch: captureFetch(captured),
+    });
+
+    await transport.send(METRICS_EVENT);
+
+    expect(captured[0]?.contentType).toBe("application/x-ndjson");
+  });
+
+  test("managed authorization wins over a static headers entry", async () => {
+    const captured: CapturedRequest[] = [];
+    const transport = new HttpTelemetryTransport({
+      url: "https://collector.example.com/ingest",
+      authorization: "Bearer real-token",
+      headers: { authorization: "Bearer static-should-lose" },
+      fetch: captureFetch(captured),
+    });
+
+    await transport.send(METRICS_EVENT);
+
+    expect(captured[0]?.authorization).toBe("Bearer real-token");
   });
 
   test("send() after close() is a no-op (no request made)", async () => {
