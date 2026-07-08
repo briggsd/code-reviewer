@@ -27,9 +27,10 @@ Releases are cut by pushing a `vX.Y.Z` tag; see
   not obeyed as instructions) into both the reviewer and coordinator prompts via the `conventions`
   mechanism. A run without `--intent` is byte-for-byte unchanged (#384).
 - Datadog logs-intake telemetry exporter — set `AI_REVIEW_DATADOG_URL` +
-  `AI_REVIEW_DATADOG_API_KEY` (optionally `AI_REVIEW_DATADOG_SERVICE`) to mirror telemetry to
-  Datadog (`POST /api/v2/logs`, `DD-API-KEY` auth). Exporter precedence when several are
-  configured is Loki → Datadog → generic; `ddtags` reuse the Loki low-cardinality allowlist
+  `AI_REVIEW_DATADOG_API_KEY` (optionally `AI_REVIEW_DATADOG_SERVICE`) to send telemetry to
+  Datadog (`POST /api/v2/logs`, `DD-API-KEY` auth). Only one remote exporter is active per run —
+  precedence when several are configured is Loki → Datadog → generic (so an already-configured
+  Loki takes over Datadog); `ddtags` reuse the Loki low-cardinality allowlist
   (`riskTier`/`decision`/`outcome`) and the counts-only egress boundary is preserved. Datadog
   metrics intake (`/api/v2/series`) is out of scope (#414).
 - Optional static `headers` on the HTTP telemetry transport — attaches caller-supplied per-request
